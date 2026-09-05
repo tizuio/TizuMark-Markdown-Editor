@@ -62,3 +62,16 @@ test('会话级 md 模式记忆：初始为空时 md 用 settings.defaultView', 
     assert.strictEqual(ed.viewMode, 'edit', '记忆为空时 md 应跟随 defaultView');
   });
 });
+
+test('会话级 md 模式记忆：md 预览态下新建文档（newFile）不应污染记忆', async () => {
+  await withEditor({}, async (w, ed) => {
+    ed.settings.defaultView = 'preview';
+    ed.tabs = [{ filePath: '/a.md', name: 'a.md', kind: 'markdown', content: 'a', _loaded: true }];
+    ed.activeTabIndex = 0;
+    ed._sessionMdViewMode = null; // 刚启动，尚未手动切换
+
+    ed.newFile();
+
+    assert.strictEqual(ed._sessionMdViewMode, null, 'newFile 不应把会话记忆写成 edit');
+  });
+});

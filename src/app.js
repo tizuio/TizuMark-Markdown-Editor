@@ -7441,8 +7441,8 @@ class MarkdownEditor {
   }
 
   newFile() {
-    this.setViewMode('edit');
     this.addTab(this.t('untitled'), '', null);
+    this.setViewMode('edit');
     this.setStatus(this.t('newFileCreated'));
   }
 
@@ -10768,10 +10768,8 @@ input[type="checkbox"]:checked::after { display: none !important; }
     // 会话级 md 模式记忆：仅当当前 tab 有 filePath 且为 markdown 时记录，
     // 无路径的新建文档（kind 兜底 markdown）不记录；图片/txt 不触碰记忆，
     // 这样「其他格式按特殊展示 → 再切回 md」仍沿用之前的 md 记忆。
-    if (_tab && _tab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
-      if (window.FileTypes.classifyFile(_tab.filePath) === 'markdown') {
-        this._sessionMdViewMode = mode;
-      }
+    if (_tab && _tab.filePath && _kind === 'markdown') {
+      this._sessionMdViewMode = mode;
     }
     this.applyViewMode();
   }
