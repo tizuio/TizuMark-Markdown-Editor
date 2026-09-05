@@ -1120,6 +1120,7 @@ class MarkdownEditor {
     this._editorPercent = null;
     this.isDark = false;
     this.viewMode = 'preview';
+    this._sessionMdViewMode = null;  // 会话级 md 展示模式记忆：仅内存，不落盘；null=未记录（用 settings.defaultView）
     // 会话级「不再提醒」标志：仅本次应用运行期间有效，关闭应用后新会话自然复位为 false。
     // 注意：不在 switchTab / openFile 等处重置，否则会丢失用户在本次会话内的选择。
     this._largeFileNoticeSessionSuppressed = false;
@@ -10712,7 +10713,7 @@ input[type="checkbox"]:checked::after { display: none !important; }
     let target = 'preview';
     if (kind === 'image') target = 'preview';
     else if (kind === 'text') target = 'edit';
-    else target = this.settings.defaultView || 'preview'; // 有路径的 markdown 跟随设置默认视图
+    else target = this._sessionMdViewMode || this.settings.defaultView || 'preview'; // md：会话记忆优先，其次默认视图
     // 视图布局由「模式 + 类型」共同决定：即使模式没变（如 md 编辑 → 文本编辑），
     // 类型变了也需重新 applyViewMode（重新决定 preview-collapsed 等），否则预览栏不会收起。
     if (target !== this.viewMode || this._lastViewKind !== kind) {
@@ -10764,6 +10765,14 @@ input[type="checkbox"]:checked::after { display: none !important; }
     }
 
     this.viewMode = mode;
+    // 会话级 md 模式记忆：仅当当前 tab 有 filePath 且为 markdown 时记录，
+    // 无路径的新建文档（kind 兜底 markdown）不记录；图片/txt 不触碰记忆，
+    // 这样「其他格式按特殊展示 → 再切回 md」仍沿用之前的 md 记忆。
+    if (_tab && _tab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
+      if (window.FileTypes.classifyFile(_tab.filePath) === 'markdown') {
+        this._sessionMdViewMode = mode;
+      }
+    }
     this.applyViewMode();
   }
 
