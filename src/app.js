@@ -1814,6 +1814,8 @@ class MarkdownEditor {
       // 预览区分屏宽度（合并自 PR #36）：拖拽 resizer 后持久化，下次启动按此还原。
       previewPaneWidth: 360,
       codeFont: '', // 预览代码块（行内代码 + 围栏代码块）字体，存自定义字体 id，空=跟随等宽默认
+      customBgEnabled: false, // 自定义页面底色开关：开启时编辑+预览区用 customBgColor，文字按亮度反色
+      customBgColor: '#f8f7f4', // 自定义底色（16 进制 RGB）
     };
   }
 
@@ -1911,6 +1913,9 @@ class MarkdownEditor {
     if (this._selects && this._selects.imageInsertMode) this._selects.imageInsertMode.setValue(s.imageInsertMode || 'assets', true);
     if (this._selects && this._selects.imageAssetPathMode) this._selects.imageAssetPathMode.setValue(s.imageAssetPathMode || 'relative', true);
     document.getElementById('settings-image-asset-path').value = s.imageAssetPath || 'assets';
+    document.getElementById('set-custom-bg').checked = s.customBgEnabled === true;
+    const cbg = document.getElementById('set-custom-bg-color');
+    if (cbg) cbg.value = s.customBgColor || '#f8f7f4';
   }
 
   // 最小可见时长：设置保存/应用是本地即时操作（同步落盘），loading 往往一闪而过，
@@ -2219,6 +2224,14 @@ class MarkdownEditor {
     }
     const retryBtn = document.getElementById('btn-retry-system-fonts');
     if (retryBtn) retryBtn.addEventListener('click', () => this.loadSystemFonts(true));
+    const cbgToggle = document.getElementById('set-custom-bg');
+    if (cbgToggle) cbgToggle.addEventListener('change', (e) => {
+      this.settings.customBgEnabled = e.target.checked;
+    });
+    const cbgColor = document.getElementById('set-custom-bg-color');
+    if (cbgColor) cbgColor.addEventListener('input', (e) => {
+      this.settings.customBgColor = e.target.value;
+    });
 
     await this.loadSystemFonts();
     await this.registerCustomFonts();
@@ -3024,6 +3037,36 @@ class MarkdownEditor {
     }
   }
 
+  // 按 RGB 16 进制计算感知亮度（ITU-R BT.601），越接近 255 越亮。
+  _bgLuminance(hex) {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || '').trim());
+    if (!m) return 255;
+    const v = parseInt(m[1], 16);
+    const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+
+  // 自定义页面底色：编辑+预览区背景用 customBgColor，文字按亮度反色。
+  // 实现：在 <html> 上设 --custom-bg/--custom-fg，styles.css 里这两变量优先覆盖编辑/预览区；
+  // body 加 custom-bg-active 类作为开关标记。关闭时清除变量与类，恢复主题默认。
+  applyCustomBg() {
+    const root = document.documentElement;
+    const body = document.body;
+    if (!root || !body) return;
+    if (this.settings.customBgEnabled) {
+      const bg = this.settings.customBgColor || '#f8f7f4';
+      const lum = this._bgLuminance(bg);
+      const fg = lum >= 128 ? '#2c2c2e' : '#d1d2d6';
+      root.style.setProperty('--custom-bg', bg);
+      root.style.setProperty('--custom-fg', fg);
+      body.classList.add('custom-bg-active');
+    } else {
+      root.style.removeProperty('--custom-bg');
+      root.style.removeProperty('--custom-fg');
+      body.classList.remove('custom-bg-active');
+    }
+  }
+
   async applySettings() {
     const s = this.settings;
     this.editorZoom = null; // 应用设置时回落到设置字号（编辑器字号全局，非 per-tab）
@@ -3049,6 +3092,7 @@ class MarkdownEditor {
     this.preview.classList.toggle('code-no-scroll', s.codeScroll === false);
     if (this._hljsCache) this._hljsCache.clear();
     await this.applyThemeMode();
+    this.applyCustomBg();
     this.applyCustomFonts();
     // 「显示所有文件」开关切换后，重渲染文件树让过滤即时生效；
     // expandedFolders 集合保证展开态不丢

@@ -5761,3 +5761,17 @@ select option {
   p, li { orphans: 3; widows: 3; }
   @page { margin: 1.5cm; }
 }
+
+/* 自定义页面底色：仅覆盖编辑区与预览区，侧边栏/工具栏不变。--custom-bg/--custom-fg 由 JS 设置，缺省时回退主题变量。 */
+body.custom-bg-active #editor-wrapper .CodeMirror,
+body.custom-bg-active #editor-wrapper .CodeMirror .CodeMirror-gutters {
+  background-color: var(--custom-bg, var(--bg-primary)) !important;
+}
+body.custom-bg-active #editor-wrapper .CodeMirror {
+  color: var(--custom-fg, var(--text-primary));
+}
+body.custom-bg-active #preview,
+body.custom-bg-active .preview-content {
+  background-color: var(--custom-bg, var(--bg-primary)) !important;
+  color: var(--custom-fg, var(--text-primary));
+}
