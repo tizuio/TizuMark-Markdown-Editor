@@ -20,6 +20,14 @@ function confirmExport(ed, result = true) {
   ed.showConfirmDialog = async () => result;
 }
 
+// 强制走回退路径（html-docx）：jsdom 中 docx 主路径的 Worker 不存在 / mock 抛错时，
+// exportWord 才落到 _fallbackWordHtmlExport 并记录 __lastWordHTML。
+// 同时 mock 页面设置对话框——真实 #docx-page-dialog 在 index.html 里存在，若不 mock 会一直等待点击而挂起。
+function fallbackExport(ed) {
+  ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+  ed._runWordExportWorker = async () => { throw new Error('force fallback to html-docx'); };
+}
+
 test('exportWord: 调用 dialogSave(.docx) 并经 write_binary_file 写入二进制', async () => {
   const captured = {};
   await withEditor({ invokeImpl: (cmd, args) => {
@@ -29,6 +37,7 @@ test('exportWord: 调用 dialogSave(.docx) 并经 write_binary_file 写入二进
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = '<h1>标题</h1><p>正文 <strong>加粗</strong></p>';
@@ -57,6 +66,7 @@ test('exportWord: 用户取消保存对话框时不写文件', async () => {
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     w.editor.preview.innerHTML = '<p>hello</p>';
     await ed.exportWord();
     assert.strictEqual(wrote, false, '取消保存时不应调用 write_binary_file');
@@ -71,6 +81,8 @@ test('exportWord: htmlDocx 未加载时上报错误且不写文件', async () =>
     return null;
   } }, async (w, ed) => {
     w.htmlDocx = undefined; // 模拟组件缺失
+    confirmExport(ed);
+    fallbackExport(ed); // 主路径（docx worker）抛错并跳过页面设置对话框，回退到 html-docx 仍失败 → 不写文件
     w.editor.preview.innerHTML = '<p>hello</p>';
     await ed.exportWord();
     assert.strictEqual(wrote, false, 'htmlDocx 缺失时不应写文件');
@@ -85,6 +97,7 @@ test('exportWord: DOM 预处理适配 Word HTML 导入器', async () => {
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = `
@@ -175,6 +188,7 @@ test('exportWord: 普通图片固定宽度 500px 并设 HTML width/height 属性
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = '<p><img src="diagram.png" width="1200" height="800" alt="示意图"></p>';
@@ -243,6 +257,7 @@ test('exportWord: 导出成功后弹出成功提示 toast', async () => {
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = '<h1>标题</h1><p>正文</p>';
@@ -298,6 +313,7 @@ test('exportWord: 普通小图(<500)保持原显示尺寸、不放大到 500', a
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = '<p><img src="small.png" alt="小图"></p>';
@@ -325,6 +341,7 @@ test('exportWord: 超高普通图(显示宽500,高2000)高度限制到850并等�
   } }, async (w, ed) => {
     installHtmlDocxMock(w);
     confirmExport(ed);
+    fallbackExport(ed);
     ed.activeTab.filePath = '/docs/note.md';
     ed.activeTab.name = '我的笔记';
     w.editor.preview.innerHTML = '<p><img src="tall.png" alt="长图"></p>';

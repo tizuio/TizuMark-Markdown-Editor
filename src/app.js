@@ -8786,7 +8786,7 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
 
   // 在 Web Worker 里运行 html-docx-js 的 asBlob，避免其同步 zip 操作阻塞主线程。
   // Worker 接收 HTML 字符串，返回 docx 文件的 ArrayBuffer。
-  _runWordExportWorker(html) {
+  _runWordExportWorker(payload) {
     return new Promise((resolve, reject) => {
       const worker = new Worker('lib/word-export.worker.js');
       let settled = false;
@@ -8815,7 +8815,7 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
         worker.terminate();
         reject(err);
       };
-      worker.postMessage({ id, html });
+      worker.postMessage({ id, ...payload });
     });
   }
 
@@ -8823,7 +8823,7 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
   async _convertHtmlToDocxBuffer(html) {
     if (typeof Worker !== 'undefined') {
       try {
-        return await this._runWordExportWorker(html);
+        return await this._runWordExportWorker({ type: 'html', html });
       } catch (e) {
         console.warn('Word export worker failed, falling back to main thread:', e);
       }
@@ -9312,10 +9312,8 @@ ${clone.innerHTML}
   }
 
   async exportWord() {
-    if (typeof htmlDocx === 'undefined') {
-      this.reportError('E_RENDER', { detail: '导出组件未加载（html-docx 未加载）' });
-      return;
-    }
+    // 主路径走 docx 库（工作线程 importScripts ./docx.min.js），不依赖主线程 htmlDocx；
+    // html-docx 仅在回退路径（_fallbackWordHtmlExport → _convertHtmlToDocxBuffer）中使用。
 
     // 与导出 PDF 一致的确认框：提示 Word 导出特性与耗时风险，用户确认后再继续。
     const proceed = await this.showConfirmDialog(
@@ -9411,57 +9409,41 @@ ${clone.innerHTML}
       // 把 Web 预览 DOM 转换成 Word HTML 导入器能稳定渲染的结构。
       await this._prepareWordDOM(clone);
 
-      const escapedTitle = this.activeTab.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      // 取页面设置（A4/Letter + 边距）；用户取消则中止
+      const pageCfg = await this._showDocxPageDialog();
+      if (!pageCfg) { hideOverlay(); return; }
 
-      // KaTeX / highlight.js 主题：与 HTML 导出一致，让公式与代码配色贴近预览。
-      // 深色调下 hljs 主题背景为深色，会与浅色文档冲突，故深色模式跳过（代码块仍保留浅灰底）。
-      let katexCSS = '';
-      try {
-        const resp = await fetch('lib/katex/katex.min.css');
-        if (resp.ok) katexCSS = await resp.text();
-      } catch (e) { /* skip */ }
-
-      let hljsCSS = '';
-      if (!this.isDark) {
+      // 用 docx 库生成真 OOXML：DOM → 中间结构 → worker 构建 Document → toBlob。
+      // 主线程不判断 DocxLib（仅在 worker importScripts），只要有 structure 就始终先试 docx 主路径，
+      // 由 worker 内部失败或结构异常时触发回退 altChunk。
+      const structure = (typeof window.domToDocxStructure === 'function')
+        ? window.domToDocxStructure(clone)
+        : null;
+      if (structure && Array.isArray(structure) && structure.length > 0) {
+        const pageSize = this._docxPageSize(pageCfg.kind, pageCfg.orientation);
+        const margins = this._docxMargins(pageCfg.margin);
         try {
-          const themeLink = document.getElementById('highlight-theme');
-          if (themeLink) {
-            const resp = await fetch(themeLink.getAttribute('href'));
-            if (resp.ok) hljsCSS = await resp.text();
-          }
-        } catch (e) { /* skip */ }
+          const arrayBufferDocx = await this._runWordExportWorker({
+            type: 'docx',
+            structure,
+            page: {
+              pageWidth: pageSize.width, pageHeight: pageSize.height,
+              marginTop: margins.top, marginBottom: margins.bottom,
+              marginLeft: margins.left, marginRight: margins.right,
+            },
+          });
+          clearTimeout(watchdog);
+          const bufDocx = new Uint8Array(arrayBufferDocx);
+          await TauriApi.writeBinaryFile({ path, contents: bufDocx });
+          this.setStatus(`${this.t('exportedWord')}: ${path}`);
+          exported = true;
+        } catch (docxErr) {
+          console.warn('docx OOXML export failed, falling back to html-docx:', docxErr);
+          await this._fallbackWordHtmlExport(clone, path, watchdog, (ok) => { exported = ok; });
+        }
+      } else {
+        await this._fallbackWordHtmlExport(clone, path, watchdog, (ok) => { exported = ok; });
       }
-
-      // html-docx-js 把整段 HTML 作为 altChunk 嵌入 .docx，由 Word 自身的 HTML 导入器渲染，
-      // 因此 <head> 里的 <style> 会被应用——套用与 HTML 导出相同的基础样式表即可贴近预览。
-      // Word 导入器不支持 rgba()，这里把提示框底色换成近似实色；其余圆角/阴影等属性被忽略无副作用。
-      const wordOverride = `
-    .alert { background: #f6f5f4; border-left-color: #d4d4d8; }
-    .alert-note { background: #eef4ff; border-left-color: #3884ff; }
-    .alert-tip { background: #e9f9f1; border-left-color: #10b981; }
-    .alert-important { background: #f3edfd; border-left-color: #8b5cf6; }
-    .alert-warning { background: #fef6e7; border-left-color: #f59e0b; }
-    .alert-caution { background: #fdecec; border-left-color: #ef4444; }
-    .mermaid-container { width: 100%; max-width: 100%; box-sizing: border-box; }`;
-      const wordStyle = `${this._documentExportCSS()}\n${wordOverride}\n${katexCSS ? katexCSS + '\n' : ''}${hljsCSS ? hljsCSS : ''}`;
-
-      const wordHTML = `<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="UTF-8"><title>${escapedTitle}</title>
-<style>
-${wordStyle}
-</style></head>
-<body>
-${clone.innerHTML}
-</body>
-</html>`;
-
-      const arrayBuffer = await this._convertHtmlToDocxBuffer(wordHTML);
-      const buf = new Uint8Array(arrayBuffer);
-      await TauriApi.writeBinaryFile({ path, contents: buf });
-      clearTimeout(watchdog);
-      this.setStatus(`${this.t('exportedWord')}: ${path}`);
-      exported = true;
     } catch (error) {
       clearTimeout(watchdog);
       console.error('exportWord error:', error);
@@ -9472,6 +9454,57 @@ ${clone.innerHTML}
       if (exported) {
         this.showToast(this.t('exportSuccess'), 'success');
       }
+    }
+  }
+
+  // 回退路径：用 html-docx 把 HTML altChunk 写入 docx（兼容性较差，仅 docx 生成失败时兜底）。
+  async _fallbackWordHtmlExport(clone, path, watchdog, onDone) {
+    const escapedTitle = this.activeTab.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    let katexCSS = '';
+    try {
+      const resp = await fetch('lib/katex/katex.min.css');
+      if (resp.ok) katexCSS = await resp.text();
+    } catch (e) {}
+    let hljsCSS = '';
+    if (!this.isDark) {
+      try {
+        const themeLink = document.getElementById('highlight-theme');
+        if (themeLink) {
+          const resp = await fetch(themeLink.getAttribute('href'));
+          if (resp.ok) hljsCSS = await resp.text();
+        }
+      } catch (e) {}
+    }
+    const wordOverride = `
+    .alert { background: #f6f5f4; border-left-color: #d4d4d8; }
+    .alert-note { background: #eef4ff; border-left-color: #3884ff; }
+    .alert-tip { background: #e9f9f1; border-left-color: #10b981; }
+    .alert-important { background: #f3edfd; border-left-color: #8b5cf6; }
+    .alert-warning { background: #fef6e7; border-left-color: #f59e0b; }
+    .alert-caution { background: #fdecec; border-left-color: #ef4444; }
+    .mermaid-container { width: 100%; max-width: 100%; box-sizing: border-box; }`;
+    const wordStyle = `${this._documentExportCSS()}\n${wordOverride}\n${katexCSS ? katexCSS + '\n' : ''}${hljsCSS ? hljsCSS : ''}`;
+    const wordHTML = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8"><title>${escapedTitle}</title>
+<style>
+${wordStyle}
+</style></head>
+<body>
+${clone.innerHTML}
+</body>
+</html>`;
+    try {
+      const arrayBuffer = await this._convertHtmlToDocxBuffer(wordHTML);
+      const buf = new Uint8Array(arrayBuffer);
+      await TauriApi.writeBinaryFile({ path, contents: buf });
+      this.setStatus(`${this.t('exportedWord')}: ${path}`);
+      onDone(true);
+    } catch (error) {
+      clearTimeout(watchdog);
+      console.error('fallback Word export error:', error);
+      this.setStatus(`${this.t('exportFailed')}: ${error}`);
+      onDone(false);
     }
   }
 
