@@ -12669,7 +12669,7 @@ input[type="checkbox"]:checked::after { display: none !important; }
         }
         await TauriApi.quitApp();
       } else {
-        // 3b. 非退出（如最小化到托盘）：不触碰会话，保存后隐藏窗口
+        // 3b. 非退出（如最小化到托盘）：不清空会话，保存后隐藏窗口
         this.saveSession();
         await appWindow.hide();
       }
