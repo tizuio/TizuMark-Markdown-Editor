@@ -164,6 +164,10 @@
   }
 
   const api = { domToDocxStructure };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (typeof window !== 'undefined') window.domToDocxStructure = domToDocxStructure;
+  // 互斥式双导出（对齐仓库模块约定）：node 走 module.exports，浏览器/测试走 window，二者只触发其一。
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  } else if (typeof window !== 'undefined') {
+    window.domToDocxStructure = domToDocxStructure;
+  }
 })();
