@@ -94,7 +94,27 @@ async function buildHighlightMin() {
   console.log('[ensure-vendor] 打包 highlight.min.js（三路兼容 global hljs）完成');
 }
 
+// docx 库（v9.7.1，ESM，无浏览器 UMD）：esbuild 现打包为 IIFE 全局 DocxLib。
+// docx 入口用 node_modules/docx/dist/index.mjs（package.json "module"），供 worker 的
+// importScripts('./docx.min.js') 使用。无 Buffer/stream 报错，无需 shim。
+async function buildDocxMin() {
+  const esbuild = await import('esbuild');
+  const outfile = path.join(LIB, 'docx.min.js');
+  const contents = "export * from 'docx';";
+  await esbuild.build({
+    stdin: { contents, resolveDir: ROOT, loader: 'js' },
+    bundle: true,
+    format: 'iife',
+    globalName: 'DocxLib',
+    minify: true,
+    outfile,
+    logLevel: 'silent',
+  });
+  console.log('[ensure-vendor] 打包 docx.min.js（全局 DocxLib）完成');
+}
+
 await buildHighlightMin();
+await buildDocxMin();
 
 let missing = 0;
 for (const [relSrc, relDest] of MANIFEST) {
