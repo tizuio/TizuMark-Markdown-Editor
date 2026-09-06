@@ -24,6 +24,16 @@
     return { type: 'image', data: Array.from(data), width: w, height: h };
   }
 
+  // 收集一个块元素内所有 <img> 为顶层 image 节点（块级，DocxLib 落图）。
+  function collectBlockImages(el) {
+    const out = [];
+    for (const img of el.querySelectorAll('img')) {
+      const node = imageToNode(img);
+      if (node) out.push(node);
+    }
+    return out;
+  }
+
   // 收集行内 runs；遇到 <img> 时若传入 images 数组则把图片节点打捞进去（不产生 run）。
   function collectRuns(el, runs = [], images = null) {
     if (!el) return runs;
@@ -46,12 +56,21 @@
           continue;
         }
         const color = style.color;
-        if (color) runBase.color = color.replace('#', '').toUpperCase();
+        if (color) {
+          if (/^rgb\(/.test(color)) {
+            const m = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(color);
+            if (m) {
+              runBase.color = ((1 << 24) + (parseInt(m[1], 10) << 16) + (parseInt(m[2], 10) << 8) + parseInt(m[3], 10)).toString(16).slice(1).toUpperCase();
+            }
+          } else {
+            runBase.color = color.replace('#', '').toUpperCase();
+          }
+        }
         const before = runs.length;
         collectRuns(child, runs, images);
         for (let i = before; i < runs.length; i++) {
-          if (!runs[i].bold && !runs[i].italics && !runs[i].strike && !runs[i].color) {
-            runs[i] = { ...runs[i], ...runBase };
+          for (const k of Object.keys(runBase)) {
+            if (!(k in runs[i])) runs[i][k] = runBase[k];
           }
         }
       }
@@ -73,12 +92,14 @@
       return nodes;
     }
     if (tag === 'blockquote') {
-      const imgs = [];
-      const inner = el.querySelector('p');
-      const runs = collectRuns(inner || el, undefined, imgs);
+      const paras = el.querySelectorAll('p');
+      const runs = [];
+      paras.forEach(p => { runs.push(...collectRuns(p)); });
+      // 若块内无 <p>（纯文本/列表），退化到 collectRuns 整块
+      if (runs.length === 0) runs.push(...collectRuns(el));
       const nodes = [];
       if (runs.length) nodes.push({ type: 'paragraph', runs, quote: true });
-      nodes.push(...imgs);
+      nodes.push(...collectBlockImages(el));
       return nodes;
     }
     if (tag === 'pre') {
