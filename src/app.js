@@ -262,6 +262,7 @@ const I18N = {
     codeBlockWrap: '代码块自动换行',
     codeScroll: '代码块滚动条',
     codeScrollHint: '勾选后，较长的代码块会显示纵向滚动条（默认行为）；不勾选时，代码块高度自动撑开、与内容等高，不再出现滚动条。',
+    customBg: '自定义底色',
     langZh: '中文',
     langEn: 'English',
     previewFontSize: '正文字号',
@@ -737,6 +738,7 @@ const I18N = {
     codeBlockWrap: 'Wrap code blocks',
     codeScroll: 'Code block scrollbar',
     codeScrollHint: 'When enabled, long code blocks show a vertical scrollbar (default). When disabled, the code block grows to fit its content height and no scrollbar appears.',
+    customBg: 'Custom background',
     langZh: 'Chinese',
     langEn: 'English',
     previewFontSize: 'Preview Font Size',
@@ -1374,6 +1376,7 @@ class MarkdownEditor {
     setRowLabel('set-code-line-numbers', t('codeLineNumbers'));
     setRowLabel('set-code-wrap', t('codeBlockWrap'));
     setRowLabel('set-code-scroll', t('codeScroll'));
+    setRowLabel('set-custom-bg', t('customBg'));
     setRowLabel('set-close-action', t('closeAction'));
     setRowLabel('set-show-tray-icon', t('showTrayIcon'));
     setRowLabel('set-show-all-files-label', t('showAllFiles'));
