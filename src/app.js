@@ -8549,12 +8549,20 @@ class MarkdownEditor {
         let dataUri = null;
         if (src.startsWith('blob:')) {
           // 预览里 img.src 已被 processImages 经 getCachedImageURL 缓存成 blob: URL，
-          // 导出时该 blob 可能已被 LRU 回收失效，必须还原为内联 base64。
-          // blob 与主窗口同源，可直接 fetch 还原。
-          const resp = await fetch(src);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            dataUri = await blobToDataUri(blob);
+          // 导出时必须还原为内联 base64。优先 fetch(blob:)（同源可读）；
+          // fetch 失败（CSP 拦截 / blob 已被 LRU 回收）时，从 _imageURLCache
+          // （dataUri→blobUrl 映射）反查原始 data URI 兜底，保证导出不依赖 fetch。
+          try {
+            const resp = await fetch(src);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              dataUri = await blobToDataUri(blob);
+            }
+          } catch (_e) { /* fallthrough：走缓存反查兜底 */ }
+          if (!dataUri && this._imageURLCache) {
+            for (const [dataUriKey, blobUrl] of this._imageURLCache) {
+              if (blobUrl === src) { dataUri = dataUriKey; break; }
+            }
           }
         } else if (src.startsWith('file://')) {
           // file:// 走 Rust 读磁盘（绕过 CSP，与 processImages 一致）

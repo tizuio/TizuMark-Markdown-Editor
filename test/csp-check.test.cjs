@@ -60,6 +60,13 @@ assert.ok(
 
 assert.ok(fontSrc && /data:/.test(fontSrc), 'font-src 必须允许 data:（自定义 @font-face）');
 
+// connect-src 必须含 blob:：导出 HTML/DOCX 时 _inlineImagesForExport 用 fetch(blob:)
+// 把预览中 processImages 生成的 blob: 图片还原为内联 base64。若缺失，发行版（严格 CSP）
+// 下 fetch(blob:) 被拦截 → 导出产物保留失效 blob: URL → 破图（v1.2.2 线上 bug）。
+const connectSrc = directive(csp, 'connect-src');
+assert.ok(connectSrc, '缺失 connect-src 指令');
+assert.ok(/blob:/.test(connectSrc), 'connect-src 必须允许 blob:（导出时还原预览 blob 图片）');
+
 // ---- 2. unified-renderer.js 净化块仍在 ----
 assert.ok(fs.existsSync(RENDERER), 'unified-renderer.js 缺失：' + RENDERER);
 const srcText = fs.readFileSync(RENDERER, 'utf8');

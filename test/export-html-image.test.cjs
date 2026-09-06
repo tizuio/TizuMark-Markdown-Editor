@@ -97,3 +97,28 @@ test('exportHTML: blob: 图片还原为内联 base64（processImages 缓存场�
     assert.ok(!c.includes('blob:http'), 'blob: 不应再出现在导出 HTML 中');
   });
 });
+
+test('exportHTML: blob: fetch 失败（CSP 拦截）时从缓存反查 data URI 兜底', async () => {
+  // 发行版曾因 CSP connect-src 缺 blob: 导致 fetch(blob:) 被拦截 → 导出保留失效 blob → 破图。
+  // 兜底：fetch 失败时遍历 _imageURLCache（dataUri→blobUrl）反查原始 data URI。
+  const captured = {};
+  await withEditor({ invokeImpl: (cmd, args) => {
+    if (cmd === 'plugin:dialog|save') return '/tmp/out.html';
+    if (cmd === 'write_file') { captured.content = args.content; return undefined; }
+    return null;
+  } }, async (w, ed) => {
+    ed.activeTab.filePath = '/docs/note.md';
+    // 模拟真实预览缓存：data URI → blob URL（getCachedImageURL 的正向映射）
+    const dataUri = 'data:image/png;base64,REALB64';
+    ed._imageURLCache = new Map([[dataUri, 'blob:http://tauri.localhost/xyz-999']]);
+    w.editor.preview.innerHTML = '<img src="blob:http://tauri.localhost/xyz-999">';
+    // 模拟 CSP 拦截 fetch(blob:)：抛错（与发行版 CSP 缺失时行为一致）
+    w.fetch = async () => { throw new Error('Failed to fetch (CSP)'); };
+
+    await ed.exportHTML();
+
+    const c = captured.content;
+    assert.ok(c.includes('data:image/png;base64,REALB64'), 'fetch 失败时应从缓存反查内联 data URI');
+    assert.ok(!c.includes('blob:http'), 'blob: 不应再出现在导出 HTML 中');
+  });
+});
