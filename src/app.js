@@ -9268,6 +9268,49 @@ ${clone.innerHTML}
     }
   }
 
+  // docx 页面尺寸（twips，1/20 pt）：A4 / Letter，支持纵向/横向。
+  _docxPageSize(kind, orientation = 'portrait') {
+    const sizes = {
+      A4: { width: 11906, height: 16838 },
+      Letter: { width: 12240, height: 15840 },
+    };
+    const s = sizes[kind] || sizes.A4;
+    return orientation === 'landscape'
+      ? { width: s.height, height: s.width }
+      : { width: s.width, height: s.height };
+  }
+
+  // docx 边距（twips）：标准 / 窄 / 宽。
+  _docxMargins(preset) {
+    const map = {
+      normal: { top: 1440, bottom: 1440, left: 1800, right: 1800 },
+      narrow: { top: 720, bottom: 720, left: 720, right: 720 },
+      wide: { top: 2880, bottom: 2880, left: 2880, right: 2880 },
+    };
+    return map[preset] || map.normal;
+  }
+
+  // 弹「导出页面设置」对话框，返回 Promise，resolve { kind, orientation, margin } 或 null（取消）。
+  _showDocxPageDialog() {
+    return new Promise((resolve) => {
+      const dlg = document.getElementById('docx-page-dialog');
+      if (!dlg) { resolve({ kind: 'A4', orientation: 'portrait', margin: 'normal' }); return; }
+      dlg.classList.remove('hidden');
+      const done = (val) => { dlg.classList.add('hidden'); resolve(val); };
+      const cancels = dlg.querySelectorAll('.docx-page-cancel');
+      const okBtn = dlg.querySelector('.docx-page-ok');
+      const kindSel = dlg.querySelector('.docx-page-kind');
+      const orientSel = dlg.querySelector('.docx-page-orient');
+      const marginSel = dlg.querySelector('.docx-page-margin');
+      cancels.forEach((btn) => { btn.onclick = () => done(null); });
+      if (okBtn) okBtn.onclick = () => done({
+        kind: (kindSel && kindSel.value) || 'A4',
+        orientation: (orientSel && orientSel.value) || 'portrait',
+        margin: (marginSel && marginSel.value) || 'normal',
+      });
+    });
+  }
+
   async exportWord() {
     if (typeof htmlDocx === 'undefined') {
       this.reportError('E_RENDER', { detail: '导出组件未加载（html-docx 未加载）' });

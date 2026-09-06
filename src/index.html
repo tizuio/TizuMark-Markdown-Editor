@@ -834,6 +834,45 @@
     </div>
   </div>
 
+  <!-- 导出页面设置对话框 -->
+  <div id="docx-page-dialog" class="dialog-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="docx-page-title">
+    <div class="dialog docx-page-dialog">
+      <div class="dialog-header">
+        <h2 id="docx-page-title">导出页面设置</h2>
+        <button class="dialog-close docx-page-cancel" aria-label="关闭">&times;</button>
+      </div>
+      <div class="dialog-content">
+        <div class="settings-row">
+          <label>纸张</label>
+          <select class="docx-page-kind">
+            <option value="A4">A4</option>
+            <option value="Letter">Letter</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label>方向</label>
+          <select class="docx-page-orient">
+            <option value="portrait">纵向</option>
+            <option value="landscape">横向</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label>页边距</label>
+          <select class="docx-page-margin">
+            <option value="normal">标准</option>
+            <option value="narrow">窄</option>
+            <option value="wide">宽</option>
+          </select>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="dialog-btn docx-page-cancel">取消</button>
+        <button class="dialog-btn dialog-btn-primary docx-page-ok">导出</button>
+      </div>
+      <div class="dialog-resize-handle" aria-hidden="true"></div>
+    </div>
+  </div>
+
   <!-- 插入链接对话框 -->
   <div id="insert-link-dialog" class="dialog-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="insert-link-title">
     <div class="dialog insert-link-dialog">
