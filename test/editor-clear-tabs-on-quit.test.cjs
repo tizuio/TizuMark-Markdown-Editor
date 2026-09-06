@@ -49,3 +49,37 @@ test('hideToTray 不因 clearTabsOnQuit 而清 session', async () => {
     assert.strictEqual(saved, true, '托盘最小化仍应 saveSession');
   });
 });
+
+test('clearTabsOnQuit=true 但关闭行为为最小化到托盘(model)仍应保存会话（仅 quit 才清）', async () => {
+  await withEditor({}, async (w, ed) => {
+    ed.settings.clearTabsOnQuit = true;
+    ed.settings.closeAction = 'minimize'; // 非退出路径
+    for (const t of ed.tabs) t.savedContent = t.content;
+    let saved = false;
+    ed.saveSession = () => { saved = true; };
+    w.localStorage.setItem('tizumark-session', '{"version":2,"tabs":[{"name":"a","filePath":"/a.md"}]}');
+
+    await ed.handleAppClose();
+
+    assert.strictEqual(saved, true, '最小化到托盘（非 quit）应调用 saveSession，不清 session');
+    assert.ok(w.localStorage.getItem('tizumark-session'), '非 quit 路径不应移除 session');
+  });
+});
+
+test('clearTabsOnQuit=true 且用户在关闭确认中取消：不清会话', async () => {
+  await withEditor({}, async (w, ed) => {
+    ed.settings.clearTabsOnQuit = true;
+    ed.settings.closeAction = 'ask';
+    for (const t of ed.tabs) t.savedContent = t.content;
+    let saved = false;
+    ed.saveSession = () => { saved = true; };
+    w.localStorage.setItem('tizumark-session', '{"version":2,"tabs":[{"name":"a","filePath":"/a.md"}]}');
+    // 模拟用户在关闭对话框中选择取消
+    ed._resolveCloseAction = async () => null;
+
+    await ed.handleAppClose();
+
+    assert.strictEqual(saved, false, '取消时不应调用 saveSession');
+    assert.ok(w.localStorage.getItem('tizumark-session'), '取消时应保留 session');
+  });
+});

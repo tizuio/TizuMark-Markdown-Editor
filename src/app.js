@@ -12656,18 +12656,21 @@ input[type="checkbox"]:checked::after { display: none !important; }
           this.updatePreview();
         }
       }
-      // 2. 保存会话（除非开启「退出时关闭所有标签」）
-      if (this.settings.clearTabsOnQuit) {
-        try { localStorage.removeItem('tizumark-session'); } catch (_) {}
-      } else {
-        this.saveSession();
-      }
-      // 3. 按用户偏好执行关闭行为
+      // 2. 先解析关闭行为：只有真正退出（quit）才按「退出时关闭所有标签」处理会话；
+      //    取消直接返回不清会话；最小化到托盘等其它行为一律保存会话。
       const action = await this._resolveCloseAction();
-      if (!action) return; // 用户在弹框点了取消
+      if (!action) return; // 用户在弹框点了取消（不清会话）
       if (action === 'quit') {
+        // 3a. 真正退出：按「退出时关闭所有标签」开关决定保存还是清空会话
+        if (this.settings.clearTabsOnQuit) {
+          try { localStorage.removeItem('tizumark-session'); } catch (_) {}
+        } else {
+          this.saveSession();
+        }
         await TauriApi.quitApp();
       } else {
+        // 3b. 非退出（如最小化到托盘）：不触碰会话，保存后隐藏窗口
+        this.saveSession();
         await appWindow.hide();
       }
     } catch (error) {
