@@ -7755,7 +7755,8 @@ class MarkdownEditor {
       } else {
         this._applyCodeMode('md');
       }
-      this.viewMode = (kind === 'text') ? 'edit' : (this.settings.defaultView || 'preview');
+      // 视图模式：text 强制编辑；markdown 优先会话记忆（_sessionMdViewMode），其次设置默认视图
+      this.viewMode = (kind === 'text') ? 'edit' : (this._sessionMdViewMode || this.settings.defaultView || 'preview');
       this.applyViewMode();
       this.updateWordCount();
       this.setStatus(this.t('fileOpened', { name }));
@@ -10759,7 +10760,8 @@ input[type="checkbox"]:checked::after { display: none !important; }
 
   // 视图模式跟随当前标签页类型，与「打开文件」逻辑完全一致：
   // 图片 → 预览（单栏）；非 Markdown 明文 → 编辑（无预览栏）；
-  // 有路径的 Markdown → 跟随设置中的默认视图；未命名（无路径）Markdown → 编辑（当新建文档）。
+  // 有路径的 Markdown → 会话记忆（_sessionMdViewMode）优先，其次设置中的默认视图；
+  // 未命名（无路径）Markdown → 编辑（当新建文档）。
   // 类型以文件后缀为准（window.FileTypes.classifyFile），避免 tab.kind 因会话恢复等残留旧值。
   // 覆盖「打开文件 / 切换标签 / 当前标签」所有情况。
   syncViewModeToTab() {

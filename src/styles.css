@@ -5770,8 +5770,7 @@ body.custom-bg-active #editor-wrapper .CodeMirror .CodeMirror-gutters {
 body.custom-bg-active #editor-wrapper .CodeMirror {
   color: var(--custom-fg, var(--text-primary));
 }
-body.custom-bg-active #preview,
-body.custom-bg-active .preview-content {
+body.custom-bg-active #preview {
   background-color: var(--custom-bg, var(--bg-primary)) !important;
   color: var(--custom-fg, var(--text-primary));
 }

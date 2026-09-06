@@ -75,3 +75,24 @@ test('会话级 md 模式记忆：md 预览态下新建文档（newFile）不应
     assert.strictEqual(ed._sessionMdViewMode, null, 'newFile 不应把会话记忆写成 edit');
   });
 });
+
+test('会话级 md 模式记忆：openFilePath 打开新 md 也应沿用会话记忆（而非 defaultView）', async () => {
+  await withEditor({ invokeImpl: async (cmd) => {
+    if (cmd === 'read_file') return '# 新文件内容\n\n正文';
+    if (cmd === 'file_meta') return { size: 10, mtime: 0 };
+    return undefined;
+  } }, async (w, ed) => {
+    ed.settings.defaultView = 'preview';
+    // 先让用户在一个 md 上切到编辑，产生会话记忆
+    ed.tabs = [{ filePath: '/a.md', name: 'a.md', kind: 'markdown', content: 'a', _loaded: true }];
+    ed.activeTabIndex = 0;
+    ed.setViewMode('edit');
+    assert.strictEqual(ed._sessionMdViewMode, 'edit', '前置：记忆应为 edit');
+
+    // 通过 openFilePath 打开另一个 md（走真实读盘路径）
+    await ed.openFilePath('/b.md');
+
+    assert.strictEqual(ed._sessionMdViewMode, 'edit', 'openFilePath 不应清空记忆');
+    assert.strictEqual(ed.viewMode, 'edit', 'openFilePath 打开的新 md 应沿用会话记忆 edit（而非 defaultView=preview）');
+  });
+});
