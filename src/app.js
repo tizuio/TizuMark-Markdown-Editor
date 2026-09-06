@@ -197,7 +197,8 @@ const I18N = {
     maximize: '最大化',
     close: '关闭',
     ready: '就绪',
-    words: '字数',
+    words: '原始字数',
+    previewWords: '预览字数',
     chars: '字符',
     lines: '行数',
     untitled: 'Untitled',
@@ -689,7 +690,8 @@ const I18N = {
     maximize: 'Maximize',
     close: 'Close',
     ready: 'Ready',
-    words: 'Words',
+    words: 'Source words',
+    previewWords: 'Preview words',
     chars: 'Chars',
     lines: 'Lines',
     untitled: 'Untitled',
@@ -1147,6 +1149,7 @@ class MarkdownEditor {
     this.statusText = document.getElementById('status-text');
     this.cursorPosition = document.getElementById('cursor-position');
     this.wordCountEl = document.getElementById('word-count');
+    this.previewWordCountEl = document.getElementById('preview-word-count');
     this.charCountEl = document.getElementById('char-count');
     this.lineCountEl = document.getElementById('line-count');
 
@@ -1332,6 +1335,7 @@ class MarkdownEditor {
     // Status bar
     setText('status-text', t('ready'));
     document.getElementById('word-count').textContent = t('words') + ': 0';
+    document.getElementById('preview-word-count').textContent = t('previewWords') + ': 0';
     document.getElementById('char-count').textContent = t('chars') + ': 0';
     document.getElementById('line-count').textContent = t('lines') + ': 0';
     if (this.cm) {
@@ -8543,8 +8547,8 @@ class MarkdownEditor {
     const imgPromises = Array.from(clone.querySelectorAll('img')).map(async (img) => {
       let src = img.getAttribute('src');
       if (!src) return;
-      // 已内联（data:）或远程（http(s):）资源直接保留
-      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) return;
+      // 已内联（data:）资源直接保留
+      if (src.startsWith('data:')) return;
       try {
         let dataUri = null;
         if (src.startsWith('blob:')) {
@@ -8564,6 +8568,17 @@ class MarkdownEditor {
               if (blobUrl === src) { dataUri = dataUriKey; break; }
             }
           }
+        } else if (src.startsWith('http://') || src.startsWith('https://')) {
+          // 网络图片：下载内联为 base64，保证导出的 HTML 离线（换目录/断网）也能显示。
+          // 走浏览器 fetch（blob.type 携带真实 mime，避免按扩展名猜错）；
+          // 下载失败（离线/超时）时保留原 URL，至少联网打开仍可见。
+          try {
+            const resp = await fetch(src);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              dataUri = await blobToDataUri(blob);
+            }
+          } catch (_e) { /* 离线或网络异常：保留原 src */ }
         } else if (src.startsWith('file://')) {
           // file:// 走 Rust 读磁盘（绕过 CSP，与 processImages 一致）
           const url = src.replace(/^file:\/\//, '');
@@ -10758,6 +10773,14 @@ input[type="checkbox"]:checked::after { display: none !important; }
   updateWordCount() {
     const { words, chars, lines } = WordCount.countStats(this.cm.getValue());
     this.wordCountEl.textContent = `${this.t('words')}: ${words}`;
+    // 预览字数：统计预览渲染后的可见文本字符数（区别于原文口径）。
+    // 纯预览大文档（虚拟滚动窗口）时统计的是当前渲染窗口的文本，随滚动重渲染更新。
+    const previewChars = (typeof WordCount.countPreviewText === 'function' && this.preview)
+      ? WordCount.countPreviewText(this.preview)
+      : 0;
+    if (this.previewWordCountEl) {
+      this.previewWordCountEl.textContent = `${this.t('previewWords')}: ${previewChars}`;
+    }
     this.charCountEl.textContent = `${this.t('chars')}: ${chars}`;
     this.lineCountEl.textContent = `${this.t('lines')}: ${lines}`;
   }

@@ -2598,7 +2598,7 @@ body.is-resizing .side-btn {
   gap: 16px;
 }
 
-#word-count, #char-count, #line-count {
+#word-count, #preview-word-count, #char-count, #line-count {
   opacity: 0.8;
 }
 

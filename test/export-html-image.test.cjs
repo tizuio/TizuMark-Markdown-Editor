@@ -8,7 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { withEditor } = require('./helpers/app-env.cjs');
 
-test('exportHTML: 相对路径图片内联为 base64，data:/http(s): 保留', async () => {
+test('exportHTML: 相对路径图片内联为 base64，data: 保留，网络图下载内联', async () => {
   const captured = {};
   await withEditor({ invokeImpl: (cmd, args) => {
     if (cmd === 'plugin:dialog|save') return '/tmp/out.html';
@@ -22,6 +22,11 @@ test('exportHTML: 相对路径图片内联为 base64，data:/http(s): 保留', a
       '<img src="images/a.png">' +
       '<img src="data:image/png;base64,EXISTING">' +
       '<img src="https://example.com/b.png">';
+    // 网络图下载：mock fetch 返回带真实 mime 的 blob
+    w.fetch = async (url) => {
+      assert.ok(String(url).startsWith('https://'), '网络图应按 URL 下载');
+      return { ok: true, blob: async () => new w.Blob(['netimg'], { type: 'image/jpeg' }) };
+    };
 
     await ed.exportHTML();
 
@@ -29,8 +34,29 @@ test('exportHTML: 相对路径图片内联为 base64，data:/http(s): 保留', a
     const c = captured.content;
     assert.ok(c.includes('data:image/png;base64,BASE64DATA'), '相对路径图片应内联为 base64');
     assert.ok(c.includes('data:image/png;base64,EXISTING'), 'data: 图片应保留');
-    assert.ok(c.includes('https://example.com/b.png'), 'http(s): 图片应保留');
+    assert.ok(c.includes('data:image/jpeg;base64,bmV0aW1n'), '网络图应下载内联为 data URI（blob.type 真实 mime）');
+    assert.ok(!c.includes('https://example.com/b.png'), '网络图原 URL 不应保留');
     assert.ok(!c.includes('src="images/a.png"'), '原相对路径不应再保留');
+  });
+});
+
+test('exportHTML: 网络图下载失败（离线）时保留原 URL，不阻断导出', async () => {
+  const captured = {};
+  await withEditor({ invokeImpl: (cmd, args) => {
+    if (cmd === 'plugin:dialog|save') return '/tmp/out.html';
+    if (cmd === 'fetch_image_as_base64') return 'BASE64DATA';
+    if (cmd === 'write_file') { captured.content = args.content; return undefined; }
+    return null;
+  } }, async (w, ed) => {
+    ed.activeTab.filePath = '/docs/note.md';
+    w.editor.preview.innerHTML = '<img src="https://example.com/b.png">';
+    // 模拟离线：fetch 抛错
+    w.fetch = async () => { throw new Error('offline'); };
+
+    await ed.exportHTML();
+
+    const c = captured.content;
+    assert.ok(c.includes('https://example.com/b.png'), '下载失败时网络图应保留原 URL（联网仍可见）');
   });
 });
 
