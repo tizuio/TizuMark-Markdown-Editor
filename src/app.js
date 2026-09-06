@@ -298,6 +298,8 @@ const I18N = {
     closeActionAsk: '每次询问',
     closeActionQuit: '退出应用',
     closeActionMinimize: '最小化到托盘',
+    clearTabsOnQuit: '退出时关闭所有标签',
+    clearTabsOnQuitHint: '开启后，退出应用时不保存标签会话，下次启动总是空白。关闭则恢复上次关闭时的标签。未保存的文档仍会照常弹提示。',
     followSystem: '跟随系统',
     resetDefault: '恢复默认',
     confirm: '确认',
@@ -774,6 +776,8 @@ const I18N = {
     closeActionAsk: 'Ask every time',
     closeActionQuit: 'Quit app',
     closeActionMinimize: 'Minimize to tray',
+    clearTabsOnQuit: 'Close all tabs on exit',
+    clearTabsOnQuitHint: 'When enabled, the tab session is not saved on exit, so the app always starts blank next time. When off, the tabs from the last app close are restored. Unsaved documents still prompt as usual.',
     followSystem: 'Follow System',
     resetDefault: 'Reset Default',
     confirm: 'Confirm',
@@ -1378,6 +1382,7 @@ class MarkdownEditor {
     setRowLabel('set-code-scroll', t('codeScroll'));
     setRowLabel('set-custom-bg', t('customBg'));
     setRowLabel('set-close-action', t('closeAction'));
+    setRowLabel('set-clear-tabs-on-quit', t('clearTabsOnQuit'));
     setRowLabel('set-show-tray-icon', t('showTrayIcon'));
     setRowLabel('set-show-all-files-label', t('showAllFiles'));
     setRowLabel('set-image-store-mode-label', t('imageSettingLabel'));
@@ -1397,6 +1402,8 @@ class MarkdownEditor {
     setRowLabel('set-code-font', t('codeFont'));
     const softBreaksHint = document.querySelector('#setting-soft-breaks-hint .hint-text');
     if (softBreaksHint) softBreaksHint.textContent = t('softBreaksHint');
+    const ctoqHint = document.querySelector('#setting-clear-tabs-on-quit-hint .hint-text');
+    if (ctoqHint) ctoqHint.textContent = t('clearTabsOnQuitHint');
     const extendedSyntaxHint = document.querySelector('#setting-extended-syntax-hint .hint-text');
     if (extendedSyntaxHint) extendedSyntaxHint.textContent = t('extendedSyntaxHint');
     const tabSizeHint = document.querySelector('#setting-tab-size-hint .hint-text');
@@ -1799,6 +1806,7 @@ class MarkdownEditor {
       extendedSyntax: true,
       showTrayIcon: true,
       closeAction: 'ask',
+      clearTabsOnQuit: false, // 退出应用时不保存标签会话，下次打开总是空白
       showAllFiles: false, // 文件树过滤：默认只列受支持格式（markdown/image/text），true 时显示目录内全部文件
       toolbarCollapsed: false,
       sidebarHidden: false,
@@ -1916,6 +1924,7 @@ class MarkdownEditor {
     if (this._selects && this._selects.imageInsertMode) this._selects.imageInsertMode.setValue(s.imageInsertMode || 'assets', true);
     if (this._selects && this._selects.imageAssetPathMode) this._selects.imageAssetPathMode.setValue(s.imageAssetPathMode || 'relative', true);
     document.getElementById('settings-image-asset-path').value = s.imageAssetPath || 'assets';
+    document.getElementById('set-clear-tabs-on-quit').checked = s.clearTabsOnQuit === true;
     document.getElementById('set-custom-bg').checked = s.customBgEnabled === true;
     const cbg = document.getElementById('set-custom-bg-color');
     if (cbg) cbg.value = s.customBgColor || '#f8f7f4';
@@ -2051,6 +2060,8 @@ class MarkdownEditor {
     document.getElementById('set-code-scroll').addEventListener('change', (e) => {
       this.settings.codeScroll = e.target.checked;
     });
+    const ctoq = document.getElementById('set-clear-tabs-on-quit');
+    if (ctoq) ctoq.addEventListener('change', (e) => { this.settings.clearTabsOnQuit = e.target.checked; });
     // 图片存储方式 / 路径：已从 radio 升级为自绘下拉（set-image-store-mode / set-image-asset-path-mode），
     // onChange 在 initSettings 里通过 Select 绑定到 this.settings.imageInsertMode / imageAssetPathMode。
 
@@ -12645,8 +12656,12 @@ input[type="checkbox"]:checked::after { display: none !important; }
           this.updatePreview();
         }
       }
-      // 2. 保存会话
-      this.saveSession();
+      // 2. 保存会话（除非开启「退出时关闭所有标签」）
+      if (this.settings.clearTabsOnQuit) {
+        try { localStorage.removeItem('tizumark-session'); } catch (_) {}
+      } else {
+        this.saveSession();
+      }
       // 3. 按用户偏好执行关闭行为
       const action = await this._resolveCloseAction();
       if (!action) return; // 用户在弹框点了取消

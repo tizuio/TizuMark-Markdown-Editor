@@ -1110,6 +1110,14 @@
             <div id="set-close-action"></div>
           </div>
           <div class="settings-row">
+            <label>退出时关闭所有标签</label>
+            <label class="toggle"><input type="checkbox" id="set-clear-tabs-on-quit"><span class="toggle-slider"></span></label>
+            <p class="form-hint" id="setting-clear-tabs-on-quit-hint">
+              <svg class="hint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 7h18" /><path d="M3 12h18" /><path d="M3 17h18" /></svg>
+              <span class="hint-text">开启后，退出应用时不保存标签会话，下次启动总是空白。关闭则恢复上次关闭时的标签。未保存的文档仍会照常弹提示。</span>
+            </p>
+          </div>
+          <div class="settings-row">
             <label>显示托盘图标</label>
             <label class="toggle"><input type="checkbox" id="set-show-tray-icon" checked><span class="toggle-slider"></span></label>
             <p class="form-hint" id="setting-show-tray-icon-hint">
