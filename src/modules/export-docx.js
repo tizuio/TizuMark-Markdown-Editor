@@ -10,18 +10,31 @@
     try { return Uint8Array.from(atob(m[1]), c => c.charCodeAt(0)); } catch (e) { return null; }
   }
 
+  // data: URL → docx 的 ImageRun type（docx 9.x 需要 png/jpg/gif/bmp/svg 之一）。
+  function mimeToImageType(dataUrl) {
+    const m = /^data:([^;,]+)/.exec(String(dataUrl || ''));
+    const mime = (m ? m[1] : '').toLowerCase();
+    if (mime === 'image/jpeg' || mime === 'image/jpg') return 'jpg';
+    if (mime === 'image/gif') return 'gif';
+    if (mime === 'image/bmp') return 'bmp';
+    return 'png';
+  }
+
   function imageToNode(el) {
     const dataUrl = el.getAttribute('src') || '';
     const data = dataUrlToBytes(dataUrl);
     if (!data) return null;
-    // 优先读 data-dispW/data-dispH（预览显示尺寸，docx 落宽高用它）；getAttribute 跨环境一致，
-    // dataset 兜底覆盖 jsdom（键被小写化 dispw/disph）与浏览器（camelCase dispW/dispH）两种形态。
+    // 优先读 _applyWordImgSize 设的 width/height 属性（已按 500px 上限等比缩放）；
+    // 没有再退回 data-dispW（原始显示尺寸，可能超宽）→ naturalWidth → 兜底 100。
+    // 此前优先读 data-dispW 导致 _applyWordImgSize 的限宽失效，大图在 Word 里溢出页面。
     const ds = el.dataset || {};
-    const wSrc = el.getAttribute('data-dispW') || ds.dispW || ds.dispw || el.getAttribute('width') || el.naturalWidth || 100;
-    const hSrc = el.getAttribute('data-dispH') || ds.dispH || ds.disph || el.getAttribute('height') || el.naturalHeight || 100;
+    const wSrc = el.getAttribute('width') || el.getAttribute('data-dispW') || ds.dispW || ds.dispw || el.naturalWidth || 100;
+    const hSrc = el.getAttribute('height') || el.getAttribute('data-dispH') || ds.dispH || ds.disph || el.naturalHeight || 100;
     const w = parseInt(wSrc, 10) || 100;
     const h = parseInt(hSrc, 10) || 100;
-    return { type: 'image', data: Array.from(data), width: w, height: h };
+    // data 用 Uint8Array 而非 Array.from 的普通数组：postMessage 的 structuredClone
+    // 对 typed array 是整块内存拷贝，对普通数组则是逐元素克隆（大图时会明显拖慢导出）。
+    return { type: 'image', data, imageType: mimeToImageType(dataUrl), width: w, height: h };
   }
 
   // 收集一个块元素内所有 <img> 为顶层 image 节点（块级，DocxLib 落图）。
@@ -192,6 +205,16 @@
       if (runs.length) nodes.push({ type: 'paragraph', runs, quote: true });
       nodes.push(...imgs);
       return nodes;
+    }
+    // 代码块容器：_prepareWordDOM 会把每个 <pre> 换成 div.tizu-code-block（内部 pre 用 <br> 换行）。
+    // 这里必须下探取回代码文本，否则代码块在 docx 主路径里会整块丢失。
+    if (tag === 'div' && /tizu-code-block/.test(el.className || '')) {
+      const pre = el.querySelector('pre') || el;
+      const copy = pre.cloneNode(true);
+      copy.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+      const text = copy.textContent || '';
+      const lines = text.split('\n').map(l => l.trimEnd()).filter((l, i, a) => !(i === a.length - 1 && l === ''));
+      return lines.length ? [{ type: 'code', lines }] : [];
     }
     return [];
   }

@@ -4467,6 +4467,24 @@ select option {
   min-width: 80px;
   max-width: 160px;
 }
+/* ====== 导出 DOCX 弹框（说明 + 页面设置合并为单一入口） ====== */
+.docx-page-dialog .docx-page-tip {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.docx-page-dialog .docx-page-warn {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-warning);
+}
+.docx-page-dialog .settings-row .select-component,
+.docx-page-dialog .settings-row .select-component-input {
+  min-width: 130px;
+}
+
 .settings-row .font-picker {
   max-width: 200px;
 }

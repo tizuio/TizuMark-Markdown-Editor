@@ -834,36 +834,28 @@
     </div>
   </div>
 
-  <!-- 导出页面设置对话框 -->
+  <!-- 导出 DOCX 对话框：说明 + 页面设置（纸张/方向/边距）合并为唯一入口，点「导出」即开始 -->
   <div id="docx-page-dialog" class="dialog-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="docx-page-title">
     <div class="dialog docx-page-dialog">
       <div class="dialog-header">
-        <h2 id="docx-page-title">导出页面设置</h2>
+        <h2 id="docx-page-title">导出 DOCX</h2>
         <button class="dialog-close docx-page-cancel" aria-label="关闭">&times;</button>
       </div>
       <div class="dialog-content">
+        <p class="docx-page-tip"></p>
         <div class="settings-row">
           <label>纸张</label>
-          <select class="docx-page-kind">
-            <option value="A4">A4</option>
-            <option value="Letter">Letter</option>
-          </select>
+          <div class="docx-page-kind"></div>
         </div>
         <div class="settings-row">
           <label>方向</label>
-          <select class="docx-page-orient">
-            <option value="portrait">纵向</option>
-            <option value="landscape">横向</option>
-          </select>
+          <div class="docx-page-orient"></div>
         </div>
         <div class="settings-row">
           <label>页边距</label>
-          <select class="docx-page-margin">
-            <option value="normal">标准</option>
-            <option value="narrow">窄</option>
-            <option value="wide">宽</option>
-          </select>
+          <div class="docx-page-margin"></div>
         </div>
+        <p class="docx-page-warn"></p>
       </div>
       <div class="dialog-footer">
         <button class="dialog-btn docx-page-cancel">取消</button>
@@ -1412,6 +1404,8 @@
 
 <script src="lib/unified-bundle.js"></script>
 <script src="lib/md-links.js"></script>
+<!-- docx 真 OOXML 库：主线程直构建（Worker 在部分 Tauri/WebView 环境不可用，已弃用 Worker 路径） -->
+<script src="lib/docx.min.js"></script>
 <script src="lib/mathml2omml.min.js"></script>
 <script src="modules/code-block.js"></script>
 <script src="modules/preview-post.js"></script>
@@ -1428,6 +1422,7 @@
 <script src="modules/font-picker.js"></script>
 <script src="modules/select.js"></script>
 <script src="modules/export-docx.js"></script>
+<script src="modules/docx-builder.js"></script>
 <script src="controllers/preview-controller.js"></script>
 <script src="app.js"></script>
 </body>

@@ -25,7 +25,7 @@ function confirmExport(ed, result = true) {
 // 同时 mock 页面设置对话框——真实 #docx-page-dialog 在 index.html 里存在，若不 mock 会一直等待点击而挂起。
 function fallbackExport(ed) {
   ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
-  ed._runWordExportWorker = async () => { throw new Error('force fallback to html-docx'); };
+  ed._buildDocxBuffer = async () => { throw new Error('force fallback to html-docx'); };
 }
 
 test('exportWord: 调用 dialogSave(.docx) 并经 write_binary_file 写入二进制', async () => {
@@ -170,9 +170,13 @@ test('exportWord: DOM 预处理适配 Word HTML 导入器', async () => {
     // 高亮内联
     assert.ok(html.includes('background: rgb(251, 191, 36)'), 'mark 应内联高亮背景');
 
-    // KaTeX 应替换为 <math>
+    // KaTeX 应降级为 LaTeX 源码文本（不再转图片：公式一律以 Word 可编辑 OMML 为目标，
+    // 回退路径连 OMML 都不可用时不产生图片，只保留可复制回编辑器的源码）
     assert.ok(!html.includes('class="katex-html"'), 'katex-html 不应出现在 Word HTML');
-    assert.ok(html.includes('<math'), '公式应转为 MathML');
+    assert.ok(!html.includes('<math'), '公式不应保留 MathML（Word HTML 导入器不识别）');
+    assert.ok(!html.includes('tizu-math-img'), '公式不应转成图片');
+    assert.ok(html.includes('class="tizu-math-source"'), '公式应降级为 LaTeX 源码文本');
+    assert.ok(/tizu-math-source[^>]*>x</.test(html), 'LaTeX 源码应为公式内容');
 
     // 图片应固定宽度 500px 并带 HTML width 属性：Word 对属性支持稳定，避免按原始大像素渲染被裁
     assert.ok(html.includes('width: 500px'), '图片应强制 CSS 宽度 500px');

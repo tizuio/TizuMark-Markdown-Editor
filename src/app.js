@@ -400,8 +400,8 @@ const I18N = {
     printTip1: '可在「更多设置」中「取消勾选"页眉和页脚"」，去除 PDF 顶部的日期、标题等多余信息。',
     printTip2: '如果代码高亮或背景色显示异常，请在「更多设置」中「勾选"背景图形"」。',
     pdfBigFileWarn: '⚠ 文件较大时生成 PDF 耗时较长，请耐心等待；如果未生成完就打开 PDF，会提示文件损坏',
-    wordTip1: 'DOCX 由 HTML 导入生成，复杂排版可能与预览略有差异。',
-    wordTip2: '公式、Mermaid 图表会被转为图片；代码块保留灰底但不含语法高亮色。',
+    wordTip1: '导出为可编辑的 Word 文档（.docx），公式会转成 Word 原生公式，可继续编辑。',
+    wordTip2: '复杂排版可能与预览略有差异；代码块保留灰底，不含语法高亮色。',
     wordBigFileWarn: '⚠ 文件较大时生成 DOCX 耗时较长，请耐心等待。',
     preparingWordExport: '正在导出 DOCX...',
     backendDown: '⚠ 开发环境：后端已断开，文件功能不可用。请重启 npm run dev。',
@@ -878,8 +878,8 @@ const I18N = {
     printTip1: 'Go to "More settings" and uncheck "Headers and footers" to remove date, title and other extra info from the PDF.',
     printTip2: 'If code highlighting or background colors look wrong, go to "More settings" and check "Background graphics".',
     pdfBigFileWarn: '⚠ Generating a large PDF takes time — please be patient. Opening the PDF before it finishes will report file corruption.',
-    wordTip1: 'DOCX is generated via HTML import; complex layouts may differ slightly from the preview.',
-    wordTip2: 'Formulas and Mermaid diagrams will be converted to images; code blocks keep a gray background but no syntax highlighting colors.',
+    wordTip1: 'Exports an editable Word document (.docx); formulas become native Word equations you can keep editing.',
+    wordTip2: 'Complex layouts may differ slightly from the preview; code blocks keep a gray background without syntax highlighting.',
     wordBigFileWarn: '⚠ Generating a large DOCX takes time — please be patient.',
     preparingWordExport: 'Exporting DOCX...',
     backendDown: '⚠ Dev backend disconnected — file features unavailable. Restart with npm run dev.',
@@ -8805,55 +8805,15 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
     }
   }
 
-  // 在 Web Worker 里运行 html-docx-js 的 asBlob，避免其同步 zip 操作阻塞主线程。
-  // Worker 接收 HTML 字符串，返回 docx 文件的 ArrayBuffer。
-  _runWordExportWorker(payload) {
-    return new Promise((resolve, reject) => {
-      const worker = new Worker('lib/word-export.worker.js');
-      let settled = false;
-      const id = `${Date.now()}-${Math.random()}`;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        worker.terminate();
-        reject(new Error('word export worker timeout'));
-      }, 120000);
-      worker.onmessage = (e) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        worker.terminate();
-        if (e.data && e.data.success) {
-          resolve(e.data.arrayBuffer);
-        } else {
-          reject(new Error((e.data && e.data.error) || 'word export worker failed'));
-        }
-      };
-      worker.onerror = (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        worker.terminate();
-        reject(err);
-      };
-      worker.postMessage({ id, ...payload });
-    });
-  }
-
-  // 把 Word HTML 转成 docx 的 ArrayBuffer；优先走 Worker，失败或 Worker 不可用时回退主线程。
+  // 把 Word HTML（altChunk 方案）转成 docx 的 ArrayBuffer（主线程，html-docx-js 同步打包）。
+  // 曾走 Web Worker：Worker 在部分 Tauri/WebView 环境下不可用（自定义协议对 Worker 脚本
+  // 加载支持不稳），导致整条导出链静默降级、公式全变文字，故全部改为主线程直构建。
   async _convertHtmlToDocxBuffer(html) {
-    if (typeof Worker !== 'undefined') {
-      try {
-        return await this._runWordExportWorker({ type: 'html', html });
-      } catch (e) {
-        console.warn('Word export worker failed, falling back to main thread:', e);
-      }
+    if (typeof htmlDocx === 'undefined' || !htmlDocx.asBlob) {
+      throw new Error('导出组件未加载（html-docx 未加载）');
     }
-    if (typeof htmlDocx !== 'undefined') {
-      const blob = htmlDocx.asBlob(html);
-      return await blob.arrayBuffer();
-    }
-    throw new Error('导出组件未加载（html-docx 未加载）');
+    const blob = htmlDocx.asBlob(html);
+    return await blob.arrayBuffer();
   }
 
   // 给导出到 Word 的 <img> 同时设置 HTML width/height 属性 + CSS 尺寸。
@@ -8913,10 +8873,9 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
   // Word 导出前的 DOM 预处理：把 Web 预览中 Word HTML 导入器会曲解的结构，
   // 转成 Word 能稳定渲染的等价形式，并内联关键样式。
   // 把 Web 预览 DOM 预处理成 Word 兼容结构。
-  // opts.skipMathImage=true 时跳过「KaTeX 转 PNG」步骤（第 8 步）：
-  // DOCX 真 OOXML 主路径需要保留 .katex（其 <math> 是 MathML→OMML 可编辑公式的来源），
-  // 公式转图片仅用于 html-docx 回退路径（Word HTML 导入器不认 KaTeX/MathML）。
-  async _prepareWordDOM(clone, opts = {}) {
+  // 公式（.katex）本函数一律原样保留：DOCX 真 OOXML 主路径需要它内部的 <math>
+  // 来生成 Word 可编辑公式（OMML）；公式不再转图片。
+  async _prepareWordDOM(clone) {
     // 把 clone 临时挂到离屏 DOM，确保 html2canvas 能拿到真实布局与样式。
     const holder = document.createElement('div');
     holder.style.position = 'fixed';
@@ -9072,14 +9031,10 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
       m.style.borderRadius = '3px';
     });
 
-    // 8. 数学公式：KaTeX HTML/MathML 在 Word HTML 导入里基本都失败，
-    //     用 html2canvas 把 .katex 渲染成 PNG 内联图最稳；失败再保留 MathML。
-    //     DOCX 真 OOXML 主路径（skipMathImage=true）跳过本步：保留 .katex 供
-    //     domToDocxStructure 提取 <math> 转 OMML 可编辑公式；回退路径在
-    //     _fallbackWordHtmlExport 开头单独补跑 _katexElsToPng。
-    if (!opts.skipMathImage) {
-      await this._katexElsToPng(clone);
-    }
+    // 8. 数学公式：不做任何转换，保留 .katex 原样。
+    //    DOCX 真 OOXML 主路径由 domToDocxStructure 提取 <math> → OMML，得到 Word 可编辑公式；
+    //    公式不再转图片（图片公式不可二次编辑，产品上不提供）。
+    //    仅在 html-docx 回退路径（_fallbackWordHtmlExport）里降级为 LaTeX 源码文本。
 
     // 9. Mermaid 图表：SVG 在 Word HTML 导入里常丢失，转成 PNG 内联图。
     //    截图前临时去掉容器 padding/border/background，让容器紧包 SVG；
@@ -9163,9 +9118,10 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
 
     // 10. 普通图片：读取自然尺寸，按宽高比等比缩放到 500px，并设置 HTML width/height 属性，
     //     确保 Word 按此尺寸完整显示、不裁切（CSS width 在 Word 导入器里不可靠）。
-    //     公式（.tizu-math-img）与 Mermaid（.tizu-mermaid-img）已单独处理为 500px，这里跳过以免被覆盖。
+    //     Mermaid（.tizu-mermaid-img）已单独处理为 500px，这里跳过以免被覆盖。
+    //     （公式不再转图片，故无 .tizu-math-img 分支。）
     const plainImages = Array.from(clone.querySelectorAll('img')).filter((img) => {
-      return !img.classList.contains('tizu-math-img') && !img.classList.contains('tizu-mermaid-img');
+      return !img.classList.contains('tizu-mermaid-img');
     });
     await Promise.all(plainImages.map(async (img) => {
       // 优先用导出前从真实预览采集的渲染尺寸（dataset），不再依赖 new Image() 异步重加载——
@@ -9191,54 +9147,28 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
     }
   }
 
-  // 把 clone 里的 .katex 公式渲染成 PNG 内联图（html-docx 回退路径用）。
-  // 从 _prepareWordDOM 第 8 步抽出：DOCX 真 OOXML 主路径保留 .katex（转 OMML），
-  // 回退路径（Word HTML 导入器不认 KaTeX/MathML）在 _fallbackWordHtmlExport 开头补跑。
-  async _katexElsToPng(clone) {
+  // 公式兜底：把 clone 里残留的 .katex 换成「LaTeX 源码文本」。
+  // 只在 html-docx 回退路径（真 OOXML 主路径整体失败）才会走到，正常导出不会用到。
+  //
+  // 为什么是文本而不是图片：公式一律以 Word 原生可编辑公式（OMML）为目标，图片公式
+  // 不能二次编辑、缩放后发虚，产品上不提供。主路径失败时与其塞一张图，不如保留可读、
+  // 可复制回编辑器重新编辑的 LaTeX 源码（.katex-mathml 里的 <annotation encoding="application/x-tex">）。
+  _katexElsToLatexText(clone) {
     const katexEls = Array.from(clone.querySelectorAll('.katex'));
     for (const katex of katexEls) {
-      let dataUrl = '';
-      let natW = 0, natH = 0;
-      try {
-        if (typeof html2canvas !== 'undefined') {
-          const canvas = await html2canvas(katex, {
-            scale: 2,
-            backgroundColor: null,
-            useCORS: true
-          });
-          const trimmed = this._trimCanvas(canvas, { backgroundColor: null, padding: 2 });
-          // 限制像素宽度，避免 docx 膨胀 + Word 按原始大像素渲染溢出页面。
-          const scaled = this._scaleCanvasDown(trimmed, 1000);
-          dataUrl = scaled.toDataURL('image/png');
-          natW = scaled.width;
-          natH = scaled.height;
-        }
-      } catch (e) { dataUrl = ''; }
-      if (!dataUrl) {
+      let tex = '';
+      const annotation = katex.querySelector('.katex-mathml annotation[encoding="application/x-tex"]')
+        || katex.querySelector('annotation[encoding="application/x-tex"]');
+      if (annotation) tex = (annotation.textContent || '').trim();
+      if (!tex) {
         const mathml = katex.querySelector('.katex-mathml');
-        if (mathml) {
-          const math = mathml.querySelector('math');
-          if (math) {
-            const newMath = math.cloneNode(true);
-            if (!newMath.getAttribute('xmlns')) {
-              newMath.setAttribute('xmlns', 'http://www.w3.org/1998/Math/MathML');
-            }
-            katex.replaceWith(newMath);
-            continue;
-          }
-        }
+        if (mathml) tex = (mathml.textContent || '').replace(/\s+/g, ' ').trim();
       }
-      if (!dataUrl) continue;
-      const img = document.createElement('img');
-      img.src = dataUrl;
-      img.className = 'tizu-math-img';
-      // 截图是 2× 像素，显示参考宽度应取一半（预览看到的 CSS 宽），否则小公式会被当作 2× 大图放大到 500；
-      // 小于 500 的小公式保持原显示尺寸，大公式限制到 500，过高再按高度等比缩小。
-      this._applyWordImgSize(img, natW, natH, 500, natW > 0 ? natW / 2 : 0);
-      img.style.verticalAlign = 'middle';
-      katex.replaceWith(img);
-      // 让出主线程，使 loading spinner 与鼠标事件有机会处理。
-      await new Promise((r) => setTimeout(r, 0));
+      if (!tex) tex = (katex.textContent || '').replace(/\s+/g, ' ').trim();
+      const span = document.createElement('code');
+      span.className = 'tizu-math-source';
+      span.textContent = tex;
+      katex.replaceWith(span);
     }
   }
 
@@ -9329,27 +9259,50 @@ ${clone.innerHTML}
 
   // 把 DOM→structure 中的 mathml run 转成 OMML（Word 可编辑公式）。
   // KaTeX 渲染的 <math>（export-docx.js 收集为 { mathml } run）经 MathML2OMML.mml2omml
-  // 转成 OMML 字符串，worker 端用 ImportedXmlComponent 注入 <m:oMath>；
-  // 转换失败（缺库/异常）时删除该 run，避免向 worker 传无效数据。
+  // 转成 OMML 字符串，主线程构建时用 ImportedXmlComponent 注入 <m:oMath>。
+  //
+  // 容错策略（关键）：mml2omml 对部分复杂公式（矩阵/aligned/cases 等）产出的 OMML
+  // 可能不是良构 XML，docx 的 XML 解析器会抛 "Unexpected close tag"，**单个坏公式会
+  // 拖垮整篇文档构建 → 全部回退 altChunk → 所有公式变文字**。因此这里逐公式处理：
+  //   - 缺库 → 返回 false（走 html-docx 回退，公式降级 LaTeX 文本）
+  //   - 转换且 OMML 良构 → { omml }（Word 可编辑公式）
+  //   - 转换失败 / OMML 非良构 → { text: LaTeX源码 }（不丢内容，也不拖垮整篇）
+  // 返回 true 表示可走主路径（个别公式降级文本不影响整体）。
   _structureMathmlToOmml(structure) {
     const convert = (typeof MathML2OMML !== 'undefined' && MathML2OMML.mml2omml)
       ? MathML2OMML.mml2omml
       : null;
-    if (!convert) return;
+    // OMML 良构预检：非法 XML 会让 docx 的 fromXmlString 抛错拖垮整篇。
+    const isWellFormed = (xml) => {
+      try {
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        return doc && doc.getElementsByTagName('parsererror').length === 0;
+      } catch (e) { return false; }
+    };
+    // 从 MathML 里取 LaTeX 源码（<annotation encoding="application/x-tex">…</annotation>）
+    const extractLatex = (mathml) => {
+      const m = /<annotation[^>]*encoding=["']application\/x-tex["'][^>]*>([\s\S]*?)<\/annotation>/.exec(mathml);
+      if (m) return m[1].trim();
+      const m2 = /<annotation[^>]*>([\s\S]*?)<\/annotation>/.exec(mathml);
+      return m2 ? m2[1].trim() : '';
+    };
+    let sawMath = false;
     const walkRuns = (runs) => {
       if (!Array.isArray(runs)) return;
       for (let i = runs.length - 1; i >= 0; i--) {
         const r = runs[i];
         if (r && typeof r.mathml === 'string') {
-          try {
-            const omml = convert(r.mathml);
-            if (omml) {
-              const text = String(omml);
-              runs[i] = { omml: text };
-              continue;
-            }
-          } catch (e) { console.warn('[export] MathML→OMML 转换失败，跳过公式:', e); }
-          runs.splice(i, 1); // 转换失败：移除该 run，避免空 TextRun
+          sawMath = true;
+          if (!convert) continue; // 缺库：保留 mathml run，外层据 sawMath 决定走主路径还是回退
+          let omml = null;
+          try { omml = convert(r.mathml); } catch (e) { omml = null; }
+          if (omml && isWellFormed(String(omml))) {
+            runs[i] = { omml: String(omml) };
+          } else {
+            // 降级为 LaTeX 源码文本：宁可显示源码也不让坏 OMML 拖垮整篇文档。
+            const tex = extractLatex(r.mathml) || r.mathml.replace(/<[^>]+>/g, '').trim();
+            runs[i] = { text: tex };
+          }
         }
       }
     };
@@ -9363,41 +9316,111 @@ ${clone.innerHTML}
         }
       }
     }
+    // 无公式 → 走主路径；有公式但缺转换库 → 走 html-docx 回退（公式降级 LaTeX 文本）。
+    if (!sawMath) return true;
+    return !!convert;
   }
 
-  // 弹「导出页面设置」对话框，返回 Promise，resolve { kind, orientation, margin } 或 null（取消）。
+  // 弹「导出 DOCX」对话框：说明 + 页面设置（纸张/方向/边距）合并在一个弹框里，
+  // 返回 Promise，resolve { kind, orientation, margin } 或 null（取消）。
   _showDocxPageDialog() {
     return new Promise((resolve) => {
       const dlg = document.getElementById('docx-page-dialog');
       if (!dlg) { resolve({ kind: 'A4', orientation: 'portrait', margin: 'normal' }); return; }
+      const tipEl = dlg.querySelector('.docx-page-tip');
+      if (tipEl) tipEl.textContent = `${this.t('wordTip1')} ${this.t('wordTip2')}`;
+      const warnEl = dlg.querySelector('.docx-page-warn');
+      if (warnEl) warnEl.textContent = this.t('wordBigFileWarn');
+      // 三个下拉框用自绘 Select（项目约定禁用原生 <select>）；首次打开时构建，之后复用实例。
+      if (!this._docxPageSelects) {
+        const mk = (host, value, options, ariaLabel) => {
+          if (!host || typeof Select === 'undefined') return null;
+          return new Select(host, {
+            value,
+            ariaLabel,
+            t: (k) => this.t(k),
+            optionsProvider: () => options,
+          });
+        };
+        this._docxPageSelects = {
+          kind: mk(dlg.querySelector('.docx-page-kind'), 'A4',
+            [{ value: 'A4', label: 'A4' }, { value: 'Letter', label: 'Letter' }], '纸张'),
+          orient: mk(dlg.querySelector('.docx-page-orient'), 'portrait',
+            [{ value: 'portrait', label: '纵向' }, { value: 'landscape', label: '横向' }], '方向'),
+          margin: mk(dlg.querySelector('.docx-page-margin'), 'normal',
+            [{ value: 'normal', label: '标准' }, { value: 'narrow', label: '窄' }, { value: 'wide', label: '宽' }], '页边距'),
+        };
+      }
       dlg.classList.remove('hidden');
       const done = (val) => { dlg.classList.add('hidden'); resolve(val); };
       const cancels = dlg.querySelectorAll('.docx-page-cancel');
       const okBtn = dlg.querySelector('.docx-page-ok');
-      const kindSel = dlg.querySelector('.docx-page-kind');
-      const orientSel = dlg.querySelector('.docx-page-orient');
-      const marginSel = dlg.querySelector('.docx-page-margin');
+      const s = this._docxPageSelects || {};
       cancels.forEach((btn) => { btn.onclick = () => done(null); });
       if (okBtn) okBtn.onclick = () => done({
-        kind: (kindSel && kindSel.value) || 'A4',
-        orientation: (orientSel && orientSel.value) || 'portrait',
-        margin: (marginSel && marginSel.value) || 'normal',
+        kind: (s.kind && s.kind.getValue()) || 'A4',
+        orientation: (s.orient && s.orient.getValue()) || 'portrait',
+        margin: (s.margin && s.margin.getValue()) || 'normal',
       });
     });
   }
 
-  async exportWord() {
-    // 主路径走 docx 库（工作线程 importScripts ./docx.min.js），不依赖主线程 htmlDocx；
-    // html-docx 仅在回退路径（_fallbackWordHtmlExport → _convertHtmlToDocxBuffer）中使用。
+  // 确保 lib/docx.min.js 已加载（定义 window.DocxLib）。
+  // index.html 已常驻加载它，但用户若在改动 index.html 前就打开了 dev 页面且没刷新，
+  // 旧页面里没有 docx.min.js → window.DocxLib 缺失 → 主路径整条失败、静默降级 altChunk。
+  // 这里在导出时兜底按需加载，已加载则秒回；加载带 10s 超时（本地资源，正常几百毫秒）。
+  _ensureDocxLibLoaded(timeoutMs = 10000) {
+    if (window.DocxLib) return Promise.resolve(true);
+    const src = 'lib/docx.min.js';
+    if (document.querySelector('script[src="lib/docx.min.js"]')) {
+      // 标签在但还没定义全局：等 onload（理论不该发生，等 2s 兜底）。
+      return new Promise((resolve) => setTimeout(() => resolve(!!window.DocxLib), 2000));
+    }
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('docx 库加载超时'));
+      }, timeoutMs);
+      const done = (ok) => { if (settled) return; settled = true; clearTimeout(timer); resolve(ok); };
+      s.onload = () => done(!!window.DocxLib);
+      s.onerror = () => { clearTimeout(timer); reject(new Error('docx 库加载失败')); };
+      document.head.appendChild(s);
+    });
+  }
 
-    // 与导出 PDF 一致的确认框：提示 Word 导出特性与耗时风险，用户确认后再继续。
-    const proceed = await this.showConfirmDialog(
-      this.t('exportWord'),
-      this.t('wordTip1') + '\n\n' + this.t('wordTip2'),
-      null,
-      this.t('wordBigFileWarn'),
-    );
-    if (!proceed) return;
+  // 生成 docx（真 OOXML）：主线程直构建（lib/docx.min.js 常驻加载，缺失时按需补加载）。
+  // 曾走 Web Worker，但真机上 Worker 不可用会导致整条导出退化成 altChunk（公式全变文字），
+  // 可用性优先，直接主线程构建。
+  async _buildDocxBuffer(structure, page) {
+    await this._ensureDocxLibLoaded();
+    if (typeof window.buildDocxFromStructure !== 'function') {
+      throw new Error('导出组件未加载（docx-builder 未加载）');
+    }
+    // 构建若卡住（极端环境缺 Blob 等）不能让导出永远悬着，超时后仍回退 html-docx，保证「导出一定有结果」。
+    const MAIN_BUILD_TIMEOUT = 60000;
+    let timer = null;
+    const timeout = new Promise((_, rej) => {
+      timer = setTimeout(() => rej(new Error('主线程 docx 构建超时')), MAIN_BUILD_TIMEOUT);
+    });
+    try {
+      const blob = await Promise.race([window.buildDocxFromStructure(structure, page), timeout]);
+      return await blob.arrayBuffer();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async exportWord() {
+    // 主路径：docx 库主线程直构建真 OOXML（可编辑公式 + 二进制图片）；
+    // html-docx（altChunk）仅在主路径失败时兜底。
+
+    // 唯一入口弹框：说明 + 页面设置一起选，点「导出」才开始（取消即中止，不再二次确认）。
+    const pageCfg = await this._showDocxPageDialog();
+    if (!pageCfg) return;
 
     // Loading overlay：导出过程（尤其是 html2canvas 渲染公式/图表）可能阻塞主线程，
     // 给用户一个明确的等待反馈；60s watchdog 兜底防止 overlay 永远不消失。
@@ -9486,29 +9509,33 @@ ${clone.innerHTML}
       // 公式转 PNG 仅在 html-docx 回退路径需要（_fallbackWordHtmlExport 内补跑）。
       await this._prepareWordDOM(clone, { skipMathImage: true });
 
-      // 取页面设置（A4/Letter + 边距）；用户取消则中止
-      const pageCfg = await this._showDocxPageDialog();
-      if (!pageCfg) { hideOverlay(); return; }
+      // 页面设置已在流程开始的弹框里选好（pageCfg），此处不再二次弹框打断导出。
 
-      // 用 docx 库生成真 OOXML：DOM → 中间结构 → worker 构建 Document → toBlob。
-      // 主线程不判断 DocxLib（仅在 worker importScripts），只要有 structure 就始终先试 docx 主路径，
-      // 由 worker 内部失败或结构异常时触发回退 altChunk。
+      // 用 docx 库生成真 OOXML：DOM → 中间结构 → 主线程构建 Document → toBlob。
+      // _buildDocxBuffer 内部保证 docx 库已加载（缺失时按需补加载），主路径失败才回退 altChunk。
       const structure = (typeof window.domToDocxStructure === 'function')
         ? window.domToDocxStructure(clone)
         : null;
-      if (structure && Array.isArray(structure)) this._structureMathmlToOmml(structure);
-      if (structure && Array.isArray(structure) && structure.length > 0) {
+      const mathConverted = (structure && Array.isArray(structure))
+        ? this._structureMathmlToOmml(structure)
+        : false;
+      if (structure && Array.isArray(structure) && structure.length > 0 && mathConverted) {
         const pageSize = this._docxPageSize(pageCfg.kind, pageCfg.orientation);
         const margins = this._docxMargins(pageCfg.margin);
+        const diag = {
+          build: '2026-09-08-r3',
+          hasDocxLib: !!window.DocxLib,
+          hasBuilder: typeof window.buildDocxFromStructure === 'function',
+          hasDomToDocx: typeof window.domToDocxStructure === 'function',
+          hasMathML2OMML: typeof MathML2OMML !== 'undefined',
+          structureNodes: structure ? structure.length : 0,
+          mathConverted,
+        };
         try {
-          const arrayBufferDocx = await this._runWordExportWorker({
-            type: 'docx',
-            structure,
-            page: {
-              pageWidth: pageSize.width, pageHeight: pageSize.height,
-              marginTop: margins.top, marginBottom: margins.bottom,
-              marginLeft: margins.left, marginRight: margins.right,
-            },
+          const arrayBufferDocx = await this._buildDocxBuffer(structure, {
+            pageWidth: pageSize.width, pageHeight: pageSize.height,
+            marginTop: margins.top, marginBottom: margins.bottom,
+            marginLeft: margins.left, marginRight: margins.right,
           });
           clearTimeout(watchdog);
           const bufDocx = new Uint8Array(arrayBufferDocx);
@@ -9516,10 +9543,35 @@ ${clone.innerHTML}
           this.setStatus(`${this.t('exportedWord')}: ${path}`);
           exported = true;
         } catch (docxErr) {
-          console.warn('docx OOXML export failed, falling back to html-docx:', docxErr);
+          // 明确暴露主路径失败原因（之前静默降级，公式/图片全废却看不出为什么）。
+          console.error('[export] docx 主路径失败，降级 html-docx：', docxErr);
+          this.setStatus(`${this.t('exportError')}: docx ${docxErr && docxErr.message ? docxErr.message : docxErr}`);
+          // 写诊断文件到 docx 同目录，便于用户反馈精准定位（真机上拿不到 console）。
+          try {
+            const diagText = `TizuMark 导出诊断\n代码版本: ${diag.build}\n\n` +
+              `window.DocxLib: ${diag.hasDocxLib}\n` +
+              `window.buildDocxFromStructure: ${diag.hasBuilder}\n` +
+              `window.domToDocxStructure: ${diag.hasDomToDocx}\n` +
+              `MathML2OMML: ${diag.hasMathML2OMML}\n` +
+              `structure 节点数: ${diag.structureNodes}\n` +
+              `公式是否全部转换: ${diag.mathConverted}\n\n` +
+              `主路径错误: ${docxErr && docxErr.stack ? docxErr.stack : docxErr}\n`;
+            const diagPath = path.replace(/\.docx$/i, '_diagnostic.txt');
+            await TauriApi.writeFile({ path: diagPath, content: diagText });
+            this.showToast('公式导出失败，已生成诊断文件：' + diagPath, 'warning');
+          } catch (e) { /* 写诊断文件失败也不阻塞回退 */ }
           await this._fallbackWordHtmlExport(clone, path, watchdog, (ok) => { exported = ok; });
         }
       } else {
+        // 主路径前置条件不满足（structure 空 / 公式未转换）：写诊断帮助定位。
+        try {
+          const diagText = `TizuMark 导出诊断\n代码版本: 2026-09-08-r3\n\n` +
+            `走回退原因: ${!structure || !structure.length ? 'structure 为空' : '公式未全部转换(mathConverted=false)'}\n` +
+            `window.DocxLib: ${!!window.DocxLib}\n` +
+            `MathML2OMML: ${typeof MathML2OMML !== 'undefined'}\n` +
+            `structure 节点数: ${structure ? structure.length : 0}\n`;
+          await TauriApi.writeFile({ path: path.replace(/\.docx$/i, '_diagnostic.txt'), content: diagText });
+        } catch (e) {}
         await this._fallbackWordHtmlExport(clone, path, watchdog, (ok) => { exported = ok; });
       }
     } catch (error) {
@@ -9537,15 +9589,12 @@ ${clone.innerHTML}
 
   // 回退路径：用 html-docx 把 HTML altChunk 写入 docx（兼容性较差，仅 docx 生成失败时兜底）。
   async _fallbackWordHtmlExport(clone, path, watchdog, onDone) {
-    // DOCX 主路径跳过了公式转图（保留 .katex 供 OMML）；回退到 Word HTML 导入器时
-    // KaTeX/MathML 不被识别，须在此补跑公式转 PNG。
-    await this._katexElsToPng(clone);
+    // DOCX 主路径保留 .katex（转 OMML 可编辑公式）；回退到 Word HTML 导入器时
+    // KaTeX/MathML 都不被识别，这里把公式降级为 LaTeX 源码文本（不转图片：公式一律
+    // 以可编辑为目标，图片公式不可二次编辑，产品上不提供）。
+    this._katexElsToLatexText(clone);
     const escapedTitle = this.activeTab.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    let katexCSS = '';
-    try {
-      const resp = await fetch('lib/katex/katex.min.css');
-      if (resp.ok) katexCSS = await resp.text();
-    } catch (e) {}
+    // 公式已降级为 LaTeX 源码文本，不再需要内联 KaTeX CSS（约 300KB，白白撑大 docx）。
     let hljsCSS = '';
     if (!this.isDark) {
       try {
@@ -9563,8 +9612,9 @@ ${clone.innerHTML}
     .alert-important { background: #f3edfd; border-left-color: #8b5cf6; }
     .alert-warning { background: #fef6e7; border-left-color: #f59e0b; }
     .alert-caution { background: #fdecec; border-left-color: #ef4444; }
-    .mermaid-container { width: 100%; max-width: 100%; box-sizing: border-box; }`;
-    const wordStyle = `${this._documentExportCSS()}\n${wordOverride}\n${katexCSS ? katexCSS + '\n' : ''}${hljsCSS ? hljsCSS : ''}`;
+    .mermaid-container { width: 100%; max-width: 100%; box-sizing: border-box; }
+    .tizu-math-source { font-family: Consolas, "SF Mono", monospace; background: #f6f5f4; padding: 1px 4px; border-radius: 3px; }`;
+    const wordStyle = `${this._documentExportCSS()}\n${wordOverride}\n${hljsCSS ? hljsCSS : ''}`;
     const wordHTML = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="UTF-8"><title>${escapedTitle}</title>

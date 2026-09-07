@@ -55,6 +55,38 @@ test('domToDocxStructure: code 块映射为 code 节点（多行 lines）', () =
   assert.deepStrictEqual(JSON.parse(JSON.stringify(structure[0].lines)), ['const a = 1;', 'const b = 2;']);
 });
 
+// 回归：_prepareWordDOM 会把 <pre> 换成 div.tizu-code-block（内部 <pre> 用 <br> 换行）。
+// 若不下探取回代码文本，代码块在 docx 主路径里会整块丢失。
+test('domToDocxStructure: tizu-code-block 容器下探取回代码（不丢代码块）', () => {
+  const dom = new JSDOM(
+    '<div id="root"><div class="tizu-code-block" style="background:#f6f5f4">' +
+    '<pre style="white-space:pre">const a = 1;<br>console.log(a);<br></pre></div></div>',
+    { runScripts: 'dangerously' });
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  assert.strictEqual(structure.length, 1, '应产出且仅产出 code 节点');
+  assert.strictEqual(structure[0].type, 'code');
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(structure[0].lines)),
+    ['const a = 1;', 'console.log(a);'],
+    '<br> 应还原为换行，尾部空行应去掉',
+  );
+});
+
+// 回归：公式图片数据以 Uint8Array 传输（structuredClone 整块拷贝，避免大图逐元素克隆拖慢导出），
+// 并带上 docx 9.x ImageRun 需要的 imageType。
+test('domToDocxStructure: 图片 data 为 Uint8Array 且带 imageType', () => {
+  const dom = new JSDOM('<div id="root"><img src="data:image/jpeg;base64,/9j/4AAQ" width="80" height="40"></div>', { runScripts: 'dangerously' });
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  const img = structure.find(n => n.type === 'image');
+  assert.ok(img, '含 image 节点');
+  assert.ok(img.data instanceof w.Uint8Array, 'data 应为 Uint8Array（postMessage 整块拷贝）');
+  assert.strictEqual(img.imageType, 'jpg', 'mime 应映射为 docx 的 imageType');
+});
+
 test('domToDocxStructure: 图片映射为 image 节点（带 data 与宽高）', () => {
   const dom = new JSDOM('<div id="root"><p><img src="data:image/png;base64,iVBORw0KGgo=" data-natW="100" data-natH="50" data-dispW="100" data-dispH="50"></p></div>', { runScripts: 'dangerously' });
   const w = dom.window;
