@@ -83,7 +83,7 @@ test('countPreviewText: 代码块文字计入（读者可见），行号不计',
   assert.strictEqual(n, 'const a = 1;'.length, '代码可见文本计入，行号排除');
 });
 
-test('updateWordCount: 状态栏同时更新原始字数与预览字数', async () => {
+test('updateWordCount: 状态栏同时更新原始字数与预览字数（均为字符数口径）', async () => {
   const { withEditor } = require('./helpers/app-env.cjs');
   await withEditor({}, async (w, ed) => {
     // 编辑器源码含 markdown 标记；预览为渲染后的可见文本
@@ -95,9 +95,13 @@ test('updateWordCount: 状态栏同时更新原始字数与预览字数', async 
     assert.ok(rawEl && previewEl, '两个状态栏元素都应存在');
     assert.ok(rawEl.textContent.includes('原始字数'), '原始字数文案应带「原始」前缀标识');
     assert.ok(previewEl.textContent.includes('预览字数'), '预览字数文案应带「预览」前缀');
-    // 原文口径：去标记后「标题 正文 hello」→ 3 词
-    assert.ok(rawEl.textContent.endsWith(': 3'), '原始词数应为 3（去 markdown 标记分词）');
-    // 预览口径：可见文本 = 标题(2) + 正文(2) + 空格(1) + hello(5) = 10 字符（元素间无额外空白）
+    // 原始字数 = 原文文件字符数（含 md 标记与换行）：「# 标题\n\n正文 hello」= 14 字符
+    assert.ok(rawEl.textContent.endsWith(': 14'), '原始字数应为原文字符数 14');
+    // 预览字数 = 渲染可见文本字符数：标题(2)+正文(2)+空格(1)+hello(5) = 10
     assert.ok(previewEl.textContent.endsWith(': 10'), '预览可见字符数应为 10');
+    // 原始字数必须 ≥ 预览字数（原文含 md 标记）
+    const rawN = parseInt(rawEl.textContent.split(': ')[1], 10);
+    const prevN = parseInt(previewEl.textContent.split(': ')[1], 10);
+    assert.ok(rawN >= prevN, '原始字数应不小于预览字数');
   });
 });

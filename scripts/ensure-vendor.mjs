@@ -113,8 +113,29 @@ async function buildDocxMin() {
   console.log('[ensure-vendor] 打包 docx.min.js（全局 DocxLib）完成');
 }
 
+// mathml2omml（MathML → OMML 转换，Word 可编辑公式）：esbuild 打包为 IIFE 全局 MathML2OMML。
+// 入口用 ESM 构建（dist/index.esm.js；CJS 入口引用 module.exports，浏览器 IIFE 缺该全局会抛错）。
+// 主线程 DOCX 导出把 KaTeX 的 <math> 转成 OMML 字符串，随 structure 传给 worker 注入 oMath。
+async function buildMathML2OMML() {
+  const esbuild = await import('esbuild');
+  const outfile = path.join(LIB, 'mathml2omml.min.js');
+  await esbuild.build({
+    entryPoints: [path.join(NM, 'mathml2omml', 'dist', 'index.esm.js')],
+    bundle: true,
+    format: 'iife',
+    globalName: 'MathML2OMML',
+    platform: 'browser',
+    target: 'es2020',
+    minify: true,
+    outfile,
+    logLevel: 'silent',
+  });
+  console.log('[ensure-vendor] 打包 mathml2omml.min.js（全局 MathML2OMML）完成');
+}
+
 await buildHighlightMin();
 await buildDocxMin();
+await buildMathML2OMML();
 
 let missing = 0;
 for (const [relSrc, relDest] of MANIFEST) {

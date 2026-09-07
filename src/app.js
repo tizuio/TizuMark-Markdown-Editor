@@ -1150,7 +1150,6 @@ class MarkdownEditor {
     this.cursorPosition = document.getElementById('cursor-position');
     this.wordCountEl = document.getElementById('word-count');
     this.previewWordCountEl = document.getElementById('preview-word-count');
-    this.charCountEl = document.getElementById('char-count');
     this.lineCountEl = document.getElementById('line-count');
 
     this.initEditor();
@@ -1336,7 +1335,6 @@ class MarkdownEditor {
     setText('status-text', t('ready'));
     document.getElementById('word-count').textContent = t('words') + ': 0';
     document.getElementById('preview-word-count').textContent = t('previewWords') + ': 0';
-    document.getElementById('char-count').textContent = t('chars') + ': 0';
     document.getElementById('line-count').textContent = t('lines') + ': 0';
     if (this.cm) {
       const cur = this.cm.getCursor();
@@ -8914,7 +8912,11 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
 
   // Word 导出前的 DOM 预处理：把 Web 预览中 Word HTML 导入器会曲解的结构，
   // 转成 Word 能稳定渲染的等价形式，并内联关键样式。
-  async _prepareWordDOM(clone) {
+  // 把 Web 预览 DOM 预处理成 Word 兼容结构。
+  // opts.skipMathImage=true 时跳过「KaTeX 转 PNG」步骤（第 8 步）：
+  // DOCX 真 OOXML 主路径需要保留 .katex（其 <math> 是 MathML→OMML 可编辑公式的来源），
+  // 公式转图片仅用于 html-docx 回退路径（Word HTML 导入器不认 KaTeX/MathML）。
+  async _prepareWordDOM(clone, opts = {}) {
     // 把 clone 临时挂到离屏 DOM，确保 html2canvas 能拿到真实布局与样式。
     const holder = document.createElement('div');
     holder.style.position = 'fixed';
@@ -9072,50 +9074,11 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
 
     // 8. 数学公式：KaTeX HTML/MathML 在 Word HTML 导入里基本都失败，
     //     用 html2canvas 把 .katex 渲染成 PNG 内联图最稳；失败再保留 MathML。
-    const katexEls = Array.from(clone.querySelectorAll('.katex'));
-    for (const katex of katexEls) {
-      let dataUrl = '';
-      let natW = 0, natH = 0;
-      try {
-        if (typeof html2canvas !== 'undefined') {
-          const canvas = await html2canvas(katex, {
-            scale: 2,
-            backgroundColor: null,
-            useCORS: true
-          });
-          const trimmed = this._trimCanvas(canvas, { backgroundColor: null, padding: 2 });
-          // 限制像素宽度，避免 docx 膨胀 + Word 按原始大像素渲染溢出页面。
-          const scaled = this._scaleCanvasDown(trimmed, 1000);
-          dataUrl = scaled.toDataURL('image/png');
-          natW = scaled.width;
-          natH = scaled.height;
-        }
-      } catch (e) { dataUrl = ''; }
-      if (!dataUrl) {
-        const mathml = katex.querySelector('.katex-mathml');
-        if (mathml) {
-          const math = mathml.querySelector('math');
-          if (math) {
-            const newMath = math.cloneNode(true);
-            if (!newMath.getAttribute('xmlns')) {
-              newMath.setAttribute('xmlns', 'http://www.w3.org/1998/Math/MathML');
-            }
-            katex.replaceWith(newMath);
-            continue;
-          }
-        }
-      }
-      if (!dataUrl) continue;
-      const img = document.createElement('img');
-      img.src = dataUrl;
-      img.className = 'tizu-math-img';
-      // 截图是 2× 像素，显示参考宽度应取一半（预览看到的 CSS 宽），否则小公式会被当作 2× 大图放大到 500；
-      // 小于 500 的小公式保持原显示尺寸，大公式限制到 500，过高再按高度等比缩小。
-      this._applyWordImgSize(img, natW, natH, 500, natW > 0 ? natW / 2 : 0);
-      img.style.verticalAlign = 'middle';
-      katex.replaceWith(img);
-      // 让出主线程，使 loading spinner 与鼠标事件有机会处理。
-      await new Promise((r) => setTimeout(r, 0));
+    //     DOCX 真 OOXML 主路径（skipMathImage=true）跳过本步：保留 .katex 供
+    //     domToDocxStructure 提取 <math> 转 OMML 可编辑公式；回退路径在
+    //     _fallbackWordHtmlExport 开头单独补跑 _katexElsToPng。
+    if (!opts.skipMathImage) {
+      await this._katexElsToPng(clone);
     }
 
     // 9. Mermaid 图表：SVG 在 Word HTML 导入里常丢失，转成 PNG 内联图。
@@ -9228,6 +9191,57 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
     }
   }
 
+  // 把 clone 里的 .katex 公式渲染成 PNG 内联图（html-docx 回退路径用）。
+  // 从 _prepareWordDOM 第 8 步抽出：DOCX 真 OOXML 主路径保留 .katex（转 OMML），
+  // 回退路径（Word HTML 导入器不认 KaTeX/MathML）在 _fallbackWordHtmlExport 开头补跑。
+  async _katexElsToPng(clone) {
+    const katexEls = Array.from(clone.querySelectorAll('.katex'));
+    for (const katex of katexEls) {
+      let dataUrl = '';
+      let natW = 0, natH = 0;
+      try {
+        if (typeof html2canvas !== 'undefined') {
+          const canvas = await html2canvas(katex, {
+            scale: 2,
+            backgroundColor: null,
+            useCORS: true
+          });
+          const trimmed = this._trimCanvas(canvas, { backgroundColor: null, padding: 2 });
+          // 限制像素宽度，避免 docx 膨胀 + Word 按原始大像素渲染溢出页面。
+          const scaled = this._scaleCanvasDown(trimmed, 1000);
+          dataUrl = scaled.toDataURL('image/png');
+          natW = scaled.width;
+          natH = scaled.height;
+        }
+      } catch (e) { dataUrl = ''; }
+      if (!dataUrl) {
+        const mathml = katex.querySelector('.katex-mathml');
+        if (mathml) {
+          const math = mathml.querySelector('math');
+          if (math) {
+            const newMath = math.cloneNode(true);
+            if (!newMath.getAttribute('xmlns')) {
+              newMath.setAttribute('xmlns', 'http://www.w3.org/1998/Math/MathML');
+            }
+            katex.replaceWith(newMath);
+            continue;
+          }
+        }
+      }
+      if (!dataUrl) continue;
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.className = 'tizu-math-img';
+      // 截图是 2× 像素，显示参考宽度应取一半（预览看到的 CSS 宽），否则小公式会被当作 2× 大图放大到 500；
+      // 小于 500 的小公式保持原显示尺寸，大公式限制到 500，过高再按高度等比缩小。
+      this._applyWordImgSize(img, natW, natH, 500, natW > 0 ? natW / 2 : 0);
+      img.style.verticalAlign = 'middle';
+      katex.replaceWith(img);
+      // 让出主线程，使 loading spinner 与鼠标事件有机会处理。
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
   async exportHTML() {
     try {
       const path = await dialogSave({
@@ -9311,6 +9325,44 @@ ${clone.innerHTML}
       wide: { top: 2880, bottom: 2880, left: 2880, right: 2880 },
     };
     return map[preset] || map.normal;
+  }
+
+  // 把 DOM→structure 中的 mathml run 转成 OMML（Word 可编辑公式）。
+  // KaTeX 渲染的 <math>（export-docx.js 收集为 { mathml } run）经 MathML2OMML.mml2omml
+  // 转成 OMML 字符串，worker 端用 ImportedXmlComponent 注入 <m:oMath>；
+  // 转换失败（缺库/异常）时删除该 run，避免向 worker 传无效数据。
+  _structureMathmlToOmml(structure) {
+    const convert = (typeof MathML2OMML !== 'undefined' && MathML2OMML.mml2omml)
+      ? MathML2OMML.mml2omml
+      : null;
+    if (!convert) return;
+    const walkRuns = (runs) => {
+      if (!Array.isArray(runs)) return;
+      for (let i = runs.length - 1; i >= 0; i--) {
+        const r = runs[i];
+        if (r && typeof r.mathml === 'string') {
+          try {
+            const omml = convert(r.mathml);
+            if (omml) {
+              const text = String(omml);
+              runs[i] = { omml: text };
+              continue;
+            }
+          } catch (e) { console.warn('[export] MathML→OMML 转换失败，跳过公式:', e); }
+          runs.splice(i, 1); // 转换失败：移除该 run，避免空 TextRun
+        }
+      }
+    };
+    for (const node of structure) {
+      if (node && node.runs) walkRuns(node.runs);
+      if (node && node.type === 'table') {
+        for (const row of node.rows || []) {
+          for (const cell of row.cells || []) {
+            for (const p of cell.paragraphs || []) walkRuns(p.runs);
+          }
+        }
+      }
+    }
   }
 
   // 弹「导出页面设置」对话框，返回 Promise，resolve { kind, orientation, margin } 或 null（取消）。
@@ -9429,8 +9481,10 @@ ${clone.innerHTML}
 
       await this._inlineImagesForExport(clone, this.activeTab.filePath);
 
-      // 把 Web 预览 DOM 转换成 Word HTML 导入器能稳定渲染的结构。
-      await this._prepareWordDOM(clone);
+      // 把 Web 预览 DOM 预处理成 docx 兼容结构。
+      // skipMathImage=true：保留 .katex（其 <math> 供 MathML→OMML 转可编辑公式），
+      // 公式转 PNG 仅在 html-docx 回退路径需要（_fallbackWordHtmlExport 内补跑）。
+      await this._prepareWordDOM(clone, { skipMathImage: true });
 
       // 取页面设置（A4/Letter + 边距）；用户取消则中止
       const pageCfg = await this._showDocxPageDialog();
@@ -9442,6 +9496,7 @@ ${clone.innerHTML}
       const structure = (typeof window.domToDocxStructure === 'function')
         ? window.domToDocxStructure(clone)
         : null;
+      if (structure && Array.isArray(structure)) this._structureMathmlToOmml(structure);
       if (structure && Array.isArray(structure) && structure.length > 0) {
         const pageSize = this._docxPageSize(pageCfg.kind, pageCfg.orientation);
         const margins = this._docxMargins(pageCfg.margin);
@@ -9482,6 +9537,9 @@ ${clone.innerHTML}
 
   // 回退路径：用 html-docx 把 HTML altChunk 写入 docx（兼容性较差，仅 docx 生成失败时兜底）。
   async _fallbackWordHtmlExport(clone, path, watchdog, onDone) {
+    // DOCX 主路径跳过了公式转图（保留 .katex 供 OMML）；回退到 Word HTML 导入器时
+    // KaTeX/MathML 不被识别，须在此补跑公式转 PNG。
+    await this._katexElsToPng(clone);
     const escapedTitle = this.activeTab.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     let katexCSS = '';
     try {
@@ -10771,8 +10829,10 @@ input[type="checkbox"]:checked::after { display: none !important; }
   }
 
   updateWordCount() {
-    const { words, chars, lines } = WordCount.countStats(this.cm.getValue());
-    this.wordCountEl.textContent = `${this.t('words')}: ${words}`;
+    const { chars, lines } = WordCount.countStats(this.cm.getValue());
+    // 原始字数 = 原文文件字符数（含 markdown 标记/空白），预览字数 = 渲染后可见文本字符数。
+    // 两者统一按字符数口径，保证「原文 ≥ 预览」恒成立（中文/英文均如此）。
+    this.wordCountEl.textContent = `${this.t('words')}: ${chars}`;
     // 预览字数：统计预览渲染后的可见文本字符数（区别于原文口径）。
     // 纯预览大文档（虚拟滚动窗口）时统计的是当前渲染窗口的文本，随滚动重渲染更新。
     const previewChars = (typeof WordCount.countPreviewText === 'function' && this.preview)
@@ -10781,7 +10841,6 @@ input[type="checkbox"]:checked::after { display: none !important; }
     if (this.previewWordCountEl) {
       this.previewWordCountEl.textContent = `${this.t('previewWords')}: ${previewChars}`;
     }
-    this.charCountEl.textContent = `${this.t('chars')}: ${chars}`;
     this.lineCountEl.textContent = `${this.t('lines')}: ${lines}`;
   }
 

@@ -9,12 +9,21 @@ importScripts('./html-docx.min.js');
 function buildDocx(structure, page) {
   const D = self.DocxLib;
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = D;
+  // run → docx 子元素：omml run（可编辑公式）经 ImportedXmlComponent 注入 oMath；
+  // 普通 run 转 TextRun。fromXmlString 的顶层是 undefined key 容器，取 root[0]。
+  const runToChild = (r) => {
+    if (r && r.omml) {
+      const comp = D.ImportedXmlComponent.fromXmlString(r.omml);
+      return (comp && comp.root && comp.root[0]) || new TextRun({ text: '' });
+    }
+    return new TextRun({ text: (r && r.text) || '', bold: r && r.bold, italics: r && r.italics, strike: r && r.strike, color: r && r.color });
+  };
   const children = [];
   for (const node of structure || []) {
     if (node.type === 'heading') {
-      children.push(new Paragraph({ heading: HeadingLevel['HEADING_' + (node.level || 1)], children: node.runs.map(r => new TextRun({ text: r.text, bold: r.bold, italics: r.italics, strike: r.strike, color: r.color })) }));
+      children.push(new Paragraph({ heading: HeadingLevel['HEADING_' + (node.level || 1)], children: (node.runs || []).map(runToChild) }));
     } else if (node.type === 'paragraph') {
-      children.push(new Paragraph({ children: node.runs.map(r => new TextRun({ text: r.text, bold: r.bold, italics: r.italics, strike: r.strike, color: r.color })), alignment: node.align ? AlignmentType[node.align] : undefined }));
+      children.push(new Paragraph({ children: (node.runs || []).map(runToChild), alignment: node.align ? AlignmentType[node.align] : undefined }));
     } else if (node.type === 'bullet') {
       children.push(new Paragraph({ text: (node.runs && node.runs[0] && node.runs[0].text) || '', bullet: { level: node.level || 0 } }));
     } else if (node.type === 'table') {

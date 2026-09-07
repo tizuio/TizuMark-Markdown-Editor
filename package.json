@@ -25,6 +25,7 @@
     "html2canvas": "^1.4.1",
     "katex": "^0.17.0",
     "markdown-it": "^14.1.0",
+    "mathml2omml": "^0.5.0",
     "mermaid": "^11.15.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",

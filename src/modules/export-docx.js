@@ -51,6 +51,18 @@
         else if (tag === 'code') runBase.codeStyle = true;
         else if (tag === 'mark') { runBase.highlight = true; }
         else if (tag === 'br') { runs.push({ break: true }); continue; }
+        // KaTeX 公式：提取 .katex-mathml 的 <math> 作为 mathml run（可编辑公式源），
+        // 不递归收集 katex-html 可见文本（避免公式退化为纯文本 + 重复计数）。
+        // 兼容两种结构：span.katex > (katex-mathml, katex-html) 与
+        // KaTeX 直接输出 <math>（output:'mathml' 时 span.katex 下即 <math>）。
+        if (tag === 'span' && typeof child.className === 'string' && child.className.split(/\s+/).includes('katex')) {
+          const mathEl = child.querySelector('.katex-mathml math') || child.querySelector('math');
+          if (mathEl) {
+            const mathml = mathEl.outerHTML;
+            if (mathml) runs.push({ mathml });
+            continue;
+          }
+        }
         else if (tag === 'img') {
           if (images) { const img = imageToNode(child); if (img) images.push(img); }
           continue;
@@ -144,6 +156,27 @@
       return img ? [img] : [];
     }
     if (tag === 'hr') return [{ type: 'hr' }];
+    // 独立公式块：<span class="math-display"> / <div class="math-display"> 内含已渲染 KaTeX
+    if (/math-display/.test(el.className || '')) {
+      const mathEl = el.querySelector('.katex-mathml math') || el.querySelector('math');
+      if (mathEl) {
+        const mathml = mathEl.outerHTML;
+        if (mathml) {
+          return [{ type: 'paragraph', runs: [{ mathml }], align: 'center' }];
+        }
+      }
+      // 未渲染成 KaTeX（公式渲染失败等）：回退到纯文本
+      const txt = (el.textContent || '').trim();
+      return txt ? [{ type: 'paragraph', runs: [{ text: txt }], align: 'center' }] : [];
+    }
+    // 顶层直接是 .katex（无 math-display 包裹）：提取公式
+    if (tag === 'span' && typeof el.className === 'string' && el.className.split(/\s+/).includes('katex')) {
+      const mathEl = el.querySelector('.katex-mathml math') || el.querySelector('math');
+      if (mathEl) {
+        const mathml = mathEl.outerHTML;
+        if (mathml) return [{ type: 'paragraph', runs: [{ mathml }] }];
+      }
+    }
     if (tag === 'div' && /mermaid-container/.test(el.className || '')) {
       const img = el.querySelector('img');
       return img ? elementToNode(img) : [];

@@ -66,3 +66,33 @@ test('domToDocxStructure: 图片映射为 image 节点（带 data 与宽高）',
   assert.strictEqual(img.height, 50);
   assert.ok(img.data && img.data.length > 0, 'data 应有字节');
 });
+
+test('domToDocxStructure: 行内 KaTeX 公式提取 mathml run（不收集 katex-html 可见文本）', () => {
+  const dom = new JSDOM(
+    '<div id="root"><p>行内 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math></span><span class="katex-html">E=mc2</span></span> 公式</p></div>',
+    { runScripts: 'dangerously' }
+  );
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  const para = structure.find(n => n.type === 'paragraph');
+  assert.ok(para, '应有段落节点');
+  const mathRun = para.runs.find(r => r.mathml);
+  assert.ok(mathRun, '应提取 mathml run');
+  assert.ok(mathRun.mathml.includes('<math'), 'mathml 应含 <math> 元素');
+  assert.ok(!para.runs.some(r => r.text === 'E=mc2'), '不应收集 katex-html 的重复可见文本');
+  assert.ok(para.runs.some(r => r.text && r.text.includes('行内')), '段落前后文本保留');
+});
+
+test('domToDocxStructure: 独立公式块（math-display）提取 mathml 为居中段落', () => {
+  const dom = new JSDOM(
+    '<div id="root"><span class="math-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msubsup><mo>&#x2211;</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></msubsup><msup><mi>i</mi><mn>2</mn></msup></mrow></semantics></math></span><span class="katex-html">&#x2211;i=1ni2</span></span></span></div>',
+    { runScripts: 'dangerously' }
+  );
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  const para = structure.find(n => n.type === 'paragraph' && n.align === 'center');
+  assert.ok(para, '独立公式应作为居中段落');
+  assert.ok(para.runs.some(r => r.mathml && r.mathml.includes('<math')), '应提取 mathml');
+});
