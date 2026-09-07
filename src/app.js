@@ -9039,8 +9039,31 @@ input[type="checkbox"]:checked { background: #16a34a url("data:image/svg+xml;bas
     // 9. Mermaid 图表：SVG 在 Word HTML 导入里常丢失，转成 PNG 内联图。
     //    截图前临时去掉容器 padding/border/background，让容器紧包 SVG；
     //    截图后裁剪透明边，并以实际内容尺寸显示（不超宽时不满页拉伸）。
+    //    截图前先 mermaid.render() 重渲染：预览时 mermaid 偶发未渲染（切换标签页
+    //    触发重排后才渲染），直接 html2canvas 会截到空容器导致图表缺失/报错。
+    if (typeof mermaid !== 'undefined') {
+      const ff = getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif';
+      try { mermaid.initialize({ startOnLoad: false, theme: this.isDark ? 'dark' : 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } }); } catch (e) {}
+    }
     const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
-    for (const container of mermaidContainers) {
+    for (let mi = 0; mi < mermaidContainers.length; mi++) {
+      const container = mermaidContainers[mi];
+      // 重渲染确保 SVG 就绪
+      if (typeof mermaid !== 'undefined' && container.getAttribute('data-code')) {
+        try {
+          const code = (container.getAttribute('data-code') || '').trim();
+          if (code) {
+            const result = await mermaid.render('docx-mermaid-' + Date.now() + '-' + mi, code);
+            container.innerHTML = result.svg;
+            const svgEl = container.querySelector('svg');
+            if (svgEl) {
+              svgEl.removeAttribute('style');
+              const vb = svgEl.getAttribute('viewBox');
+              if (vb) { const parts = vb.split(/\s+/); if (parts.length >= 4) { svgEl.setAttribute('width', parts[2]); svgEl.setAttribute('height', parts[3]); } }
+            }
+          }
+        } catch (e) { /* 渲染失败保留原 SVG，截图兜底 */ }
+      }
       let dataUrl = '';
       let natW = 0, natH = 0, cssW = 0;
       // 备份原样式，截图后恢复（最终 Word HTML 里仍保留灰底框装饰）。

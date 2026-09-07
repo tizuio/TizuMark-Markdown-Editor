@@ -23,7 +23,10 @@
     const colW = Math.floor(100 / Math.max(1, colCount));
     const rows = (node.rows || []).map(row => new D.TableRow({
       children: row.cells.map(cell => new D.TableCell({
-        children: (cell.paragraphs || []).map(p => new D.Paragraph(p.text || '')),
+        children: (cell.paragraphs || []).map(p => new D.Paragraph({
+          text: p.text || '',
+          spacing: { before: 20, after: 20, line: 240, lineRule: 'auto' },
+        })),
         width: { size: (cell.width && cell.width > 0) ? cell.width : colW, type: D.WidthType.PERCENTAGE },
       }))
     }));
@@ -95,7 +98,7 @@
             left: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
             right: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
           },
-          spacing: { before: 120, after: 120 },
+          spacing: { before: 120, after: 120, line: 300, lineRule: 'auto' },
           indent: { left: 120, right: 120 },
         }));
       } else if (node.type === 'image') {
@@ -115,6 +118,15 @@
       }
     }
     const doc = new Document({
+      // 全局默认段落间距：段前段后各 40 twips（约 0.07cm）+ 1.15 倍行距，
+      // 否则 Word 默认段落零间距、文字太密集（用户反馈"太密集"）。
+      styles: {
+        default: {
+          document: {
+            paragraph: { spacing: { before: 40, after: 40, line: 276, lineRule: 'auto' } },
+          },
+        },
+      },
       sections: [{
         properties: {
           page: {
