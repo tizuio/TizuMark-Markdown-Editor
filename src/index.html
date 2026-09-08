@@ -834,7 +834,8 @@
     </div>
   </div>
 
-  <!-- 导出 DOCX 对话框：说明 + 页面设置（纸张/方向/边距）合并为唯一入口，点「导出」即开始 -->
+  <!-- 导出 DOCX 确认框：只做说明 + 确认。纸张/方向/边距固定 A4/纵向/标准，
+       需要改的人在 Word「布局 → 页面设置」里改（导出前选是多余的一步）。 -->
   <div id="docx-page-dialog" class="dialog-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="docx-page-title">
     <div class="dialog docx-page-dialog">
       <div class="dialog-header">
@@ -843,18 +844,6 @@
       </div>
       <div class="dialog-content">
         <p class="docx-page-tip"></p>
-        <div class="settings-row">
-          <label>纸张</label>
-          <div class="docx-page-kind"></div>
-        </div>
-        <div class="settings-row">
-          <label>方向</label>
-          <div class="docx-page-orient"></div>
-        </div>
-        <div class="settings-row">
-          <label>页边距</label>
-          <div class="docx-page-margin"></div>
-        </div>
         <p class="docx-page-warn"></p>
       </div>
       <div class="dialog-footer">

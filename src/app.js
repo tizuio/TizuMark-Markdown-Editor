@@ -5834,12 +5834,12 @@ class MarkdownEditor {
           }
           if (ctrl && e.altKey && !e.shiftKey && e.key.toLowerCase() === 'n') {
             e.preventDefault();
-            if (this._fileTreeCtx.isDir) this.fileTreeNewFile();
+            if (this._fileTreeTargetDir()) this.fileTreeNewFile();
             return;
           }
           if (ctrl && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
             e.preventDefault();
-            if (this._fileTreeCtx.isDir) this.fileTreeNewFolder();
+            if (this._fileTreeTargetDir()) this.fileTreeNewFolder();
             return;
           }
         }
@@ -7992,22 +7992,36 @@ class MarkdownEditor {
   // ====== 文件树右键菜单：状态更新 + 辅助方法 + 操作（合并自 PR #36）======
   // 注意：IPC 全部走 TauriApi（ADR-1 唯一边界），不直接 invoke。
 
+  // 文件树右键的「目标目录」：
+  //   - 文件夹 → 该文件夹本身
+  //   - 文件   → 文件所在目录（即与它同级，这是右键文件时期望的行为）
+  //   - 空白处 → 工作区根目录
+  // 之前只有文件夹右键能新建，文件上和空白处的「新建文件/文件夹」是禁用的，用起来别扭。
+  _fileTreeTargetDir() {
+    const ctx = this._fileTreeCtx;
+    if (!ctx || ctx.isBlank) return this.workspaceFolder || '';
+    if (ctx.isDir) return ctx.path;
+    return this.parentPath(ctx.path);
+  }
+
   // 根据当前右键目标和剪贴板状态更新菜单项禁用状态
   updateFileTreeMenuState() {
     const menu = document.getElementById('context-menu-file-tree');
     if (!menu) return;
     const ctx = this._fileTreeCtx;
-    const isDir = ctx ? ctx.isDir : false;
+    const isBlank = !ctx || !!ctx.isBlank; // 空白处右键：没有具体节点
+    const targetDir = this._fileTreeTargetDir();
     const setDisabled = (action, disabled) => {
       const item = menu.querySelector(`[data-action="${action}"]`);
       if (item) item.classList.toggle('disabled', disabled);
     };
-    setDisabled('file-new-file', !isDir);
-    setDisabled('file-new-folder', !isDir);
-    setDisabled('file-paste', !isDir || !this._fileClipboard);
-    if (!ctx) {
-      ['file-cut', 'file-copy', 'file-rename', 'file-copy-path', 'file-delete'].forEach(a => setDisabled(a, true));
-    }
+    // 新建 / 粘贴只需要「目标目录」：文件夹→自身，文件→同级目录，空白→根目录。
+    setDisabled('file-new-file', !targetDir);
+    setDisabled('file-new-folder', !targetDir);
+    setDisabled('file-paste', !targetDir || !this._fileClipboard);
+    // 需要具体节点的操作：空白处一律禁用（没有选中项可操作）。
+    const nodeActions = ['file-cut', 'file-copy', 'file-rename', 'file-copy-path', 'file-delete', 'folder-open-containing'];
+    nodeActions.forEach(a => setDisabled(a, isBlank));
   }
 
   // 通用输入对话框：返回用户输入的字符串（trim），取消返回 null
@@ -8087,8 +8101,8 @@ class MarkdownEditor {
   }
 
   async fileTreeNewFile() {
-    const ctx = this._fileTreeCtx;
-    if (!ctx || !ctx.isDir) return;
+    const dir = this._fileTreeTargetDir();
+    if (!dir) return;
     let name = await this.showPromptDialog({
       title: this.t('fileNewFile'),
       message: this.t('newFileNamePrompt'),
@@ -8098,11 +8112,11 @@ class MarkdownEditor {
     if (!name.includes('.')) name += '.md';
     const err = this.validateFileName(name);
     if (err) { this.showToast(err, 'danger'); return; }
-    const newPath = this.joinPath(ctx.path, name);
+    const newPath = this.joinPath(dir, name);
     if (await this.pathExists(newPath)) { this.showToast(this.t('nameExists'), 'danger'); return; }
     try {
       await TauriApi.writeFile({ path: newPath, content: '' });
-      this.expandedFolders.add(ctx.path);
+      this.expandedFolders.add(dir);
       this.renderFolderTree();
       this.setStatus(this.t('fileNewFile') + ': ' + name);
     } catch (e) {
@@ -8111,8 +8125,8 @@ class MarkdownEditor {
   }
 
   async fileTreeNewFolder() {
-    const ctx = this._fileTreeCtx;
-    if (!ctx || !ctx.isDir) return;
+    const dir = this._fileTreeTargetDir();
+    if (!dir) return;
     const name = await this.showPromptDialog({
       title: this.t('fileNewFolder'),
       message: this.t('newFolderNamePrompt'),
@@ -8121,11 +8135,11 @@ class MarkdownEditor {
     if (name === null) return;
     const err = this.validateFileName(name);
     if (err) { this.showToast(err, 'danger'); return; }
-    const newPath = this.joinPath(ctx.path, name);
+    const newPath = this.joinPath(dir, name);
     if (await this.pathExists(newPath)) { this.showToast(this.t('nameExists'), 'danger'); return; }
     try {
       await TauriApi.ensureDir({ path: newPath });
-      this.expandedFolders.add(ctx.path);
+      this.expandedFolders.add(dir);
       this.renderFolderTree();
       this.setStatus(this.t('fileNewFolder') + ': ' + name);
     } catch (e) {
@@ -8287,6 +8301,23 @@ class MarkdownEditor {
   async renderFolderTree() {
     const treeEl = document.getElementById('folder-tree');
     if (!treeEl) return;
+    // 空白处右键：新建到工作区根目录。树节点自己的 contextmenu 会 stopPropagation，
+    // 这里的兜底判断防止事件从非节点区域冒泡上来时误判。
+    if (!treeEl.dataset.blankMenuBound) {
+      treeEl.dataset.blankMenuBound = '1';
+      treeEl.addEventListener('contextmenu', (e) => {
+        if (e.target && e.target.closest && e.target.closest('.tree-node')) return;
+        if (!this.workspaceFolder) return; // 未打开工作区时无根目录可建
+        e.preventDefault();
+        this._fileTreeCtx = { path: this.workspaceFolder, isDir: true, isBlank: true, nodeEl: null };
+        this._folderCtxPath = this.workspaceFolder;
+        this._folderCtxIsDir = true;
+        this.updateFolderMenuLabel();
+        this.hideAllContextMenus();
+        this.updateFileTreeMenuState();
+        this.showContextMenu('context-menu-file-tree', e.clientX, e.clientY);
+      });
+    }
     const headerEl = document.getElementById('folder-header');
     const pathEl = document.getElementById('folder-path');
     treeEl.innerHTML = '';
@@ -9344,48 +9375,35 @@ ${clone.innerHTML}
     return !!convert;
   }
 
-  // 弹「导出 DOCX」对话框：说明 + 页面设置（纸张/方向/边距）合并在一个弹框里，
-  // 返回 Promise，resolve { kind, orientation, margin } 或 null（取消）。
-  _showDocxPageDialog() {
+  // 弹「导出 DOCX」确认框：只做说明 + 确认，返回 Promise<boolean>（true=开始导出）。
+  // 纸张/方向/边距固定 A4/纵向/标准——Word 是页面模型需要这些值，但让用户在导出前选
+  // 是多余的一步（Word 里「布局 → 页面设置」随时可改，多数人导出也不是为了打印）。
+  _confirmDocxExport() {
     return new Promise((resolve) => {
       const dlg = document.getElementById('docx-page-dialog');
-      if (!dlg) { resolve({ kind: 'A4', orientation: 'portrait', margin: 'normal' }); return; }
+      if (!dlg) { resolve(true); return; }
       const tipEl = dlg.querySelector('.docx-page-tip');
       if (tipEl) tipEl.textContent = `${this.t('wordTip1')} ${this.t('wordTip2')}`;
       const warnEl = dlg.querySelector('.docx-page-warn');
       if (warnEl) warnEl.textContent = this.t('wordBigFileWarn');
-      // 三个下拉框用自绘 Select（项目约定禁用原生 <select>）；首次打开时构建，之后复用实例。
-      if (!this._docxPageSelects) {
-        const mk = (host, value, options, ariaLabel) => {
-          if (!host || typeof Select === 'undefined') return null;
-          return new Select(host, {
-            value,
-            ariaLabel,
-            t: (k) => this.t(k),
-            optionsProvider: () => options,
-          });
-        };
-        this._docxPageSelects = {
-          kind: mk(dlg.querySelector('.docx-page-kind'), 'A4',
-            [{ value: 'A4', label: 'A4' }, { value: 'Letter', label: 'Letter' }], '纸张'),
-          orient: mk(dlg.querySelector('.docx-page-orient'), 'portrait',
-            [{ value: 'portrait', label: '纵向' }, { value: 'landscape', label: '横向' }], '方向'),
-          margin: mk(dlg.querySelector('.docx-page-margin'), 'normal',
-            [{ value: 'normal', label: '标准' }, { value: 'narrow', label: '窄' }, { value: 'wide', label: '宽' }], '页边距'),
-        };
-      }
       dlg.classList.remove('hidden');
       const done = (val) => { dlg.classList.add('hidden'); resolve(val); };
       const cancels = dlg.querySelectorAll('.docx-page-cancel');
       const okBtn = dlg.querySelector('.docx-page-ok');
-      const s = this._docxPageSelects || {};
-      cancels.forEach((btn) => { btn.onclick = () => done(null); });
-      if (okBtn) okBtn.onclick = () => done({
-        kind: (s.kind && s.kind.getValue()) || 'A4',
-        orientation: (s.orient && s.orient.getValue()) || 'portrait',
-        margin: (s.margin && s.margin.getValue()) || 'normal',
-      });
+      cancels.forEach((btn) => { btn.onclick = () => done(false); });
+      if (okBtn) okBtn.onclick = () => done(true);
     });
+  }
+
+  // 导出 DOCX 固定页面设置（不再让用户选）：A4 / 纵向 / 标准边距。
+  _docxPageConfig() {
+    const pageSize = this._docxPageSize('A4', 'portrait');
+    const margins = this._docxMargins('normal');
+    return {
+      pageWidth: pageSize.width, pageHeight: pageSize.height,
+      marginTop: margins.top, marginBottom: margins.bottom,
+      marginLeft: margins.left, marginRight: margins.right,
+    };
   }
 
   // 确保 lib/docx.min.js 已加载（定义 window.DocxLib）。
@@ -9441,9 +9459,10 @@ ${clone.innerHTML}
     // 主路径：docx 库主线程直构建真 OOXML（可编辑公式 + 二进制图片）；
     // html-docx（altChunk）仅在主路径失败时兜底。
 
-    // 唯一入口弹框：说明 + 页面设置一起选，点「导出」才开始（取消即中止，不再二次确认）。
-    const pageCfg = await this._showDocxPageDialog();
-    if (!pageCfg) return;
+    // 唯一的确认框：说明导出特性后点「导出」开始（取消即中止）。不再让用户选
+    // 纸张/方向/边距——固定 A4/纵向/标准，需要改的人在 Word 里改。
+    const proceed = await this._confirmDocxExport();
+    if (!proceed) return;
 
     // Loading overlay：导出过程（尤其是 html2canvas 渲染公式/图表）可能阻塞主线程，
     // 给用户一个明确的等待反馈；60s watchdog 兜底防止 overlay 永远不消失。
@@ -9543,8 +9562,7 @@ ${clone.innerHTML}
         ? this._structureMathmlToOmml(structure)
         : false;
       if (structure && Array.isArray(structure) && structure.length > 0 && mathConverted) {
-        const pageSize = this._docxPageSize(pageCfg.kind, pageCfg.orientation);
-        const margins = this._docxMargins(pageCfg.margin);
+        const page = this._docxPageConfig(); // 固定 A4/纵向/标准边距
         const diag = {
           build: '2026-09-08-r3',
           hasDocxLib: !!window.DocxLib,
@@ -9555,11 +9573,7 @@ ${clone.innerHTML}
           mathConverted,
         };
         try {
-          const arrayBufferDocx = await this._buildDocxBuffer(structure, {
-            pageWidth: pageSize.width, pageHeight: pageSize.height,
-            marginTop: margins.top, marginBottom: margins.bottom,
-            marginLeft: margins.left, marginRight: margins.right,
-          });
+          const arrayBufferDocx = await this._buildDocxBuffer(structure, page);
           clearTimeout(watchdog);
           const bufDocx = new Uint8Array(arrayBufferDocx);
           await TauriApi.writeBinaryFile({ path, contents: bufDocx });

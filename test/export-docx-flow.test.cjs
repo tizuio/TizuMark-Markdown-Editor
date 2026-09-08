@@ -10,7 +10,7 @@ test('exportWord: docx 流程主线程构建并写出二进制', async () => {
     if (cmd === 'write_binary_file') { captured.path = args.path; captured.contents = args.contents; return undefined; }
     return null;
   } }, async (w, ed) => {
-    ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+    ed._confirmDocxExport = async () => true;
     ed.showConfirmDialog = async () => true;
     const fakeBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
     ed._buildDocxBuffer = async () => fakeBytes.buffer;
@@ -32,7 +32,7 @@ test('exportWord: docx 构建失败时回退 html-docx', async () => {
     if (cmd === 'write_binary_file') { captured.path = args.path; captured.contents = args.contents; return undefined; }
     return null;
   } }, async (w, ed) => {
-    ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+    ed._confirmDocxExport = async () => true;
     ed.showConfirmDialog = async () => true;
     ed._buildDocxBuffer = async () => { throw new Error('docx build failed'); };
     ed._convertHtmlToDocxBuffer = async (html) => { return new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer; };
@@ -46,19 +46,19 @@ test('exportWord: docx 构建失败时回退 html-docx', async () => {
   });
 });
 
-test('exportWord: 页面设置对话框取消时不写文件', async () => {
+test('exportWord: 确认框取消时不写文件', async () => {
   let wrote = false;
   await withEditor({ invokeImpl: (cmd, args) => {
     if (cmd === 'plugin:dialog|save') return '/tmp/out.docx';
     if (cmd === 'write_binary_file') { wrote = true; return undefined; }
     return null;
   } }, async (w, ed) => {
-    ed._showDocxPageDialog = async () => null; // 取消
+    ed._confirmDocxExport = async () => false; // 取消
     ed.showConfirmDialog = async () => true;
     ed.activeTab.filePath = '/docs/note.md';
     w.editor.preview.innerHTML = '<p>hello</p>';
     await ed.exportWord();
-    assert.strictEqual(wrote, false, '取消页面设置时不写文件');
+    assert.strictEqual(wrote, false, '取消确认框时不写文件');
   });
 });
 
@@ -73,7 +73,7 @@ test('exportWord: KaTeX 公式经 MathML→OMML 转可编辑公式传给构建�
   } }, async (w, ed) => {
     // 加载 mathml2omml vendor（真实 index.html 由 <script> 引入，harness 手动加载）
     w.eval(fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'mathml2omml.min.js'), 'utf8'));
-    ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+    ed._confirmDocxExport = async () => true;
     ed.showConfirmDialog = async () => true;
     ed._buildDocxBuffer = async (structure) => {
       captured.structure = structure;
@@ -105,7 +105,7 @@ test('exportWord: 只弹一次合并弹框（不再单独调用 showConfirmDialo
   await withEditor({ invokeImpl: (cmd) => (cmd === 'plugin:dialog|save' ? '/tmp/out.docx' : null) }, async (w, ed) => {
     let pageDialogCalls = 0;
     let confirmCalls = 0;
-    ed._showDocxPageDialog = async () => { pageDialogCalls++; return { kind: 'A4', orientation: 'portrait', margin: 'normal' }; };
+    ed._confirmDocxExport = async () => { pageDialogCalls++; return true; };
     ed.showConfirmDialog = async () => { confirmCalls++; return true; };
     ed._buildDocxBuffer = async () => new Uint8Array([0x50, 0x4b]).buffer;
     ed.activeTab.filePath = '/docs/note.md';
@@ -150,7 +150,7 @@ test('exportWord: 公式导出为可编辑 OMML，不产生公式图片', async 
     return null;
   } }, async (w, ed) => {
     w.eval(fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'mathml2omml.min.js'), 'utf8'));
-    ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+    ed._confirmDocxExport = async () => true;
     ed._buildDocxBuffer = async (structure) => {
       captured.structure = structure;
       return new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer;

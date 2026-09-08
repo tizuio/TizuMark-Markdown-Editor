@@ -324,3 +324,98 @@ test('file-ops: 文件树操作不直接 window.__TAURI__.core.invoke（ADR-1 �
     w.__TAURI__.core.invoke = origInvoke;
   } finally { cleanup(w); }
 });
+
+// ====== 右键「新建」的目标目录：文件夹→自身 / 文件→同级目录 / 空白→根目录 ======
+
+test('file-ops: _fileTreeTargetDir 文件夹取自身、文件取父目录、空白取工作区根', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    stubUi(ed);
+    ed.workspaceFolder = '/ws';
+
+    ed._fileTreeCtx = { path: '/ws/sub', isDir: true };
+    assert.strictEqual(ed._fileTreeTargetDir(), '/ws/sub', '文件夹 → 自身');
+
+    ed._fileTreeCtx = { path: '/ws/sub/a.md', isDir: false };
+    assert.strictEqual(ed._fileTreeTargetDir(), '/ws/sub', '文件 → 所在目录（同级）');
+
+    ed._fileTreeCtx = { path: '/ws', isDir: true, isBlank: true };
+    assert.strictEqual(ed._fileTreeTargetDir(), '/ws', '空白处 → 工作区根目录');
+
+    ed._fileTreeCtx = null;
+    assert.strictEqual(ed._fileTreeTargetDir(), '/ws', '无上下文 → 工作区根目录');
+  } finally { cleanup(w); }
+});
+
+test('file-ops: 在文件上右键新建文件 → 建到同级目录（此前因非文件夹被禁用）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const written = [];
+    stubUi(ed, { prompt: async () => 'new.md' });
+    ed.workspaceFolder = '/ws';
+    ed.pathExists = async () => false;
+    ed._fileTreeCtx = { path: '/ws/sub/a.md', isDir: false };
+    // 捕获 writeFile
+    const origWrite = w.TauriApi.writeFile;
+    w.TauriApi.writeFile = async (args) => { written.push(args.path); return undefined; };
+    try {
+      await ed.fileTreeNewFile();
+    } finally { w.TauriApi.writeFile = origWrite; }
+    assert.deepStrictEqual(written, ['/ws/sub/new.md'], '应建到文件的同级目录');
+  } finally { cleanup(w); }
+});
+
+test('file-ops: 空白处右键新建文件夹 → 建到工作区根目录', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const dirs = [];
+    stubUi(ed, { prompt: async () => 'newdir' });
+    ed.workspaceFolder = '/ws';
+    ed.pathExists = async () => false;
+    ed._fileTreeCtx = { path: '/ws', isDir: true, isBlank: true };
+    const origEnsure = w.TauriApi.ensureDir;
+    w.TauriApi.ensureDir = async (args) => { dirs.push(args.path); return undefined; };
+    try {
+      await ed.fileTreeNewFolder();
+    } finally { w.TauriApi.ensureDir = origEnsure; }
+    assert.deepStrictEqual(dirs, ['/ws/newdir'], '应建到工作区根目录');
+  } finally { cleanup(w); }
+});
+
+test('file-ops: 空白处右键菜单禁用需要具体节点的操作，保留新建', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    stubUi(ed);
+    ed.workspaceFolder = '/ws';
+    ed._fileTreeCtx = { path: '/ws', isDir: true, isBlank: true };
+    ed.updateFileTreeMenuState();
+    const menu = w.document.getElementById('context-menu-file-tree');
+    const isDisabled = (a) => {
+      const el = menu.querySelector(`[data-action="${a}"]`);
+      return el ? el.classList.contains('disabled') : null;
+    };
+    assert.strictEqual(isDisabled('file-new-file'), false, '空白处应可新建文件');
+    assert.strictEqual(isDisabled('file-new-folder'), false, '空白处应可新建文件夹');
+    for (const a of ['file-cut', 'file-copy', 'file-rename', 'file-copy-path', 'file-delete']) {
+      assert.strictEqual(isDisabled(a), true, `空白处应禁用 ${a}（无选中项）`);
+    }
+  } finally { cleanup(w); }
+});
+
+test('file-ops: 文件上右键菜单应启用新建（此前 !isDir 被禁用）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    stubUi(ed);
+    ed.workspaceFolder = '/ws';
+    ed._fileTreeCtx = { path: '/ws/sub/a.md', isDir: false };
+    ed.updateFileTreeMenuState();
+    const menu = w.document.getElementById('context-menu-file-tree');
+    const isDisabled = (a) => {
+      const el = menu.querySelector(`[data-action="${a}"]`);
+      return el ? el.classList.contains('disabled') : null;
+    };
+    assert.strictEqual(isDisabled('file-new-file'), false, '文件上右键应可新建文件');
+    assert.strictEqual(isDisabled('file-new-folder'), false, '文件上右键应可新建文件夹');
+    assert.strictEqual(isDisabled('file-rename'), false, '文件上右键应可重命名');
+  } finally { cleanup(w); }
+});

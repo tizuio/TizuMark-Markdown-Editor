@@ -24,7 +24,7 @@ function confirmExport(ed, result = true) {
 // exportWord 才落到 _fallbackWordHtmlExport 并记录 __lastWordHTML。
 // 同时 mock 页面设置对话框——真实 #docx-page-dialog 在 index.html 里存在，若不 mock 会一直等待点击而挂起。
 function fallbackExport(ed) {
-  ed._showDocxPageDialog = async () => ({ kind: 'A4', orientation: 'portrait', margin: 'normal' });
+  ed._confirmDocxExport = async () => true;
   ed._buildDocxBuffer = async () => { throw new Error('force fallback to html-docx'); };
 }
 
