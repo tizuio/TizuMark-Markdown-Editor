@@ -22,6 +22,11 @@
   --font-preview: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   /* 预览代码块字体（行内代码 + 围栏代码块），默认回退等宽，可被 codeFont 设置覆盖 */
   --font-code-preview: var(--font-mono);
+  /* 框架界面字号（侧栏/工具栏/弹窗/菜单/标签/状态栏等 chrome），由设置写入 :root，默认值 13px */
+  --ui-font-size: 13px;
+  /* 预览正文基础字重；更强字重用于 **加粗**/strong/b 与各级标题，随基础字重动态联动（见 app.js） */
+  --preview-weight: 400;
+  --preview-bold-weight: 700;
 }
 
 /* ========== 基准（默认）浅色 ========== */
@@ -510,7 +515,7 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) * 0.7692);
   -webkit-app-region: no-drag;
   transition: color 0.15s, opacity 0.15s;
   opacity: 0.6;
@@ -547,7 +552,7 @@ body {
   background-color: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
 }
 .editor-breadcrumb.hidden {
   display: none;
@@ -567,7 +572,7 @@ body {
   background: linear-gradient(to right, var(--bg-primary) 55%, rgba(0, 0, 0, 0));
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   line-height: 1;
 }
 .editor-breadcrumb.show-overflow .editor-breadcrumb-overflow {
@@ -633,7 +638,7 @@ body {
 .editor-breadcrumb-separator {
   color: var(--text-secondary);
   opacity: 0.55;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   padding: 0 1px;
   flex-shrink: 0;
   user-select: none;
@@ -660,7 +665,7 @@ body {
   color: var(--text-primary);
   cursor: pointer;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 24px;
   white-space: nowrap;
   display: flex;
@@ -742,7 +747,7 @@ body {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.2s ease;
   border-radius: 16px;
   -webkit-app-region: no-drag;
@@ -809,7 +814,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   cursor: pointer;
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.15s ease;
@@ -826,7 +831,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   cursor: pointer;
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.12s ease;
@@ -847,7 +852,7 @@ body {
 
 .dropdown-item .shortcut {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   opacity: 0.7;
 }
@@ -896,7 +901,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   cursor: pointer;
   white-space: nowrap;
@@ -921,7 +926,7 @@ body {
 
 .slash-hint {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   opacity: 0.7;
   font-family: var(--font-mono, monospace);
@@ -937,7 +942,7 @@ body {
 }
 
 .slash-manage-btn {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   background: transparent;
   border: none;
@@ -1048,7 +1053,7 @@ body {
 
 .slash-order-label {
   flex: 1;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1056,7 +1061,7 @@ body {
 }
 
 .slash-order-hint {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   opacity: 0.7;
   font-family: var(--font-mono, monospace);
@@ -1086,7 +1091,7 @@ body {
 }
 
 .recent-file-name {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   max-width: 260px;
   overflow: hidden;
@@ -1095,7 +1100,7 @@ body {
 }
 
 .recent-file-dir {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   max-width: 260px;
   overflow: hidden;
@@ -1173,7 +1178,7 @@ body {
   color: var(--text-primary);
   cursor: pointer;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 22px;
   display: flex;
   align-items: center;
@@ -1197,11 +1202,11 @@ body {
 .fmt-icon-btn b,
 .fmt-icon-btn i,
 .fmt-icon-btn s {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 1;
 }
 .fmt-script {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 1;
 }
 .fmt-script sub,
@@ -1295,7 +1300,7 @@ body {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: calc(var(--ui-font-size) * 1.2308);
   cursor: pointer;
   border-radius: 4px;
   display: flex;
@@ -1320,7 +1325,7 @@ body {
   background-color: var(--bg-tab);
   border-radius: 8px 8px 0 0;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   white-space: nowrap;
   min-width: 80px;
@@ -1367,7 +1372,7 @@ body {
 }
 
 .tab-close {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   line-height: 1;
   opacity: 0.5;
   cursor: pointer;
@@ -1423,7 +1428,7 @@ body {
 .cs-drag-handle .dialog-close { cursor: pointer; }
 .cross-search-dialog { max-width: 92vw; }
 .cs-content { padding: 14px 20px; max-height: 70vh; display: flex; flex-direction: column; gap: 10px; }
-.cs-scope { display: flex; flex-direction: row; gap: 20px; font-size: 13px; padding: 2px 0; }
+.cs-scope { display: flex; flex-direction: row; gap: 20px; font-size: calc(var(--ui-font-size) * 1); padding: 2px 0; }
 .cs-scope label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-primary); }
 .cs-scope input[type="radio"] {
   appearance: none; -webkit-appearance: none;
@@ -1443,7 +1448,7 @@ body {
 .cs-dir-row.hidden { display: none; }
 /* 跨文件搜索：输入框高度固定，不随面板拖动放大而拉伸（仅结果区 .cs-results 撑满） */
 .cs-input {
-  flex: 0 0 auto; padding: 6px 10px; font-size: 13px;
+  flex: 0 0 auto; padding: 6px 10px; font-size: calc(var(--ui-font-size) * 1);
   border: 1px solid color-mix(in srgb, var(--border-color) 140%, var(--text-secondary));
   border-radius: 4px;
   background: var(--bg-primary); color: var(--text-primary);
@@ -1453,7 +1458,7 @@ body {
 .cs-dir-row .cs-input { flex: 1; }
 .cs-input::placeholder { color: var(--text-tertiary, #9aa0a6); }
 .cs-input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 22%, transparent); }
-.cs-options { display: flex; gap: 18px; font-size: 13px; color: var(--text-secondary); flex-wrap: wrap; }
+.cs-options { display: flex; gap: 18px; font-size: calc(var(--ui-font-size) * 1); color: var(--text-secondary); flex-wrap: wrap; }
 .cs-check { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-primary); }
 .cs-check input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -1471,18 +1476,18 @@ body {
   transform: rotate(45deg); margin-bottom: 1px;
 }
 .cs-check input[type="checkbox"]:hover { border-color: var(--accent-color); }
-.cs-progress { font-size: 12px; color: var(--text-secondary); }
+.cs-progress { font-size: calc(var(--ui-font-size) * 0.9231); color: var(--text-secondary); }
 .cs-progress.hidden { display: none; }
-.cs-total { font-size: 13px; color: var(--accent-color); font-weight: 600; }
+.cs-total { font-size: calc(var(--ui-font-size) * 1); color: var(--accent-color); font-weight: 600; }
 .cs-results { flex: 1; overflow-y: auto; min-height: 120px; }
 .cs-file-group { margin-bottom: 8px; }
 .cs-file-header {
-  font-size: 12px; font-weight: 600; color: var(--text-primary);
+  font-size: calc(var(--ui-font-size) * 0.9231); font-weight: 600; color: var(--text-primary);
   padding: 4px 6px; background: var(--bg-secondary); border-radius: 3px;
   position: sticky; top: 0;
 }
 .cs-match {
-  font-size: 12px; padding: 4px 8px; cursor: pointer; color: var(--text-secondary);
+  font-size: calc(var(--ui-font-size) * 0.9231); padding: 4px 8px; cursor: pointer; color: var(--text-secondary);
   border-left: 2px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .cs-match:hover { background: var(--accent-subtle); color: var(--text-primary); border-left-color: var(--accent-color); }
@@ -1499,7 +1504,7 @@ body {
   padding: 3px 8px;
   border: 1px solid var(--border-color);
   border-radius: 3px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   background: var(--bg-primary);
   color: var(--text-primary);
   width: 180px;
@@ -1510,7 +1515,7 @@ body {
 .find-input:focus { outline: none; border-color: var(--accent-color); }
 
 .find-option {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -1555,7 +1560,7 @@ body {
   border-radius: 3px;
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   cursor: pointer;
   white-space: nowrap;
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.15s ease;
@@ -1563,9 +1568,9 @@ body {
 
 .find-btn:hover { background: var(--border-color); }
 
-.find-close-btn { border: none; font-size: 16px; padding: 2px 6px; }
+.find-close-btn { border: none; font-size: calc(var(--ui-font-size) * 1.2308); padding: 2px 6px; }
 
-.find-count { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.find-count { font-size: calc(var(--ui-font-size) * 0.8462); color: var(--text-secondary); white-space: nowrap; }
 
 .find-separator { width: 1px; height: 16px; background: var(--border-color); }
 
@@ -1669,7 +1674,7 @@ body.is-resizing .side-btn {
   transform: translate(-50%, -50%);
   background: var(--accent-color);
   color: var(--accent-text);
-  font-size: 16px;
+  font-size: calc(var(--ui-font-size) * 1.2308);
   font-weight: 500;
   padding: 16px 32px;
   border-radius: 12px;
@@ -1768,11 +1773,25 @@ body.is-resizing .side-btn {
   overflow-y: auto;
   background-color: var(--preview-bg);
   font-family: var(--font-preview);
+  font-weight: var(--preview-weight, 400);
   line-height: 1.7;
   word-wrap: break-word;
   -webkit-user-select: text;
   user-select: text;
   transition: max-width 0.2s ease;
+}
+
+/* 预览强调层次：加粗/strong/b 与各级标题始终比正文基础字重更强，且与设置值动态联动，
+   避免「基础很细时加粗突然 700 特别粗」的突兀对比（--preview-bold-weight 由 app.js 计算写入） */
+.preview-content strong,
+.preview-content b,
+.preview-content h1,
+.preview-content h2,
+.preview-content h3,
+.preview-content h4,
+.preview-content h5,
+.preview-content h6 {
+  font-weight: var(--preview-bold-weight, 700);
 }
 
 .large-file-banner {
@@ -1783,7 +1802,7 @@ body.is-resizing .side-btn {
   padding: 4px 14px;
   background-color: var(--accent-color, #4a90d9);
   color: #fff;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) * 0.9615);
   line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
@@ -1805,7 +1824,7 @@ body.is-resizing .side-btn {
   padding: 1px 8px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -1860,7 +1879,7 @@ body.is-resizing .side-btn {
 .preview-content h4, .preview-content h5, .preview-content h6 {
   margin-top: 24px;
   margin-bottom: 12px;
-  font-weight: 600;
+  font-weight: var(--preview-bold-weight, 700);
   line-height: 1.3;
 }
 
@@ -1875,7 +1894,7 @@ body.is-resizing .side-btn {
 .preview-content a { color: var(--accent-color); text-decoration: none; }
 .preview-content a:hover { text-decoration: underline; }
 
-.preview-content strong { font-weight: 600; }
+.preview-content strong { font-weight: var(--preview-bold-weight, 700); }
 .preview-content em { font-style: italic; }
 
 .preview-content del { text-decoration: line-through; color: var(--text-secondary); }
@@ -2155,7 +2174,7 @@ body.is-resizing .side-btn {
   transform: translateX(-50%);
   /* 亮色：深字浅底（暗色由下方 [data-theme="dark"] 覆盖） */
   color: rgba(51, 55, 64, 0.92);
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) * 1.1538);
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
   padding: 10px 22px;
@@ -2174,7 +2193,7 @@ body.is-resizing .side-btn {
 }
 .lightbox-hint-close {
   cursor: pointer;
-  font-size: 20px;
+  font-size: calc(var(--ui-font-size) * 1.5385);
   line-height: 1;
   opacity: 0.8;
   transition: opacity 0.15s;
@@ -2190,7 +2209,7 @@ body.is-resizing .side-btn {
   left: 50%;
   transform: translateX(-50%);
   color: rgba(255,255,255,0.9);
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) * 1.1538);
   background: rgba(0,0,0,0.55);
   padding: 10px 22px;
   border-radius: 20px;
@@ -2210,7 +2229,7 @@ body.is-resizing .side-btn {
   padding: 3px 10px;
   border-radius: 4px;
   background: rgba(255,255,255,0.18);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   line-height: 1.4;
   white-space: nowrap;
   transition: background 0.15s ease;
@@ -2405,7 +2424,7 @@ body.is-resizing .side-btn {
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s, background-color 0.2s;
@@ -2587,7 +2606,7 @@ body.is-resizing .side-btn {
   background-color: var(--bg-toolbar);
   border-top: 1px solid var(--border-color);
   box-shadow: var(--shadow-up-sm);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   min-height: 22px;
 }
@@ -2639,7 +2658,7 @@ body.is-resizing .side-btn {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) * 0.7692);
   transition: background-color 0.2s, color 0.2s, opacity 0.3s ease, left 0.3s ease;
 }
 
@@ -2694,7 +2713,7 @@ body.is-resizing .side-btn {
   padding: 8px 12px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -2758,7 +2777,7 @@ body.is-resizing-row .sidebar-h-resizer {
   min-height: 0;
 }
 .panel-title {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--text-secondary);
@@ -2850,7 +2869,7 @@ body.is-resizing-row .sidebar-h-resizer {
   max-width: 96px;
 }
 .outline-filter .select-component-input {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   /* 盒式下拉框：边框 + bg-primary 底，与折叠标题（--bg-secondary 底）区分，一眼可辨；
      height + line-height 保证文字与右侧小三角垂直居中 */
   height: 24px;
@@ -2913,7 +2932,7 @@ body.is-resizing-row .sidebar-h-resizer {
   background-color: color-mix(in srgb, var(--bg-primary) 62%, transparent);
   backdrop-filter: blur(1px);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   pointer-events: auto;
 }
 .folder-loading-overlay.hidden {
@@ -2937,7 +2956,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border-radius: 6px;
   background: var(--bg-secondary, #2a2a2a);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   cursor: pointer;
 }
 .folder-loading-cancel:hover {
@@ -3027,7 +3046,7 @@ body.is-resizing-row .sidebar-h-resizer {
 
 .folder-path {
   flex: 1;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3043,7 +3062,7 @@ body.is-resizing-row .sidebar-h-resizer {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3068,7 +3087,7 @@ body.is-resizing-row .sidebar-h-resizer {
   max-width: 100px;
 }
 .folder-sort-key .select-component-input {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   /* 盒式下拉框：边框 + bg-primary 底，与折叠标题（--bg-secondary 底）区分，一眼可辨；
      height + line-height 保证文字与右侧小三角垂直居中 */
   height: 24px;
@@ -3147,7 +3166,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   cursor: pointer;
   text-align: center;
 }
@@ -3167,7 +3186,7 @@ body.is-resizing-row .sidebar-h-resizer {
   gap: 6px;
   margin: 0 4px;
   padding: 2px 6px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   cursor: default;
   white-space: nowrap;
@@ -3249,7 +3268,7 @@ body.is-resizing-row .sidebar-h-resizer {
   gap: 1px;
   margin-left: 8px;
   padding-right: 2px;
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) * 0.7692);
   line-height: 1.25;
   color: var(--text-tertiary, #9aa0a6);
   letter-spacing: 0.2px;
@@ -3309,7 +3328,7 @@ body.is-resizing-row .sidebar-h-resizer {
   gap: 4px;
   margin: 0 4px;
   padding: 3px 6px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   cursor: default;
   text-decoration: none;
@@ -3389,12 +3408,12 @@ body.is-resizing-row .sidebar-h-resizer {
 .outline-item.level-2 { }
 .outline-item.level-3 { }
 .outline-item.level-4 { }
-.outline-item.level-5 { font-size: 11px; }
-.outline-item.level-6 { font-size: 11px; }
+.outline-item.level-5 { font-size: calc(var(--ui-font-size) * 0.8462); }
+.outline-item.level-6 { font-size: calc(var(--ui-font-size) * 0.8462); }
 
 .outline-empty {
   padding: 16px 12px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   text-align: center;
 }
@@ -3426,7 +3445,7 @@ body.is-resizing-row .sidebar-h-resizer {
   align-items: center;
   justify-content: space-between;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   cursor: pointer;
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.12s ease;
@@ -3456,7 +3475,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .context-menu-item .shortcut {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   margin-left: 24px;
 }
@@ -3553,7 +3572,7 @@ body.is-resizing-row .sidebar-h-resizer {
 
 .dialog-header h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -3569,7 +3588,7 @@ body.is-resizing-row .sidebar-h-resizer {
   background: none;
   border: none;
   border-radius: 6px;
-  font-size: 18px;
+  font-size: calc(var(--ui-font-size) * 1.3846);
   color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
@@ -3592,7 +3611,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .dialog-content p {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   color: var(--text-primary);
   margin: 0;
 }
@@ -3606,7 +3625,7 @@ body.is-resizing-row .sidebar-h-resizer {
   gap: 8px;
   margin: 0 0 14px 0;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   font-weight: 600;
   line-height: 1.6;
   color: var(--color-danger);
@@ -3616,7 +3635,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border-radius: 6px;
 }
 .dialog-warning.hidden { display: none; }
-.dialog-warning-icon { flex: none; font-size: 16px; line-height: 1.4; }
+.dialog-warning-icon { flex: none; font-size: calc(var(--ui-font-size) * 1.2308); line-height: 1.4; }
 
 .save-dialog {
   max-width: 380px;
@@ -3669,7 +3688,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   cursor: pointer;
   transition: background-color, color, border-color, opacity, transform, box-shadow 0.15s ease;
 }
@@ -3711,7 +3730,7 @@ body.is-resizing-row .sidebar-h-resizer {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   border: 1px solid var(--border-color, #d0d0d0);
   border-radius: 6px;
   background: var(--input-bg, #fff);
@@ -3739,7 +3758,7 @@ body.is-resizing-row .sidebar-h-resizer {
 /* 提示语（指令文字）与输入框之间的间距，解决"文字贴着框" */
 .prompt-dialog .dialog-content p {
   margin: 0 0 12px 0;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   line-height: 1.5;
   color: var(--text-secondary, #888);
 }
@@ -3750,7 +3769,7 @@ body.is-resizing-row .sidebar-h-resizer {
   width: 100%;
   box-sizing: border-box;
   padding: 9px 12px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   line-height: 1.4;
   border: 1px solid var(--border-color, #d0d0d0);
   border-radius: 6px;
@@ -3806,7 +3825,7 @@ body.is-resizing-row .sidebar-h-resizer {
 .file-search-item .fs-path {
   flex: 1 1 auto;
   color: var(--text-secondary, #888);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3820,7 +3839,7 @@ body.is-resizing-row .sidebar-h-resizer {
   padding: 18px 10px;
   text-align: center;
   color: var(--text-secondary, #888);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
 }
 /* 文件搜索(Ctrl+P)：与跨文件搜索(Ctrl+H)一致的「浮动非模态面板」样式。
    透明遮罩 + pointer-events:none（点击穿透到下方，不触发关闭）；面板 position:absolute
@@ -3851,7 +3870,7 @@ body.is-resizing-row .sidebar-h-resizer {
   margin-bottom: 8px;
 }
 .close-confirm-dialog label {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
 }
 .close-confirm-dialog input[type="checkbox"] {
@@ -3904,26 +3923,26 @@ body.is-resizing-row .sidebar-h-resizer {
   max-height: 40vh;
   overflow-y: auto;
   padding-right: 12px;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   line-height: 1.7;
   color: var(--text-primary);
 }
 
 .eula-scroll h3 {
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) * 1.1538);
   font-weight: 600;
   margin: 0 0 4px;
 }
 
 .eula-scroll h4 {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 600;
   margin: 0 0 2px;
   color: var(--text-primary);
 }
 
 .eula-scroll p {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   margin: 0;
 }
 
@@ -3943,7 +3962,7 @@ body.is-resizing-row .sidebar-h-resizer {
   margin: 0 0 6px 0;
 }
 .about-app-name {
-  font-size: 16px;
+  font-size: calc(var(--ui-font-size) * 1.2308);
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.2px;
@@ -3951,7 +3970,7 @@ body.is-resizing-row .sidebar-h-resizer {
 .about-version-chip {
   display: inline-block;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   font-weight: 600;
   color: var(--accent-text, #fff);
   background: var(--accent-color);
@@ -3962,12 +3981,12 @@ body.is-resizing-row .sidebar-h-resizer {
 .about-version-body .about-version-desc {
   margin: 0 0 4px 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
 }
 .about-version-body .about-build {
   margin: 0;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
 }
 
 /* 关于弹框的折叠组件：与快捷键面板共用同一套折叠组件视觉语言
@@ -3990,7 +4009,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border: none;
   cursor: pointer;
   user-select: none;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 650;
   letter-spacing: 0.3px;
   color: var(--text-primary);
@@ -4047,7 +4066,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .dependency-body p {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-secondary);
   margin: 4px 0;
   line-height: 1.5;
@@ -4091,21 +4110,21 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .gitee-label {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   opacity: 0.85;
   font-weight: 500;
   letter-spacing: 0.5px;
 }
 
 .gitee-repo {
-  font-size: 20px;
+  font-size: calc(var(--ui-font-size) * 1.5385);
   font-weight: 700;
   font-family: var(--font-mono);
   color: #fff;
 }
 
 .gitee-action {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   font-weight: 600;
   opacity: 0.95;
   margin-left: auto;
@@ -4113,7 +4132,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .gitee-arrow {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   opacity: 0.7;
   transition: transform 0.15s ease;
   flex-shrink: 0;
@@ -4147,7 +4166,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .qq-join-text {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   font-weight: 600;
   opacity: 0.95;
   margin-left: auto;
@@ -4155,7 +4174,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .qq-arrow {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   opacity: 0.7;
   transition: transform 0.15s ease;
   flex-shrink: 0;
@@ -4177,14 +4196,14 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .qq-label {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   opacity: 0.85;
   font-weight: 500;
   letter-spacing: 0.5px;
 }
 
 .qq-number {
-  font-size: 20px;
+  font-size: calc(var(--ui-font-size) * 1.5385);
   font-weight: 700;
   letter-spacing: 1px;
   font-family: var(--font-mono);
@@ -4228,21 +4247,21 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .github-label {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   opacity: 0.85;
   font-weight: 500;
   letter-spacing: 0.5px;
 }
 
 .github-repo {
-  font-size: 20px;
+  font-size: calc(var(--ui-font-size) * 1.5385);
   font-weight: 700;
   font-family: var(--font-mono);
   color: #fff;
 }
 
 .github-action {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   font-weight: 600;
   opacity: 0.95;
   margin-left: auto;
@@ -4250,7 +4269,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .github-arrow {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   opacity: 0.7;
   transition: transform 0.15s ease;
   flex-shrink: 0;
@@ -4261,7 +4280,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .contact-desc {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   margin: 0;
   text-align: center;
@@ -4275,7 +4294,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .dependency-item strong {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
 }
 
@@ -4284,7 +4303,7 @@ body.is-resizing-row .sidebar-h-resizer {
   padding: 1px 6px;
   background-color: var(--accent-color);
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) * 0.7692);
   border-radius: 3px;
   margin-left: 8px;
   font-weight: 500;
@@ -4292,12 +4311,12 @@ body.is-resizing-row .sidebar-h-resizer {
 
 .dependency-item p {
   margin: 4px 0 0 0;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
 }
 
 .copyright-text {
-  font-size: 12px !important;
+  font-size: calc(var(--ui-font-size) * 0.9231) !important;
   color: var(--text-secondary) !important;
   margin-bottom: 8px !important;
 }
@@ -4309,7 +4328,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .copyright-list li {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   padding: 2px 0;
   padding-left: 12px;
@@ -4351,7 +4370,7 @@ body.is-resizing-row .sidebar-h-resizer {
   border: none;
   cursor: pointer;
   user-select: none;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 650;
   letter-spacing: 0.3px;
   color: var(--text-primary);
@@ -4421,7 +4440,7 @@ body.is-resizing-row .sidebar-h-resizer {
 }
 
 .settings-row label:first-child {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
 }
 
@@ -4438,7 +4457,7 @@ select {
   background-repeat: no-repeat;
   background-position: right 10px center;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   cursor: pointer;
   box-sizing: border-box;
   transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
@@ -4470,13 +4489,13 @@ select option {
 /* ====== 导出 DOCX 确认框（只做说明 + 确认，页面设置固定 A4/纵向/标准） ====== */
 .docx-page-dialog .docx-page-tip {
   margin: 0 0 10px;
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) * 0.9615);
   line-height: 1.7;
   color: var(--text-secondary);
 }
 .docx-page-dialog .docx-page-warn {
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   line-height: 1.6;
   color: var(--color-warning);
 }
@@ -4494,8 +4513,9 @@ select option {
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   width: 100%;
+  margin-top: 8px;
   box-sizing: border-box;
 }
 
@@ -4515,7 +4535,7 @@ select option {
   border-radius: 6px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   cursor: pointer;
   text-overflow: ellipsis;
   transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
@@ -4554,7 +4574,7 @@ select option {
 }
 .font-picker-item {
   padding: 7px 10px 7px 12px;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
   border-radius: 5px;
   cursor: pointer;
@@ -4584,7 +4604,7 @@ select option {
 .font-picker-group-label {
   position: relative;
   padding: 6px 10px 6px 16px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   font-weight: 700;
   letter-spacing: .03em;
   color: var(--accent-color);
@@ -4610,7 +4630,7 @@ select option {
 }
 .font-picker-empty {
   padding: 10px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   text-align: center;
 }
@@ -4645,7 +4665,7 @@ select option {
   border-radius: 4px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   cursor: pointer;
   text-overflow: ellipsis;
   transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
@@ -4713,7 +4733,7 @@ select option {
 }
 .select-component-item {
   padding: 5px 8px 5px 10px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-primary);
   border-radius: 4px;
   cursor: pointer;
@@ -4756,7 +4776,7 @@ select option {
 }
 .custom-font-empty {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
 }
 .custom-font-item {
   display: flex;
@@ -4769,14 +4789,14 @@ select option {
   background: var(--bg-secondary);
 }
 .custom-font-name {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .custom-font-del {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   padding: 3px 12px;
 }
 #btn-add-font {
@@ -4815,19 +4835,19 @@ select option {
   justify-content: center;
 }
 .font-preview-caption {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   font-family: var(--font-ui, inherit);
 }
 .font-preview-text {
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) * 1.1538);
   line-height: 1.5;
   color: var(--text-primary);
   word-break: break-word;
   white-space: normal;
 }
 .font-preview-code .font-preview-text {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   background: var(--bg-code, var(--bg-primary));
   padding: 4px 8px;
   border-radius: 4px;
@@ -4908,7 +4928,7 @@ select option {
   margin-bottom: 0;
 }
 .settings-group-title {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   font-weight: 600;
   color: var(--accent-color);
   padding: 8px 16px 4px;
@@ -4927,7 +4947,7 @@ select option {
   margin-bottom: 0;
 }
 .shortcut-group-title {
-  font-size: 11.5px;
+  font-size: calc(var(--ui-font-size) * 0.8846);
   font-weight: 600;
   /* 面板下的小分类标题使用主题强调色，与折叠组件体系中的展开态强调色保持一致 */
   color: var(--accent-color);
@@ -4951,7 +4971,7 @@ select option {
 }
 
 .shortcut-label {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
 }
 
@@ -4969,7 +4989,7 @@ select option {
   height: 22px;
   padding: 0 6px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -4978,13 +4998,13 @@ select option {
 }
 
 .shortcut-key .key-separator {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
 }
 
 .shortcut-record-btn {
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   background: var(--bg-primary);
@@ -5012,7 +5032,7 @@ select option {
 
 .shortcut-clear-btn {
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   background: var(--bg-primary);
@@ -5033,7 +5053,7 @@ select option {
 }
 
 .shortcut-duplicate-warning {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--color-danger);
   margin-top: 4px;
   padding: 0 20px;
@@ -5062,7 +5082,7 @@ select option {
   border: none;
   cursor: pointer;
   user-select: none;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 650;
   letter-spacing: 0.3px;
   color: var(--text-primary);
@@ -5134,12 +5154,12 @@ select option {
   margin-bottom: 9px;
 }
 .scheme-block-label {
-  font-size: 12.5px;
+  font-size: calc(var(--ui-font-size) * 0.9615);
   font-weight: 600;
   color: var(--text-primary);
 }
 .scheme-block-hint {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   line-height: 1.35;
 }
@@ -5178,13 +5198,13 @@ select option {
   min-width: 0;
 }
 .shortcut-builtin-meta .shortcut-label {
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.3;
 }
 .shortcut-builtin-desc {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   color: var(--text-secondary);
   line-height: 1.3;
 }
@@ -5245,7 +5265,7 @@ select option {
   background: var(--warning-bg, #fff7e6);
   border-bottom: 1px solid var(--warning-border, #ffd591);
   color: var(--warning-text, #874d00);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 .external-change-banner.visible {
@@ -5259,7 +5279,7 @@ select option {
   overflow: hidden;
 }
 .ecb-icon {
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) * 1.1538);
   flex: none;
 }
 .ecb-name {
@@ -5287,7 +5307,7 @@ select option {
   background: transparent;
   color: var(--warning-text, #874d00);
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   white-space: nowrap;
 }
 .ecb-btn:hover {
@@ -5349,7 +5369,7 @@ select option {
   transition: width 0.3s ease;
 }
 .loading-text {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) * 1.0769);
   color: var(--text-secondary, #666666);
 }
 
@@ -5362,7 +5382,7 @@ select option {
 }
 .form-field label {
   display: block;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
   margin-bottom: 4px;
 }
@@ -5379,7 +5399,7 @@ select option {
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   box-sizing: border-box;
   margin-bottom: 4px;
   cursor: default;
@@ -5412,7 +5432,7 @@ select option {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -5450,7 +5470,7 @@ select option {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 12px !important;
+  font-size: calc(var(--ui-font-size) * 0.9231) !important;
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 8px 0 0 0;
@@ -5473,9 +5493,9 @@ select option {
 /* ====== Update dialog ====== */
 .update-dialog { max-width: 680px; width: min(680px, 92vw); }
 .update-version-highlight { font-weight: bold; color: var(--accent-color); }
-.update-current { font-size: 12px; color: var(--text-secondary); margin: 4px 0 12px; }
-.update-notes { max-height: 340px; overflow-y: auto; background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 12px 0; font-size: 13px; }
-.update-notes h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); }
+.update-current { font-size: calc(var(--ui-font-size) * 0.9231); color: var(--text-secondary); margin: 4px 0 12px; }
+.update-notes { max-height: 340px; overflow-y: auto; background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 12px 0; font-size: calc(var(--ui-font-size) * 1); }
+.update-notes h4 { margin: 0 0 8px; font-size: calc(var(--ui-font-size) * 1); color: var(--text-secondary); }
 /* 复用预览区 markdown 排版（标题/表格/列表/引用/分隔线），但中和外层容器的内边距与背景，避免双重缩进 */
 .update-notes .preview-content { padding: 0; margin: 0; background: transparent; overflow: visible; min-height: 0; flex: none; }
 /* 说明区底色为 bg-secondary，表格隔行/表头改用 bg-primary 以拉开对比 */
@@ -5484,7 +5504,7 @@ select option {
 .update-progress { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
 .progress-bar { flex: 1; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
 .progress-fill { height: 100%; width: 0%; background: var(--accent-color); transition: width 0.3s; }
-#update-progress-text { font-size: 12px; color: var(--text-secondary); min-width: 40px; text-align: right; }
+#update-progress-text { font-size: calc(var(--ui-font-size) * 0.9231); color: var(--text-secondary); min-width: 40px; text-align: right; }
 #update-state-checking.hidden,
 #update-state-available.hidden,
 #update-state-latest.hidden { display: none; }
@@ -5513,13 +5533,13 @@ select option {
 .update-latest-icon svg { width: 36px; height: 36px; }
 .update-latest-title {
   margin: 0 0 6px;
-  font-size: 18px;
+  font-size: calc(var(--ui-font-size) * 1.3846);
   font-weight: 600;
   color: var(--text-primary);
 }
 .update-latest-sub {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   color: var(--text-secondary);
 }
 .update-latest-sub .update-version-highlight {
@@ -5561,7 +5581,7 @@ select option {
   border-radius: 50%;
   background: var(--text-secondary);
   color: var(--bg-primary);
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) * 0.7692);
   font-weight: 700;
   cursor: help;
   margin-left: 6px;
@@ -5582,7 +5602,7 @@ select option {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: var(--shadow-lg);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-primary);
   line-height: 1.6;
   z-index: 999;
@@ -5622,7 +5642,7 @@ select option {
   gap: 8px;
   padding: 10px 14px 10px 20px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   line-height: 1.5;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   white-space: normal;
@@ -5646,18 +5666,18 @@ select option {
 
 .toast-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
 }
 
 .toast-detail {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   opacity: 0.95;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .toast-code {
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) * 0.8462);
   opacity: 0.8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -5684,7 +5704,7 @@ select option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: calc(var(--ui-font-size) * 1);
   font-weight: 500;
   letter-spacing: .02em;
   line-height: 1.5;
@@ -5749,7 +5769,7 @@ select option {
 }
 .settings-row .range-label {
   min-width: 32px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) * 0.9231);
   color: var(--text-secondary);
   text-align: center;
 }

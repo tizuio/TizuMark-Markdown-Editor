@@ -1023,13 +1023,6 @@
           </div>
           <div class="settings-section-body">
           <div class="settings-row">
-            <label>字体大小</label>
-            <div style="display:flex;align-items:center;gap:8px">
-              <input type="range" id="set-font-size" min="8" max="36" step="1" value="14">
-              <span class="range-label" id="font-size-label">14px</span>
-            </div>
-          </div>
-          <div class="settings-row">
             <label>Tab 宽度</label>
             <div id="set-tab-size"></div>
             <p class="form-hint" id="setting-tab-size-hint">
@@ -1054,13 +1047,6 @@
             <svg class="collapse-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
           </div>
           <div class="settings-section-body">
-          <div class="settings-row">
-            <label>正文字号</label>
-            <div style="display:flex;align-items:center;gap:8px">
-              <input type="range" id="set-preview-font-size" min="8" max="36" step="1" value="16">
-              <span class="range-label" id="preview-font-size-label">16px</span>
-            </div>
-          </div>
           <div class="settings-row">
             <label>行高</label>
             <div id="set-line-height"></div>
@@ -1208,6 +1194,41 @@
             <div class="font-preview font-preview-code" id="font-preview-code">
               <span class="font-preview-caption" id="font-name-code"></span>
               <span class="font-preview-text">const answer = 42; function greet() { return '你好'; }</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>界面字号</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="set-ui-font-size" min="11" max="18" step="1" value="13">
+              <span class="range-label" id="ui-font-size-label">13px</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>编辑器字号</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="set-font-size" min="8" max="36" step="1" value="14">
+              <span class="range-label" id="font-size-label">14px</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>编辑字重</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="set-editor-font-weight" min="100" max="900" step="10" value="400">
+              <span class="range-label" id="editor-font-weight-label">400</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>预览字号</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="set-preview-font-size" min="8" max="36" step="1" value="16">
+              <span class="range-label" id="preview-font-size-label">16px</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>预览字重</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="set-preview-font-weight" min="100" max="900" step="10" value="400">
+              <span class="range-label" id="preview-font-weight-label">400</span>
             </div>
           </div>
           </div>

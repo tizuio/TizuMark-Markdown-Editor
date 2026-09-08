@@ -928,6 +928,38 @@ test('settings: 切换英文后设置对话框无残留中文（除字体预览�
   } finally { cleanup(w); }
 });
 
+test('settings: 编辑/预览字号行标签应为「编辑字号」「预览字号」', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    ed.showSettings();
+    const rowLabel = (id) => {
+      const el = w.document.getElementById(id);
+      const label = el.closest('.settings-row').querySelector(':scope > label');
+      return label ? label.textContent : null;
+    };
+    assert.strictEqual(rowLabel('set-font-size'), '编辑字号', '编辑器字号行标签应为「编辑字号」');
+    assert.strictEqual(rowLabel('set-preview-font-size'), '预览字号', '预览字号行标签应为「预览字号」');
+  } finally { cleanup(w); }
+});
+
+test('settings: 自定义字体分组内 编辑字重 紧邻 编辑器字号 之下', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    ed.showSettings();
+    const fontRow = w.document.getElementById('set-font-size').closest('.settings-row');
+    const weightRow = w.document.getElementById('set-editor-font-weight').closest('.settings-row');
+    const previewSizeRow = w.document.getElementById('set-preview-font-size').closest('.settings-row');
+    assert.ok(fontRow && weightRow && previewSizeRow, '三行均存在');
+    assert.strictEqual(weightRow.previousElementSibling, fontRow, '编辑字重应紧邻编辑器字号之后（同分组内）');
+    assert.strictEqual(
+      previewSizeRow.compareDocumentPosition(weightRow) & w.Node.DOCUMENT_POSITION_PRECEDING,
+      w.Node.DOCUMENT_POSITION_PRECEDING,
+      '编辑字重应在预览字号之前'
+    );
+  } finally { cleanup(w); }
+});
+
+
 // ====== 添加字体：立即保存列表，不自动切换选择项、不立即应用（2026-08-06） ======
 
 // 构造 addFontFiles 所需 Tauri 运行时：dialogOpen 返回字体文件，
@@ -1111,4 +1143,58 @@ test('图标源统一为 Lucide（内联 SVG，无 Feather 残留）', () => {
   // Feather 旧式 folder/file 路径不应再出现（避免回退）
   assert.ok(!/M3 7a2 2 0 0 1 2-2h4l2 2h8a2/.test(all), '不应残留 Feather 式 folder 路径');
   assert.ok(!/M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10/.test(all), '不应残留 Feather 式 file 路径');
+});
+
+test('settings: 新增 界面字号/预览字重/编辑字重 默认值', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const d = ed.defaultSettings();
+    assert.strictEqual(d.uiFontSize, 13, '界面字号默认 13px');
+    assert.strictEqual(d.previewFontWeight, 400, '预览字重默认 400');
+    assert.strictEqual(d.editorFontWeight, 400, '编辑字重默认 400');
+  } finally { cleanup(w); }
+});
+
+test('settings: applySettings 写入 UI字号与字重 CSS 变量（含动态加粗联动）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    ed.settings.uiFontSize = 18;
+    ed.settings.previewFontWeight = 300;
+    ed.settings.editorFontWeight = 500;
+    await ed.applySettings();
+    const root = w.document.documentElement;
+    assert.strictEqual(root.style.getPropertyValue('--ui-font-size').trim(), '18px', '界面字号应写入 :root');
+    assert.strictEqual(root.style.getPropertyValue('--preview-weight').trim(), '300', '预览基础字重应写入');
+    assert.strictEqual(root.style.getPropertyValue('--preview-bold-weight').trim(), '500', '基础300→加粗应动态500');
+    assert.strictEqual(ed.cm.getWrapperElement().style.fontWeight, '500', '编辑字重应套到 CodeMirror 包裹层');
+  } finally { cleanup(w); }
+});
+
+test('settings: 预览字重加粗联动封顶 900（基础600→加粗800）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    ed.settings.previewFontWeight = 600;
+    await ed.applySettings();
+    assert.strictEqual(
+      w.document.documentElement.style.getPropertyValue('--preview-bold-weight').trim(),
+      '800', '基础600 时加粗应为 800，明显重于正文'
+    );
+  } finally { cleanup(w); }
+});
+
+test('settings: 界面字号与字重滑块初始化后存在并可回填', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    assert.ok(w.document.getElementById('set-ui-font-size'), '界面字号滑块应存在');
+    assert.ok(w.document.getElementById('set-preview-font-weight'), '预览字重滑块应存在');
+    assert.ok(w.document.getElementById('set-editor-font-weight'), '编辑字重滑块应存在');
+    // 改设置后回填控件显示
+    ed.settings.uiFontSize = 15;
+    ed.settings.previewFontWeight = 500;
+    ed.settings.editorFontWeight = 600;
+    ed.syncSettingsControls();
+    assert.strictEqual(w.document.getElementById('ui-font-size-label').textContent, '15px', '字号标签应回填');
+    assert.strictEqual(w.document.getElementById('preview-font-weight-label').textContent, '500', '预览字重标签应回填');
+    assert.strictEqual(w.document.getElementById('editor-font-weight-label').textContent, '600', '编辑字重标签应回填');
+  } finally { cleanup(w); }
 });

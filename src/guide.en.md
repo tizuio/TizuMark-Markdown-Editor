@@ -395,7 +395,7 @@ All options are available in `File → Settings`:
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Font Size | 8–36px | 14px | Editor code font size |
+| Editor Font Size | 8–36px | 14px | Editor code font size |
 | Tab Size | 2 / 4 / 8 | 4 | Spaces per Tab |
 | Line Wrap | On / Off | On | Wrap long lines |
 | Line Numbers | On / Off | On | Gutter line numbers |
@@ -404,7 +404,7 @@ All options are available in `File → Settings`:
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Font Size | 8–36px | 16px | Preview body text size |
+| Preview Font Size | 8–36px | 16px | Preview body text size |
 | Line Height | 1.4 / 1.6 / 1.7 / 1.8 / 2.0 | 1.7 | Preview line spacing |
 | Max Width | Unlimited / 800 / 1000 / 1200px | Unlimited | Max content width |
 | Code Line Numbers | On / Off | Off | Show line numbers in code blocks |

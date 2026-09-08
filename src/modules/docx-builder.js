@@ -25,7 +25,8 @@
       children: row.cells.map(cell => new D.TableCell({
         children: (cell.paragraphs || []).map(p => new D.Paragraph({
           text: p.text || '',
-          spacing: { before: 20, after: 20, line: 240, lineRule: 'auto' },
+          // 行高调高：before/after 由 20 提升到 60 让表格每行更舒展（用户反馈"每行高度调高一点"）
+          spacing: { before: 60, after: 60, line: 276, lineRule: 'auto' },
         })),
         width: { size: (cell.width && cell.width > 0) ? cell.width : colW, type: D.WidthType.PERCENTAGE },
       }))
@@ -50,7 +51,7 @@
     const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = D;
     // run → docx 子元素：omml run（可编辑公式）经 ImportedXmlComponent 注入 oMath；
     // 普通 run 转 TextRun。fromXmlString 的顶层是 undefined key 容器，取 root[0]。
-    const runToChild = (r) => {
+    const runToChild = (r, opts) => {
       if (r && r.omml) {
         try {
           const comp = D.ImportedXmlComponent.fromXmlString(r.omml);
@@ -62,12 +63,17 @@
           return new TextRun({ text: fallback });
         }
       }
-      return new TextRun({ text: (r && r.text) || '', bold: r && r.bold, italics: r && r.italics, strike: r && r.strike, color: r && r.color });
+      // 标题强制加粗：docx 默认 Heading 样式（本库生成）不含 <w:b/>，
+      // 仅靠样式不会加粗，故在 run 层显式 bold，保证标题在 Word 里显眼（用户反馈"标题没加粗"）。
+      const bold = (opts && typeof opts.bold !== 'undefined') ? opts.bold : (r && r.bold);
+      // 行内代码（<code>）：docx 无原生 code 样式，显式套等宽字体以与正文区分
+      const font = (r && r.codeStyle) ? { name: 'Consolas' } : undefined;
+      return new TextRun({ text: (r && r.text) || '', bold, italics: r && r.italics, strike: r && r.strike, color: r && r.color, font });
     };
     const children = [];
     for (const node of structure || []) {
       if (node.type === 'heading') {
-        children.push(new Paragraph({ heading: HeadingLevel['HEADING_' + (node.level || 1)], children: (node.runs || []).map(runToChild) }));
+        children.push(new Paragraph({ heading: HeadingLevel['HEADING_' + (node.level || 1)], children: (node.runs || []).map(r => runToChild(r, { bold: true })) }));
       } else if (node.type === 'paragraph') {
         // quote 段落（blockquote / alert）：加左缩进 + 左边框，否则与普通段落无视觉区分。
         const opts = { children: (node.runs || []).map(runToChild) };
@@ -83,24 +89,28 @@
       } else if (node.type === 'table') {
         children.push(buildTable(D, node));
       } else if (node.type === 'code') {
-        // 代码块：灰底 + 边框 + 等宽。多行用一个 Paragraph（行间用 break）保持整体外观。
-        const codeRuns = [];
-        node.lines.forEach((l, idx) => {
-          if (idx > 0) codeRuns.push(new TextRun({ text: '', break: 1 }));
-          codeRuns.push(new TextRun({ text: l, font: { name: 'Consolas' } }));
+        // 代码块：灰底 + 边框 + 等宽。每行一个独立段落，行间【不用】<w:br/> 软换行——
+        // Word/WPS 的东亚排版会把「软换行结尾的行」按两端对齐强行拉伸到整行宽
+        //（即使段落未设 w:jc、全文 0 处 jc，实测仍拉伸），代码行被扯出巨大空隙；
+        // 而段落末行永远不会被拉伸。相邻段落的边框/底纹/缩进完全一致时 Word 会把
+        // 边框合并为一个整体框，视觉上仍是一个连续代码块。显式 LEFT 对齐双保险。
+        const total = (node.lines || []).length;
+        (node.lines || []).forEach((l, idx) => {
+          children.push(new Paragraph({
+            alignment: AlignmentType.LEFT,
+            children: [new TextRun({ text: l, font: { name: 'Consolas' } })],
+            shading: { type: D.ShadingType.CLEAR, fill: 'F6F5F4' },
+            border: {
+              top: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
+              bottom: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
+              left: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
+              right: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
+            },
+            // 首行 before / 末行 after 各留 120 与正文过渡，行间 0 间距保持紧凑
+            spacing: { before: idx === 0 ? 120 : 0, after: idx === total - 1 ? 120 : 0, line: 300, lineRule: 'auto' },
+            indent: { left: 120, right: 120 },
+          }));
         });
-        children.push(new Paragraph({
-          children: codeRuns,
-          shading: { type: D.ShadingType.CLEAR, fill: 'F6F5F4' },
-          border: {
-            top: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
-            bottom: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
-            left: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
-            right: { style: D.BorderStyle.SINGLE, size: 4, color: 'D4D4D8' },
-          },
-          spacing: { before: 120, after: 120, line: 300, lineRule: 'auto' },
-          indent: { left: 120, right: 120 },
-        }));
       } else if (node.type === 'image') {
         children.push(new Paragraph({
           children: [new D.ImageRun({

@@ -419,3 +419,33 @@ test('file-ops: 文件上右键菜单应启用新建（此前 !isDir 被禁用�
     assert.strictEqual(isDisabled('file-rename'), false, '文件上右键应可重命名');
   } finally { cleanup(w); }
 });
+
+test('file-ops: 文件树空白处右键应弹出菜单（stopPropagation 防 document 监听隐藏）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    // 初始化时 initContextMenu() 已在 document 上绑定 contextmenu 冒泡监听，
+    // 它会调用 hideAllContextMenus()。若空白区 handler 未 stopPropagation，
+    // 刚弹出的文件菜单会被它立刻隐藏（表现为「右键没反应」）。
+    ed.showToast = () => {};
+    ed.setStatus = () => {};
+    ed.saveSession = () => {};
+    w.TauriApi.listDir = async () => [];
+    ed.workspaceFolder = '/ws';
+    await ed.renderFolderTree(); // 绑定空白区 handler + 渲染（空）树
+
+    const treeEl = w.document.getElementById('folder-tree');
+    const menu = w.document.getElementById('context-menu-file-tree');
+    assert.ok(menu, '文件树右键菜单元素应存在');
+    menu.classList.add('hidden'); // 还原初始隐藏态
+
+    // 在空白区（#folder-tree 自身，非 .tree-node）派发 contextmenu
+    const evt = new w.Event('contextmenu', { bubbles: true, cancelable: true });
+    treeEl.dispatchEvent(evt);
+
+    assert.strictEqual(
+      menu.classList.contains('hidden'), false,
+      '空白处右键后文件树菜单应可见；修复前缺失 stopPropagation，被 document 级监听隐藏',
+    );
+    assert.ok(ed._fileTreeCtx && ed._fileTreeCtx.isBlank === true, '右键上下文应为空白态');
+  } finally { cleanup(w); }
+});

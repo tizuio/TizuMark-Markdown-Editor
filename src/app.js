@@ -255,7 +255,7 @@ const I18N = {
     saveChanges: '保存更改',
     dontSave: '不保存',
     cancel: '取消',
-    fontSize: '字体大小',
+    fontSize: '编辑字号',
     tabSize: 'Tab 宽度',
     lineWrap: '自动换行',
     lineNumbers: '显示行号',
@@ -266,7 +266,14 @@ const I18N = {
     customBg: '自定义底色',
     langZh: '中文',
     langEn: 'English',
-    previewFontSize: '正文字号',
+    previewFontSize: '预览字号',
+    uiFontSize: '界面字号',
+    previewFontWeight: '预览字重',
+    editorFontWeight: '编辑字重',
+    weightLight: '细体',
+    weightNormal: '常规',
+    weightMedium: '中等',
+    weightSemibold: '较粗',
     lineHeight: '行高',
     maxWidth: '最大宽度',
     unlimited: '无限制',
@@ -734,7 +741,7 @@ const I18N = {
     saveChanges: 'Save Changes',
     dontSave: 'Don\'t Save',
     cancel: 'Cancel',
-    fontSize: 'Font Size',
+    fontSize: 'Editor Font Size',
     tabSize: 'Tab Size',
     lineWrap: 'Line Wrap',
     lineNumbers: 'Line Numbers',
@@ -746,6 +753,13 @@ const I18N = {
     langZh: 'Chinese',
     langEn: 'English',
     previewFontSize: 'Preview Font Size',
+    uiFontSize: 'UI Font Size',
+    previewFontWeight: 'Preview Weight',
+    editorFontWeight: 'Editor Weight',
+    weightLight: 'Light',
+    weightNormal: 'Normal',
+    weightMedium: 'Medium',
+    weightSemibold: 'Semibold',
     lineHeight: 'Line Height',
     maxWidth: 'Max Width',
     unlimited: 'Unlimited',
@@ -1365,14 +1379,16 @@ class MarkdownEditor {
     setRowLabel('set-language', t('language'));
     setRowLabel('set-theme-mode', t('themeMode'));
     setRowLabel('set-color-scheme', t('colorScheme'));
-    setSectionTitle('set-font-size', t('editor'));
     setRowLabel('set-font-size', t('fontSize'));
     setRowLabel('set-tab-size', t('tabSize'));
     setRowLabel('set-line-wrap', t('lineWrap'));
     setRowLabel('set-line-numbers', t('lineNumbers'));
-    setSectionTitle('set-preview-font-size', t('previewSection'));
     setRowLabel('set-preview-font-size', t('previewFontSize'));
     setRowLabel('set-line-height', t('lineHeight'));
+    // 编辑器 / 预览 分组的标题条用各自分组内稳定控件锚定（字号滑块已移入「自定义字体」分组，
+    // 不能再以 set-font-size / set-preview-font-size 为锚点，否则会把「自定义字体」分组标题误改名）
+    setSectionTitle('set-tab-size', t('editor'));
+    setSectionTitle('set-line-height', t('previewSection'));
     setRowLabel('set-max-width', t('maxWidth'));
     setSectionTitle('set-default-view', t('behavior'));
     setRowLabel('set-default-view', t('defaultView'));
@@ -1402,6 +1418,9 @@ class MarkdownEditor {
     setRowLabel('set-editor-font', t('editorFont'));
     setRowLabel('set-preview-font', t('previewFont'));
     setRowLabel('set-code-font', t('codeFont'));
+    setRowLabel('set-ui-font-size', t('uiFontSize'));
+    setRowLabel('set-preview-font-weight', t('previewFontWeight'));
+    setRowLabel('set-editor-font-weight', t('editorFontWeight'));
     const softBreaksHint = document.querySelector('#setting-soft-breaks-hint .hint-text');
     if (softBreaksHint) softBreaksHint.textContent = t('softBreaksHint');
     const ctoqHint = document.querySelector('#setting-clear-tabs-on-quit-hint .hint-text');
@@ -1827,6 +1846,11 @@ class MarkdownEditor {
       // 预览区分屏宽度（合并自 PR #36）：拖拽 resizer 后持久化，下次启动按此还原。
       previewPaneWidth: 360,
       codeFont: '', // 预览代码块（行内代码 + 围栏代码块）字体，存自定义字体 id，空=跟随等宽默认
+      // 框架界面字号（侧栏/工具栏/弹窗/菜单/标签/状态栏等 chrome），范围 11–18px，默认 13px
+      uiFontSize: 13,
+      // 预览/编辑正文基础字重：300/400/500/600（严格小于加粗档 700），默认 400
+      previewFontWeight: 400,
+      editorFontWeight: 400,
       customBgEnabled: false, // 自定义页面底色开关：开启时编辑+预览区用 customBgColor，文字按亮度反色
       customBgColor: '#f8f7f4', // 自定义底色（16 进制 RGB）
     };
@@ -1925,6 +1949,13 @@ class MarkdownEditor {
     if (this._selects && this._selects.closeAction) this._selects.closeAction.setValue(s.closeAction || 'ask', true);
     if (this._selects && this._selects.imageInsertMode) this._selects.imageInsertMode.setValue(s.imageInsertMode || 'assets', true);
     if (this._selects && this._selects.imageAssetPathMode) this._selects.imageAssetPathMode.setValue(s.imageAssetPathMode || 'relative', true);
+    // 框架界面字号滑块 + 预览/编辑字重滑块回填（silent，不触发 onChange 递归）
+    const uiFs = document.getElementById('set-ui-font-size');
+    if (uiFs) { uiFs.value = s.uiFontSize; document.getElementById('ui-font-size-label').textContent = s.uiFontSize + 'px'; }
+    const pfW = document.getElementById('set-preview-font-weight');
+    if (pfW) { pfW.value = s.previewFontWeight; document.getElementById('preview-font-weight-label').textContent = s.previewFontWeight; }
+    const efW = document.getElementById('set-editor-font-weight');
+    if (efW) { efW.value = s.editorFontWeight; document.getElementById('editor-font-weight-label').textContent = s.editorFontWeight; }
     document.getElementById('settings-image-asset-path').value = s.imageAssetPath || 'assets';
     document.getElementById('set-clear-tabs-on-quit').checked = s.clearTabsOnQuit === true;
     document.getElementById('set-custom-bg').checked = s.customBgEnabled === true;
@@ -2038,6 +2069,16 @@ class MarkdownEditor {
     document.getElementById('set-preview-font-size').addEventListener('change', (e) => {
       this.settings.previewFontSize = Number(e.target.value);
     });
+    // 框架界面字号滑块：拖动只更新数值显示，实际字号在点「应用/保存」后随 applySettings 生效
+    const uiFs = document.getElementById('set-ui-font-size');
+    if (uiFs) {
+      uiFs.addEventListener('input', (e) => {
+        document.getElementById('ui-font-size-label').textContent = Number(e.target.value) + 'px';
+      });
+      uiFs.addEventListener('change', (e) => {
+        this.settings.uiFontSize = Number(e.target.value);
+      });
+    }
     document.getElementById('set-scroll-sync').addEventListener('change', (e) => {
       this.settings.scrollSync = e.target.checked;
     });
@@ -2126,6 +2167,23 @@ class MarkdownEditor {
     // 通用自绘下拉：语言 / Tab 宽度 / 行高 / 最大宽度 / 默认视图 / 关闭行为
     // （替代原生 select，展开面板可主题化 + 完整 ARIA；与原生 select 行为一致：仅写内存，
     //  真正生效/落盘由「应用/保存」决定）
+    // 预览/编辑字重：由原自绘下拉改为 range 滑块（min=100 max=900 step=10），可更精准调节粗细
+    const previewWHost = document.getElementById('set-preview-font-weight');
+    if (previewWHost) {
+      previewWHost.addEventListener('input', (e) => {
+        const lb = document.getElementById('preview-font-weight-label');
+        if (lb) lb.textContent = e.target.value;
+      });
+      previewWHost.addEventListener('change', (e) => { this.settings.previewFontWeight = Number(e.target.value); });
+    }
+    const editorWHost = document.getElementById('set-editor-font-weight');
+    if (editorWHost) {
+      editorWHost.addEventListener('input', (e) => {
+        const lb = document.getElementById('editor-font-weight-label');
+        if (lb) lb.textContent = e.target.value;
+      });
+      editorWHost.addEventListener('change', (e) => { this.settings.editorFontWeight = Number(e.target.value); });
+    }
     const langHost = document.getElementById('set-language');
     if (langHost) {
       this._selects.language = new Select(langHost, {
@@ -3110,6 +3168,16 @@ class MarkdownEditor {
     await this.applyThemeMode();
     this.applyCustomBg();
     this.applyCustomFonts();
+    // 框架界面字号 + 预览/编辑字重：写入 CSS 变量（:root），由 styles.css 统一引用
+    const root = document.documentElement;
+    root.style.setProperty('--ui-font-size', s.uiFontSize + 'px');
+    root.style.setProperty('--preview-weight', String(s.previewFontWeight));
+    // 加粗/标题字重随基础字重动态联动：基础 +200、封顶 900，保证始终比正文重一档（基础 600 → 加粗 800，对比明显）
+    root.style.setProperty('--preview-bold-weight', String(Math.min(s.previewFontWeight + 200, 900)));
+    // 编辑器（纯源码、无强调区分）直接套字重于 CodeMirror 包裹层，向下继承到各行
+    if (this.cm && this.cm.getWrapperElement()) {
+      this.cm.getWrapperElement().style.fontWeight = String(s.editorFontWeight);
+    }
     // 「显示所有文件」开关切换后，重渲染文件树让过滤即时生效；
     // expandedFolders 集合保证展开态不丢
     if (this.workspaceFolder) this.renderFolderTree();
@@ -8309,6 +8377,10 @@ class MarkdownEditor {
         if (e.target && e.target.closest && e.target.closest('.tree-node')) return;
         if (!this.workspaceFolder) return; // 未打开工作区时无根目录可建
         e.preventDefault();
+        // 必须 stopPropagation：document 上还有一个冒泡阶段的 contextmenu 监听
+        // 会调用 hideAllContextMenus()，不拦住的话刚显示的文件菜单会被它立刻隐藏（表现为"没反应"）。
+        // 文件节点的 handler 同样是靠 stopPropagation 拦住它的。
+        e.stopPropagation();
         this._fileTreeCtx = { path: this.workspaceFolder, isDir: true, isBlank: true, nodeEl: null };
         this._folderCtxPath = this.workspaceFolder;
         this._folderCtxIsDir = true;
@@ -9340,6 +9412,25 @@ ${clone.innerHTML}
       const m2 = /<annotation[^>]*>([\s\S]*?)<\/annotation>/.exec(mathml);
       return m2 ? m2[1].trim() : '';
     };
+    // mathml 是序列化字符串（outerHTML），annotation 文本里的 < > & 已被实体转义；
+    // 正则捕获的是转义形态，直接当纯文本塞进 Word 会显示字面 &lt;（用户实测）。
+    const decodeXmlEntities = (s) => String(s)
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+    // mml2omml 产出 <m:t> 文本内容时不做 XML 转义：公式含 <（如 O(1) < O(\log n)）时
+    // OMML 里出现裸 < → 非良构（parsererror）→ 被误判坏公式降级成 LaTeX 纯文本。
+    // 这里对 <m:t>…</m:t> 内文本定向转义修复（< 一律转义；& 仅在非实体引用处转义，幂等；
+    // > 在 XML 文本中合法不动），修复后良构校验通过即可走 OMML 主路径保留可编辑公式。
+    const repairTextEscaping = (xml) => String(xml).replace(
+      /(<m:t(?:\s[^>]*)?>)([\s\S]*?)(<\/m:t>)/g,
+      (_, open, text, close) => open
+        + text.replace(/&(?!(?:lt|gt|amp|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;').replace(/</g, '&lt;')
+        + close
+    );
     let sawMath = false;
     const walkRuns = (runs) => {
       if (!Array.isArray(runs)) return;
@@ -9348,13 +9439,14 @@ ${clone.innerHTML}
         if (r && typeof r.mathml === 'string') {
           sawMath = true;
           if (!convert) continue; // 缺库：保留 mathml run，外层据 sawMath 决定走主路径还是回退
-          let omml = null;
-          try { omml = convert(r.mathml); } catch (e) { omml = null; }
-          if (omml && isWellFormed(String(omml))) {
-            runs[i] = { omml: String(omml) };
+          let ommlStr = null;
+          try { ommlStr = String(convert(r.mathml)); } catch (e) { ommlStr = null; }
+          if (ommlStr) ommlStr = repairTextEscaping(ommlStr);
+          if (ommlStr && isWellFormed(ommlStr)) {
+            runs[i] = { omml: ommlStr };
           } else {
             // 降级为 LaTeX 源码文本：宁可显示源码也不让坏 OMML 拖垮整篇文档。
-            const tex = extractLatex(r.mathml) || r.mathml.replace(/<[^>]+>/g, '').trim();
+            const tex = decodeXmlEntities(extractLatex(r.mathml)) || r.mathml.replace(/<[^>]+>/g, '').trim();
             runs[i] = { text: tex };
           }
         }
