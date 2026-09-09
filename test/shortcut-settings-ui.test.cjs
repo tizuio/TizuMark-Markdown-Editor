@@ -200,9 +200,10 @@ test('样式：快捷键分类标题与文件/大纲面板头一致，弹窗标�
     /\.dialog-header\s*\{[^}]*padding:\s*(?:8px 14px|10px 16px|8px 12px)/.test(STYLES),
     'dialog-header 应收窄 padding'
   );
+  // 标题字号跟随 --ui-font-size（13px），便于整体 UI 字号联动；不再硬编码 px
   assert.ok(
-    /\.dialog-header h2\s*\{[^}]*font-size:\s*13px/.test(STYLES),
-    'dialog-header 标题字号应为 13px'
+    /\.dialog-header h2\s*\{[^}]*font-size:\s*(?:13px|calc\(var\(--ui-font-size\))/.test(STYLES),
+    'dialog-header 标题字号应跟随 --ui-font-size（或 13px）'
   );
 });
 

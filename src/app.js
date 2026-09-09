@@ -66,6 +66,14 @@ const FONT_NAME_LOCALE = {
   'Noto Sans CJK SC': '思源黑体',
   'Source Han Sans SC': '思源黑体',
 };
+
+// PDF 导出的中文字体尾链（TrueType 优先）：
+// 打印帧若让系统自行回退，中文会落到 Noto Sans SC 等 CFF 轮廓字体，Skia 转 PDF 时会
+// 退化成 Type3（位图化）字体 —— 体积暴涨且文字不可选中/搜索。这里显式钉 TrueType 中文字体。
+// 只作尾链（放在用户字体之后），不覆盖用户的预览字体选择。
+const EXPORT_CJK_FONT_TAIL = '"Microsoft YaHei", "微软雅黑", "DengXian", "SimSun", "NSimSun"';
+// 用户未设置预览字体时的拉丁兜底链（与 styles.css 中 --font-preview 默认值保持一致）
+const EXPORT_FALLBACK_SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial';
 // 归一映射（小写中文名/变体名 → 主族英文 value）：
 // ① 把枚举返回的中文名条目（微软雅黑/宋体…）归一为英文 value，与英文条目合并去重；
 // ② 视觉一致的变体（微软雅黑 UI 中文名同为「微软雅黑」）合并进主族，避免下拉重复。
@@ -3326,6 +3334,14 @@ class MarkdownEditor {
     if (!id) return '';
     const isCustom = (this.settings.customFonts || []).some(f => f.id === id);
     return isCustom ? `'tizumark-custom-${id}'` : `"${id}"`;
+  }
+
+  // PDF 导出字体链 = 用户预览字体 + 中文字体尾链 + sans-serif。
+  // 打印帧只取 preview 的 innerHTML，容器上的行内 font-family 不会带过去，
+  // 因此必须在此显式拼装，否则用户选的预览字体在导出时被 :root 默认值悄悄顶掉。
+  _exportPdfFontStack() {
+    const userFont = this._fontFamilyFor(this.settings.previewFont);
+    return `${userFont || EXPORT_FALLBACK_SANS}, ${EXPORT_CJK_FONT_TAIL}, sans-serif`;
   }
 
   applyCustomFonts() {
@@ -9912,7 +9928,7 @@ ${clone.innerHTML}
       // consistent viewBox regardless of the current preview-pane width.
       const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
       if (typeof mermaid !== 'undefined' && mermaidContainers.length) {
-        const ff = getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif';
+        const ff = this._exportPdfFontStack();
         mermaid.initialize({ startOnLoad: false, theme: this.isDark ? 'dark' : 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } });
         for (let i = 0; i < mermaidContainers.length; i++) {
           const code = (mermaidContainers[i].getAttribute('data-code') || mermaidContainers[i].textContent || '').trim();
@@ -9949,6 +9965,10 @@ ${clone.innerHTML}
       try { const themeLink = document.getElementById('highlight-theme'); if (themeLink) { const resp = await fetch(themeLink.getAttribute('href')); if (resp.ok) hljsCSS = await resp.text(); } } catch (e) { /* skip */ }
       let katexCSS = '';
       try { const resp = await fetch('lib/katex/katex.min.css'); if (resp.ok) katexCSS = await resp.text(); } catch (e) { /* skip */ }
+      // 自定义字体的 @font-face（base64 内联）由 #custom-fonts-style 持有。打印帧是独立文档，
+      // 必须一并携带，否则用户选了自定义预览字体时，字体链首项在 PDF 里无字形可落。
+      const customFontStyleEl = document.getElementById('custom-fonts-style');
+      const customFontCSS = customFontStyleEl ? (customFontStyleEl.textContent || '') : '';
 
       // escapedTitle：用于打印帧 <title> / contentDocument.title（去扩展名文件名已在上文取得）
       const escapedTitle = safeBaseName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -9958,7 +9978,7 @@ ${clone.innerHTML}
       const printCSS = `
 @page { margin: 1.5cm; }
 html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
-.preview-content { max-width: 680px !important; margin: 0 auto !important; padding: 16px 24px !important; }
+.preview-content { max-width: 680px !important; margin: 0 auto !important; padding: 16px 24px !important; font-family: ${this._exportPdfFontStack()} !important; }
 .preview-content pre { white-space: pre-wrap !important; word-wrap: break-word !important; word-break: break-word !important; overflow: visible !important; }
 .preview-content pre code { white-space: pre-wrap !important; word-wrap: break-word !important; word-break: break-word !important; }
 /* 代码块 hljs 默认主题里 .hljs 元素带 background:#ffffff，会盖住 pre 的灰色形成"内白外灰"。
@@ -9988,7 +10008,7 @@ input[type="checkbox"]:checked::after { display: none !important; }
       const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-color-scheme="${colorScheme}" data-theme="light">
 <head><meta charset="UTF-8"><title>${escapedTitle}</title>
-<style>${appCSS}${hljsCSS}${katexCSS}${printCSS}</style></head>
+<style>${customFontCSS}${appCSS}${hljsCSS}${katexCSS}${printCSS}</style></head>
 <body>
 <div class="preview-content">${clone.innerHTML}</div>
 </body></html>`;

@@ -55,18 +55,24 @@ test('outline-ui: 点击折叠开关切换子级显隐', async () => withEditor(
   assert.ok(!toggle.classList.contains('collapsed'), '再点后 toggle 不应带 collapsed 类（恢复 ▼ 向下）');
 }));
 
+// 状态栏三项计数：原始字数（原文字符数）/ 预览字数 / 行数。
+// 旧版是「词数 + 字符数 + 行数」（charCountEl），底部栏改原文/预览双口径后
+// charCountEl 已移除，改由 wordCountEl 承载原始字数、previewWordCountEl 承载预览字数。
 test('wordcount-ui: updateWordCount 更新状态栏三项计数', async () => withEditor({ captureInitErr: true }, async (w, ed) => {
   ed.settings.language = 'zh';
-  ed.cm.setValue('hello world 你好\n第二行 abc');
+  const text = 'hello world 你好\n第二行 abc';
+  ed.cm.setValue(text);
   ed.updateWordCount();
-  assert.ok(/\d+/.test(ed.wordCountEl.textContent), '词数应为数字');
+  assert.ok(/\d+/.test(ed.wordCountEl.textContent), '原始字数应为数字');
   assert.ok(ed.lineCountEl.textContent.endsWith('2'), '行数应为 2');
-  const chars = parseInt(ed.charCountEl.textContent.match(/(\d+)/)[1], 10);
-  assert.strictEqual(chars, 'hello world 你好\n第二行 abc'.length, '字符数应为全文长度');
+  const chars = parseInt(ed.wordCountEl.textContent.match(/(\d+)/)[1], 10);
+  assert.strictEqual(chars, text.length, '原始字数应为全文字符数');
+  assert.ok(ed.previewWordCountEl, '状态栏应存在预览字数元素');
+  assert.ok(/\d+/.test(ed.previewWordCountEl.textContent), '预览字数应为数字');
 
   ed.cm.setValue('');
   ed.updateWordCount();
-  assert.ok(ed.wordCountEl.textContent.endsWith('0'), '空文档词数为 0');
+  assert.ok(ed.wordCountEl.textContent.endsWith('0'), '空文档原始字数为 0');
 }));
 
 test('outline-ui: headingToId 生成规则', async () => withEditor({ captureInitErr: true }, async (w, ed) => {
