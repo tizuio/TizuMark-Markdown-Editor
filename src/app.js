@@ -8726,6 +8726,15 @@ class MarkdownEditor {
     return '';
   }
 
+  // PDF 导出打印体的 CJK 字体链（TrueType，防 WebView2/Skia 回退到 Noto Sans SC CFF）。
+  _exportPrintFontFamily() {
+    return '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft YaHei", "微软雅黑", "DengXian", "SimSun", "NSimSun", sans-serif';
+  }
+
+  _exportCJKFontStack() {
+    return '"Microsoft YaHei", "微软雅黑", "DengXian", "SimSun", "NSimSun"';
+  }
+
   // 文档导出（HTML / Word）共用的基础样式表。
   // 使用标签级选择器（h1/pre/...）而非 .preview-content 后代选择器，
   // 因为导出时 this.preview 的外层容器被丢弃，仅其 children 进入 <body>。
@@ -9912,7 +9921,7 @@ ${clone.innerHTML}
       // consistent viewBox regardless of the current preview-pane width.
       const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
       if (typeof mermaid !== 'undefined' && mermaidContainers.length) {
-        const ff = getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif';
+        const ff = (getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif') + ', ' + this._exportCJKFontStack();
         mermaid.initialize({ startOnLoad: false, theme: this.isDark ? 'dark' : 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } });
         for (let i = 0; i < mermaidContainers.length; i++) {
           const code = (mermaidContainers[i].getAttribute('data-code') || mermaidContainers[i].textContent || '').trim();
@@ -9958,7 +9967,7 @@ ${clone.innerHTML}
       const printCSS = `
 @page { margin: 1.5cm; }
 html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
-.preview-content { max-width: 680px !important; margin: 0 auto !important; padding: 16px 24px !important; }
+.preview-content { max-width: 680px !important; margin: 0 auto !important; padding: 16px 24px !important; font-family: ${this._exportPrintFontFamily()} !important; }
 .preview-content pre { white-space: pre-wrap !important; word-wrap: break-word !important; word-break: break-word !important; overflow: visible !important; }
 .preview-content pre code { white-space: pre-wrap !important; word-wrap: break-word !important; word-break: break-word !important; }
 /* 代码块 hljs 默认主题里 .hljs 元素带 background:#ffffff，会盖住 pre 的灰色形成"内白外灰"。
