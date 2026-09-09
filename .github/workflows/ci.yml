@@ -16,10 +16,10 @@ jobs:
     name: Frontend (check + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node 22 (LTS)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -49,13 +49,13 @@ jobs:
     # 可选关卡：Linux webkit 环境偶发不稳不应阻塞前端合并；失败仅作信号。
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -68,6 +68,9 @@ jobs:
       # Tauri v2 Linux 编译依赖
       - name: Install system dependencies
         run: |
+          # runner 镜像预置的 Google Chrome 第三方源时常出现 Hash Sum mismatch，
+          # 会让 apt-get update 以 exit 100 失败（cargo test 会被连带跳过）。与项目代码无关。
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list*
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev build-essential curl wget file \
