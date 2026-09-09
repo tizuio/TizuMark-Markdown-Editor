@@ -1,51 +1,54 @@
 ## ⬇️ Download
 
-> **🏆 Recommended for most users:** [⬇ TizuMark_1.2.2_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.2/TizuMark_1.2.2_x64-setup.exe)
+> **🏆 Recommended for most users:** [⬇ TizuMark_1.2.3_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.3/TizuMark_1.2.3_x64-setup.exe)
 >
-> **🛠 Enterprise / bulk deploy:** [⬇ TizuMark_1.2.2_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.2/TizuMark_1.2.2_x64_en-US.msi)
+> **🛠 Enterprise / bulk deploy:** [⬇ TizuMark_1.2.3_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.3/TizuMark_1.2.3_x64_en-US.msi)
 >
-> **📦 Portable (no install):** [⬇ TizuMark_1.2.2_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.2/TizuMark_1.2.2_x64.exe)
+> **📦 Portable (no install):** [⬇ TizuMark_1.2.3_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.3/TizuMark_1.2.3_x64.exe)
 
 ### Package types
 
 | Package | For | Notes |
 |--------|-----|-------|
 | ⭐ **NSIS installer (.exe)** — **Recommended** | Most Windows users | Classic setup wizard; custom install path, desktop shortcut, file association. |
-| **MSI installer (.msi)** | IT admins / bulk deploy | Windows Installer; group policy push, silent install (msiexec /i TizuMark_1.2.2_x64_en-US.msi /qn). |
+| **MSI installer (.msi)** | IT admins / bulk deploy | Windows Installer; group policy push, silent install (msiexec /i TizuMark_1.2.3_x64_en-US.msi /qn). |
 | **Portable (.exe)** | Portable use | Single file, no install, no registry writes. |
 
 ---
 
-## ✨ v1.2.2 Changelog
+## ✨ v1.2.3 Changelog
 
 ### Added
-- Quick insert (slash command palette): type "/" in the editor to open the command palette, with list prioritization, drag-to-reorder and show/hide
-- View mode switches intelligently by file type: Markdown uses split preview, plain text uses editor-only (no preview pane/side buttons), images use read-only preview
-- "Extended syntax highlight" toggle: can disable ==text== highlighting
-- File sidebar: sort by creation time and show creation time
-- Heading shortcut smartly switches heading level (in-place replace + same-level cancel)
-- Table editing enhancements: Enter auto-formats + add row/add column actions
-- Draggable/resizable dialogs + collapsible panel system + full Lucide icon unification
-- Toast/error dialog gets a clickable close button
-- Shortcut settings panel: collapsible categories + tabular layout + unified keycap styling + default collapsed state
-- New shortcuts: Ctrl+Enter / Ctrl+Shift+Enter to insert blank line, Ctrl+Home/End for document start/end navigation
-- Zoom enhancements: refined Ctrl+wheel font sizing, new Ctrl+wheel preview font zoom
+- Settings panel font group now combines size/weight sliders; DOCX export code-block and formula fixes
+- DOCX export fixed to A4 / portrait / standard margins; right-click "New" on file-tree blank area and on files
+- Editable formulas (OMML) + main-thread direct build + typography refinements
+- DOCX formulas converted to Word-editable OMML (MathML→OMML + inject oMath); raw/preview word counts unified to character-count basis
+- Status bar adds preview word count (original/preview dual metric); export HTML embeds network diagrams inline for offline use
+- ExportWord now uses real OOXML (page setup → DOM → worker → write); falls back to html-docx on failure
+- Export page-setup dialog + DOCX page size/margin calculation
+- Settings: add "close all tabs on exit" (clean start, still prompts for unsaved)
+- Settings: add custom page background color (editor + preview, auto-inverts by luminance)
+- Session-level memory of Markdown view mode (image/txt special types prioritized; default view at launch)
+- Open recent workspace
+- File tree: "show all files" toggle; image storage setting radio changed to dropdown
 
 ### Improved
-- UI consolidation: breadcrumb / outline toggle / dropdown caret / About & Settings panel styling unified
-- Theme & fonts: editor background follows theme color, IBM Plex Serif added to font whitelist
-- File tree clears context after copy/cut/paste to avoid hijacking editor/preview Ctrl+C/V
-- Dialog drag-resize fully reused, drag follows cursor
-- Update endpoint now prefers Gitee raw (better reliability on domestic networks)
-- Removed unused dependencies (pulldown-cmark, linkify-it, markdown-it-highlightjs; dev: sharp, png-to-ico, @fiahfy/icns) to reduce size
-- Docs: view mode, quick insert, file search (Ctrl+P), file-tree context menu, status bar; fixed shortcuts reference
-- Bumped quinn-proto to 0.11.15, fixing security advisory GHSA-4w2j-m93h-cj5j
+- (None)
 
 ### Fixed
-- Fixed backslash mis-detected as math formula, WeChat image host broken images, missing .md extension on new/rename
-- Fixed math rendering: inline formulas with spaces, double HTML-entity escaping, Office tags
-- Fixed preview Ctrl+C hijacked by file-tree operations; added shortcut hints to context menu
-- Outline same-level heading placeholder toggle keeps labels aligned
-- View-mode regression fixes: unnamed tabs no longer force view switch, newFile/initialization regression, restored images no longer turn into code
+- PDF export font chain now preserves user preview font; fixed two stale tests causing CI red
+- Global line spacing + table spacing + mermaid re-render before export
+- CSP connect-src adds blob: + export image cache fallback, fixing broken images in released HTML/DOCX export (v1.2.2 bug)
+- Export-docx preserves nested styles / full blockquote paragraphs / converts rgb to hex
+- Export-docx dual export changed to mutually exclusive (aligns with repo module convention)
+- OpenFilePath opening new md reuses session memory (converged view logic); custom background only applies to preview, avoiding leakage into update dialog
+- Fixed exit-clear logic comment wording (non-quit does not clear session)
+- Only true exit (quit) clears session per the toggle; non-exit paths (cancel/minimize-to-tray) do not; added boundary tests
+- Custom background setting wired to Chinese/English i18n
+- New documents no longer pollute session-level md view-mode memory, reusing classifyFile result
+- Recent files / recent workspace submenus mutually exclusive, avoiding overlap while sliding
+- At launch, self-heal .md/markdown open-with association (OpenWithProgids) + updated copyright and promo copy to under 10MB
+- Add cross-platform window dragging and start_dragging ACL permission (#61)
+- Fixed GitHub CI build failure and cleaned up leftover shortcut-dialog title
 
 > Questions? Join QQ group: 1035294939

@@ -28,7 +28,7 @@ const ASSETS = [
 // 把 notes 中的 Gitee 下载链接改写为 GitHub release 下载链接
 function buildBody() {
   return notesLines
-    .map((l) => l.replace(/https:\/\/gitee\.com\/tizu\/tizu-mark\/releases\/download\/v[\d.]+\//g,
+    .map((l) => l    .replace(/https:\/\/gitee\.com\/tizu\/TizuMark-Markdown-Editor\/releases\/download\/v[\d.]+\//g,
       `https://github.com/${OWNER}/${REPO}/releases/download/v${VERSION}/`))
     .join('\n');
 }

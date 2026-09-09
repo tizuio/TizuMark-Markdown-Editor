@@ -149,6 +149,23 @@ function isInternalReleaseCommit(raw) {
   return /^release\s*[:：]?\s*v?\d/i.test(raw) || /^chore(\s*\([^)]*\))?\s*[:：]\s*release/i.test(raw);
 }
 
+// 非用户可见的噪声提交（开发过程/基础设施/文档元数据），发布说明里应过滤。
+// 注意：宁可漏过、不要误杀——含用户可见改动的提交（如「PDF 字体链…；修复 CI 红灯」）
+// 即使带了 CI 字眼也保留，这里只匹配纯内部性质的提交。
+function isNoiseCommit(raw) {
+  const s = String(raw).toLowerCase();
+  const noise = [
+    '实现计划', '设计文档', 'gitignore', 'rust job 的 apt',
+    '发布说明改为', '中英文双语', '发布 v1.2', 'v1.2.2 发布说明', 'v1.2.2 更新说明',
+    'release_notes', 'promotion', 'readme', '仓库重命名', '同步更新链接测试',
+    '使用说明', '文档核对', '事实错误修正', '英文元描述', 'meta description',
+    '更新面板发布说明排版', 'vendor 打包', 'worker 按统一 payload', 'dom→docx 中间结构',
+    'dirlisting 实现 deref', 'index.html 接入 export-docx', 'startdragging 前 stoppropagation',
+    'cargo 缓存',
+  ];
+  return noise.some((n) => s.includes(n));
+}
+
 // 把提交信息粗略归类到「新增 / 改进 / 修复」（先看前缀，再看归纳后文本）
 function categorize(raw) {
   const s = String(raw).trim();
@@ -179,6 +196,7 @@ function buildNotes() {
   const seen = new Set();
   for (const c of commits) {
     if (isInternalReleaseCommit(c)) continue; // 过滤发布/打包内部提交
+    if (isNoiseCommit(c)) continue; // 过滤开发过程/基础设施/文档元数据噪声
     const cat = categorize(c);
     const one = summarize(c);
     if (one && !seen.has(one)) {
