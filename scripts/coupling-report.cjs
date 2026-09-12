@@ -71,7 +71,10 @@ function countTauriGlobal() {
 
 // ---------- 4) updatePreview fan-in（this. 计数，容忍缩进） ----------
 function updatePreviewFanIn() {
-  const lines = fs.readFileSync(APP_JS, 'utf8').split('\n');
+  // app.js 拆分后 updatePreview 位于 src/modules/preview-sync.js：扫描全量业务源码，
+  // 用 index.html 的清单保证与生产加载顺序一致（与 test/helpers/app-bundle.cjs 同源）。
+  const { readBundle } = require(path.join(ROOT, 'test', 'helpers', 'app-bundle.cjs'));
+  const lines = readBundle().split('\n');
   const startRe = /^\s*async\s+updatePreview\s*\(/;
   let start = -1;
   for (let i = 0; i < lines.length; i++) {

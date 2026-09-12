@@ -12,7 +12,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const ROOT = path.resolve(__dirname, '..');
-const APP = fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const APP = require('./helpers/app-bundle.cjs').readBundle();
 
 // localStorage 依赖
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });

@@ -6,11 +6,9 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { JSDOM } = require('jsdom');
 
-const appjs = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
-// P1-5：app.js 运行时依赖 window.TauriApi，须先注入 tauri-api.js（同生产 index.html 顺序）。
-const tauriApiSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'tauri-api.js'), 'utf8');
-// P2-1：app.js 构造期 new PreviewController(this) 需要本 facade 先注入（同生产 index.html 顺序）。
-const previewControllerSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'controllers', 'preview-controller.js'), 'utf8');
+// 拆分后 app.js 依赖 modules/ 下的各域模块，须按生产顺序整体注入（同 index.html 清单）。
+const { readBundle } = require('./helpers/app-bundle.cjs');
+const appjs = readBundle();
 
 const HTML = `<!DOCTYPE html><html><body>
   <div class="editor-container">
@@ -107,7 +105,9 @@ const harnessFn = function () {
     // 处理器是 initEditor 内的闭包，无法被 stub 触发；此处从源码抽取真实闭包运行，
     // 确保 preview/折叠隐藏时绝不写回 scrollPos（真实 bug 路径：预览滚动→_syncPreviewToEditor→
     // 对隐藏编辑器 cm.scrollTo→触发编辑器 scroll→若没守卫则把 scrollPos 清零→切回编辑跳顶部）。
-    const handlerMatch = window.__APPJS_SOURCE.match(/this\.cm\.on\('scroll', \(\) => \{([\s\S]*?)\n    \}\);/);
+    // 该方法已搬到 modules/editor-core.js（mixin 内多两层缩进：4 → 8 空格），故结束大括号为 8 空格。
+    // 处理器内部语句缩进 ≥10 空格，因此 8 空格的 `});` 唯一对应箭头函数结尾。
+    const handlerMatch = window.__APPJS_SOURCE.match(/this\.cm\.on\('scroll', \(\) => \{([\s\S]*?)\n {8}\}\);/);
     results.push(['D0: 成功抽取真实编辑器 scroll 处理器', !!handlerMatch]);
     const scrollHandler = handlerMatch ? new Function(handlerMatch[1]) : null;
     const containerEl = document.querySelector('.editor-container');
@@ -257,7 +257,7 @@ const harnessFn = function () {
   })();
 };
 
-const combined = tauriApiSrc + '\n;\n' + previewControllerSrc + '\n;\n' + appjs + '\n;window.__harnessPromise = (' + harnessFn.toString() + ')();';
+const combined = appjs + '\n;window.__harnessPromise = (' + harnessFn.toString() + ')();';
 const s = dom.window.document.createElement('script');
 s.textContent = combined;
 dom.window.document.body.appendChild(s);

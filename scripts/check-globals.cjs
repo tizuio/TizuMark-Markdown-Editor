@@ -33,11 +33,20 @@ const KNOWN_GLOBALS = new Set([
   'Select', // 统一自绘下拉框组件（2026-08 引入）
   'FontPicker', // 字体选择器组件（2026-08 引入）
   'FileTypes', // 文件类型分类白名单（文件夹树 / 打开文件路由使用）
+  // app.js 按职责域拆分出的功能模块（2026-09）：每模块一个命名空间，经 mixin 挂到 MarkdownEditor
+  'TMConst', // 共享常量 / Tab 数据模型 / 对话框桥接（须最先加载）
+  'TMI18nData', // 国际化字典数据（从 i18n.js 拆出，纯数据）
+  'TMI18n', 'TMSettings', 'TMLayout', 'TMTheme', 'TMFont', 'TMShortcuts',
+  'TMEditorCore', 'TMTabs', 'TMFind', 'TMMiscUI', 'TMFiles', 'TMExport',
+  'TMPreviewSync', 'TMNotify', 'TMUpdater', 'TMFormat', 'TMCtxMenu', 'TMSlash',
+  'TMLifecycle', 'TMToolbar',
 ]);
 
-// 不锚行首：\bwindow\.[A-Z][A-Za-z]*\s*=
+// 不锚行首：\bwindow\.[A-Z][A-Za-z0-9]*\s*=
+// 注意：命名空间含数字（如 TMI18n / TMI18nData），故字符类须含 0-9，
+// 否则此类全局会被正则漏匹配、既不告警也不进入白名单校验（静默失效）。
 function globalAssignRe() {
-  return /\bwindow\.[A-Z][A-Za-z]*\s*=/g;
+  return /\bwindow\.[A-Z][A-Za-z0-9]*\s*=/g;
 }
 
 function moduleJsFiles(dir) {

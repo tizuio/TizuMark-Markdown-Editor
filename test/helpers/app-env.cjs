@@ -214,7 +214,8 @@ async function buildEnv(options = {}) {
 
   // 显式优先加载（不依赖字典序，N5）：PRIORITY_MODULES 若存在则排到最前。
   // tauri-api.js 由 P0-2a 新增；此刻尚不存在，列入仅做"接入即生效"的预备，无副作用。
-  const PRIORITY_MODULES = ['tauri-api.js'];
+  // constants.js 必须早于消费它的业务模块（font/slash/export 等在加载时解构 TMConst）。
+  const PRIORITY_MODULES = ['tauri-api.js', 'constants.js'];
   // 关键模块：加载失败必须抛出而非静默吞（T15 / N5 护栏）。
   // 现有 6 个 + 即将新增的 tauri-api / preview-window（不存在时无影响）。
   const CRITICAL_MODULES = new Set([

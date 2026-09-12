@@ -121,7 +121,8 @@ test('普通本地 md 缺图：不应回退到 read_bundled_image_as_base64（is
 });
 
 test('打包 demo 打开：应通过专用 read_bundled_file 命令读取，dev/prod 统一', () => {
-  const app = read('src/app.js');
+  // 拆分后链接处理逻辑已移到 src/modules/misc-ui.js，静态断言需覆盖全量业务源码
+  const app = require('./helpers/app-bundle.cjs').readBundle();
   // P0-2b 已将 IPC 收敛到 TauriApi.*（语义 no-op 透传），read_bundled_file 对应
   // TauriApi.readBundledFile（camelCase 包装 invoke('read_bundled_file', ...)）。
   // 这里断言链接处理走专用命令（Rust 端做 dev/prod 回退），不再手拼 resourceDir + path。

@@ -9,7 +9,8 @@ const path = require('node:path');
 
 const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
 const pcSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'controllers/preview-controller.js'), 'utf8');
-const appSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const appSrc = require('./helpers/app-bundle.cjs').readBundle();
 
 test('styles.css: .code-scroll 默认 overflow-y: hidden（防短代码显示滚动条轨道）', () => {
   const block = css.match(/\.code-scroll\s*\{[^}]*\}/);

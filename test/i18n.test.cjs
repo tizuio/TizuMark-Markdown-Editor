@@ -12,10 +12,11 @@ async function makeEditor() {
 }
 
 function extractI18N() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
-  const m = src.match(/\nconst I18N = \{[\s\S]*?\n\};/);
+  // 字典数据已从 app.js → i18n.js → i18n-data.js 拆分（缩进 2 空格），正则需容忍前导空白
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'i18n-data.js'), 'utf8');
+  const m = src.match(/(?:^|\n)[ \t]*const I18N = \{[\s\S]*?\n[ \t]*\};/);
   assert.ok(m, '应能从源码中提取 I18N 字典');
-  return new Function('return ' + m[0].replace(/\nconst I18N = /, '').replace(/;\s*$/, ''))();
+  return new Function('return ' + m[0].replace(/^[\s\S]*?const I18N = /, '').replace(/;\s*$/, ''))();
 }
 
 test('i18n: zh/en 字典键集合一致', async () => {
