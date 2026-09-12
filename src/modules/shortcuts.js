@@ -948,7 +948,9 @@
         // 或 Tauri WebView 的原生处理，确保编辑器有焦点时也能且仅由本处触发一次。
         // （CM 的 extraKeys 仍对相关键置 false 作为兜底。）
         if (gHandler) {
-          if (ctrl) e.preventDefault(); // Ctrl 类命中照旧阻止浏览器默认行为（Alt 类不拦，避免误吞系统组合）
+          // 命中已注册快捷键即阻止默认行为（Ctrl/Alt 一视同仁）：既然由本处接管，
+          // 就不应再让浏览器/系统对同一组合叠加动作。
+          e.preventDefault();
           e.stopPropagation();
           gHandler();
         }
