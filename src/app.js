@@ -4533,6 +4533,12 @@ class MarkdownEditor {
     for (const [action, fn] of Object.entries(globalMap)) registerGlobal(action, fn, false);
     for (const [action, fn] of Object.entries(editorMap)) registerGlobal(action, fn, true);
 
+    // 同步「关闭到托盘」键位到 OS 级全局热键：窗口隐藏到托盘后 WebView 收不到键盘
+    // 事件，前端 keydown 无法唤回窗口；OS 级热键（lib.rs set_close_to_tray_shortcut）
+    // 负责隐藏/唤回。注册失败（组合键被其他程序占用等）仅告警，窗口内 keydown 派发
+    // 仍作为兜底可用（全局注册成功后 OS 会吃掉该键，二者不会重复触发）。
+    this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+
     this.updateShortcutHints();
   }
 
@@ -5954,6 +5960,37 @@ class MarkdownEditor {
       }
 
       const ctrl = e.ctrlKey || e.metaKey;
+
+      // 统一构建 keyStr（主键用 e.code 物理键位推导，规避某些浏览器/环境下
+      // Ctrl+Shift+字母的 e.key 取值异常），供全局快捷键匹配。
+      // 修复：旧实现把整个匹配包在 if(ctrl) 里，Alt 系快捷键（如「关闭到托盘」Alt+M）
+      // 永不派发；现在只要有 Ctrl/Meta/Alt 任一修饰键就参与全局匹配，纯字母/Shift
+      // 裸按键仍不参与（避免打字误触发）。
+      if (ctrl || e.altKey) {
+        let baseKey;
+        if (e.code && /^Key[A-Za-z]$/.test(e.code)) baseKey = e.code.slice(3).toUpperCase();
+        else if (e.code && /^Digit[0-9]$/.test(e.code)) baseKey = e.code.slice(5);
+        else baseKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+        const gParts = [];
+        if (e.ctrlKey || e.metaKey) gParts.push('Ctrl');
+        if (e.shiftKey) gParts.push('Shift');
+        if (e.altKey) gParts.push('Alt');
+        gParts.push(baseKey);
+        const keyStr = gParts.join('+');
+        const gHandler = this.globalShortcutLookup?.[keyStr];
+        // 全局快捷键在【捕获阶段】统一派发：命中即阻止默认行为 + stopPropagation，
+        // 阻断事件继续冒泡到 CodeMirror（及其默认键位 search.js 的 Shift-Ctrl-F→replace）
+        // 或 Tauri WebView 的原生处理，确保编辑器有焦点时也能且仅由本处触发一次。
+        // （CM 的 extraKeys 仍对相关键置 false 作为兜底。）
+        if (gHandler) {
+          if (ctrl) e.preventDefault(); // Ctrl 类命中照旧阻止浏览器默认行为
+          e.stopPropagation();
+          gHandler();
+          return;
+        }
+      }
+
+      // 以下仅对 Ctrl/Meta 组合生效（保持原有行为不变）：
       if (ctrl) {
         const key = e.key.toLowerCase();
 
@@ -5979,30 +6016,6 @@ class MarkdownEditor {
 
         // Block ALL other Ctrl shortcuts from triggering browser defaults
         e.preventDefault();
-
-        // Handle TizuMark's global shortcuts (work even when editor is not focused)
-        // 主键用 e.code（物理键位）推导，规避某些浏览器/环境下 Ctrl+Shift+字母的
-        // e.key 取值异常（如被当成其它字符），保证 keyStr 与 globalShortcutLookup
-        // 中存储的 'Ctrl+Shift+F' 等稳定匹配。
-        let baseKey;
-        if (e.code && /^Key[A-Za-z]$/.test(e.code)) baseKey = e.code.slice(3).toUpperCase();
-        else if (e.code && /^Digit[0-9]$/.test(e.code)) baseKey = e.code.slice(5);
-        else baseKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-        const gParts = [];
-        if (e.ctrlKey || e.metaKey) gParts.push('Ctrl');
-        if (e.shiftKey) gParts.push('Shift');
-        if (e.altKey) gParts.push('Alt');
-        gParts.push(baseKey);
-        const keyStr = gParts.join('+');
-        const gHandler = this.globalShortcutLookup?.[keyStr];
-        // 全局快捷键在【捕获阶段】统一派发：命中即 stopPropagation，阻断事件继续
-        // 冒泡到 CodeMirror（及其默认键位 search.js 的 Shift-Ctrl-F→replace）或
-        // Tauri WebView 的原生处理，确保编辑器有焦点时也能且仅由本处触发一次。
-        // （CM 的 extraKeys 仍对相关键置 false 作为兜底。）
-        if (gHandler) {
-          e.stopPropagation();
-          gHandler();
-        }
       }
     }, true);
   }
@@ -13062,6 +13075,15 @@ input[type="checkbox"]:checked::after { display: none !important; }
         const w = TauriApi.currentWindow();
         if (w) await w.hide();
       } catch { /* 浏览器环境下降级 */ }
+    }
+  }
+
+  // 同步「关闭到托盘」全局热键到 Rust（OS 级：窗口隐藏后仍能唤出/隐藏）
+  async _syncGlobalCloseToTrayShortcut(key) {
+    try {
+      await TauriApi.setCloseToTrayShortcut({ key: key || '' });
+    } catch (err) {
+      console.warn('全局热键注册失败（该组合键可能已被其他程序占用）:', key, err);
     }
   }
 
