@@ -1,5 +1,5 @@
 // P0-2a（C3/C5/C17 + N21/N27/N29）：tauri-api 模块 + 前后端契约测试。
-// 覆盖：① 27 自定义命令方法由 COMMANDS 生成并透传；② plugin 命令（dialog/updater/webview）透传；
+// 覆盖：① 28 自定义命令方法由 COMMANDS 生成并透传；② plugin 命令（dialog/updater/webview）透传；
 //       ③ __TAURI__ 缺失时抛明确错误（ADR-1 唯一守卫）；④ reject 原样抛出（N21 语义空操作，C16 前提）；
 //       ⑤ Channel 构造器延迟可用；⑥ COMMANDS 集合 == lib.rs generate_handler! 注册集合（C17）；
 //       ⑦ generate_handler! 解析失败显式抛错（N27）。
@@ -38,7 +38,7 @@ test('COMMANDS 集合 == lib.rs generate_handler! 注册集合（C17，前后端
   const expected = [...TauriApi.COMMANDS].sort();
   assert.deepEqual(names, expected,
     `前后端命令集合必须一致。差异：${JSON.stringify(names)} vs ${JSON.stringify(expected)}`);
-  assert.equal(expected.length, 27, '应有 27 个自定义命令');
+  assert.equal(expected.length, 28, '应有 28 个自定义命令');
 });
 
 test('generate_handler! 解析失败必须显式抛错（N27）', () => {
@@ -46,7 +46,7 @@ test('generate_handler! 解析失败必须显式抛错（N27）', () => {
   assert.throws(() => parseHandlerCommands('generate_handler![unclosed'), /未闭合/);
 });
 
-test('27 个自定义命令方法由 COMMANDS 生成并原样透传（C5/N29）', async () => {
+test('28 个自定义命令方法由 COMMANDS 生成并原样透传（C5/N29）', async () => {
   const calls = [];
   global.window = {
     __TAURI__: { core: { invoke: async (cmd, args) => { calls.push({ cmd, args }); return 'R:' + cmd; } } },

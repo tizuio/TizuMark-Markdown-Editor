@@ -857,6 +857,12 @@
         for (const [action, fn] of Object.entries(globalMap)) registerGlobal(action, fn, false);
         for (const [action, fn] of Object.entries(editorMap)) registerGlobal(action, fn, true);
   
+        // 同步「关闭到托盘」键位到 OS 级全局热键：窗口隐藏到托盘后 WebView 收不到键盘
+        // 事件，前端 keydown 无法唤回窗口；OS 级热键（lib.rs set_close_to_tray_shortcut）
+        // 负责隐藏/唤回。注册失败（组合键被其他程序占用等）仅告警，窗口内 keydown 派发
+        // 仍作为兜底可用（全局注册成功后 OS 会吃掉该键，二者不会重复触发）。
+        this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+  
         this.updateShortcutHints();
       },
     // 屏蔽浏览器 / WebView 默认行为：功能键、历史导航，以及 Esc 关闭浮层
@@ -888,53 +894,73 @@
     // TizuMark 全局快捷键派发（编辑器无焦点时也生效）
     _dispatchGlobalShortcut(e) {
       const ctrl = e.ctrlKey || e.metaKey;
-      if (!ctrl) return;
-      const key = e.key.toLowerCase();
 
-      // 文档导航键（Home/End）：与 a/c/v/x 同逻辑，放行给 CodeMirror 处理。
-      // 事件自然到达 CM，由 extraKeys 注册的 handler 接管（Ctrl+End 落末行末列、
-      // Ctrl+Home 移动而非选中）；CM 命中后会自行 preventDefault（阻止页面滚动）。
-      // 不放行的话全局捕获监听会 preventDefault，导致 CM 因 defaultPrevented 提前
-      // return、handler 永不执行（见 codemirror.js onKeyDown → signalDOMEvent）。
-      if (key === 'home' || key === 'end' || key === 'arrowleft' || key === 'arrowright') {
-        // 文档导航键 / 方向键：放行给 CodeMirror 处理（Ctrl+←/→ 按词移动、
-        // Ctrl+Shift+←/→ 选词）。若在此 preventDefault，CM 因 defaultPrevented 提前
-        // return，extraKeys 里自定义的 _moveByWord handler 永不执行（同 Home/End 坑）。
-        return;
+      // 文档导航键（Home/End/←/→）+ 浏览器编辑键（a/c/v/x/z/y）：仅 Ctrl/Meta 组合
+      // 时处理，行为与重构前一致；裸按键或 Alt 组合不在此拦截（避免误吞打字/系统组合）。
+      if (ctrl) {
+        const key = e.key.toLowerCase();
+
+        // 文档导航键（Home/End）：与 a/c/v/x 同逻辑，放行给 CodeMirror 处理。
+        // 事件自然到达 CM，由 extraKeys 注册的 handler 接管（Ctrl+End 落末行末列、
+        // Ctrl+Home 移动而非选中）；CM 命中后会自行 preventDefault（阻止页面滚动）。
+        // 不放行的话全局捕获监听会 preventDefault，导致 CM 因 defaultPrevented 提前
+        // return、handler 永不执行（见 codemirror.js onKeyDown → signalDOMEvent）。
+        if (key === 'home' || key === 'end' || key === 'arrowleft' || key === 'arrowright') {
+          // 文档导航键 / 方向键：放行给 CodeMirror 处理（Ctrl+←/→ 按词移动、
+          // Ctrl+Shift+←/→ 选词）。若在此 preventDefault，CM 因 defaultPrevented 提前
+          // return，extraKeys 里自定义的 _moveByWord handler 永不执行（同 Home/End 坑）。
+          return;
+        }
+
+        // Essential browser editing shortcuts — always let through
+        if (['a', 'c', 'v', 'x', 'z', 'y'].includes(key)) {
+          if (!e.shiftKey) return;
+          if (key === 'z') return; // Ctrl+Shift+Z for redo
+          e.preventDefault(); // Block Ctrl+Shift+C (DevTools) etc.
+          return;
+        }
+
+        // Block ALL other Ctrl shortcuts from triggering browser defaults
+        e.preventDefault();
       }
 
-      // Essential browser editing shortcuts — always let through
-      if (['a', 'c', 'v', 'x', 'z', 'y'].includes(key)) {
-        if (!e.shiftKey) return;
-        if (key === 'z') return; // Ctrl+Shift+Z for redo
-        e.preventDefault(); // Block Ctrl+Shift+C (DevTools) etc.
-        return;
+      // 全局快捷键派发：Ctrl/Meta/Alt 任一修饰键参与匹配（合并自 PR #67，修复 Alt 系
+      // 快捷键如「关闭到托盘」Alt+M 在窗口聚焦时永不派发的问题；窗口隐藏到托盘后由
+      // OS 级全局热键唤回，见 lib.rs set_close_to_tray_shortcut / toggle_main_window）。
+      // 纯字母 / Shift 裸按键仍不参与（避免打字误触发）。
+      if (ctrl || e.altKey) {
+        // 主键用 e.code（物理键位）推导，规避某些浏览器/环境下 Ctrl+Shift+字母的
+        // e.key 取值异常（如被当成其它字符），保证 keyStr 与 globalShortcutLookup
+        // 中存储的 'Ctrl+Shift+F' 等稳定匹配。
+        let baseKey;
+        if (e.code && /^Key[A-Za-z]$/.test(e.code)) baseKey = e.code.slice(3).toUpperCase();
+        else if (e.code && /^Digit[0-9]$/.test(e.code)) baseKey = e.code.slice(5);
+        else baseKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+        const gParts = [];
+        if (e.ctrlKey || e.metaKey) gParts.push('Ctrl');
+        if (e.shiftKey) gParts.push('Shift');
+        if (e.altKey) gParts.push('Alt');
+        gParts.push(baseKey);
+        const keyStr = gParts.join('+');
+        const gHandler = this.globalShortcutLookup?.[keyStr];
+        // 全局快捷键在【捕获阶段】统一派发：命中即阻止默认行为 + stopPropagation，
+        // 阻断事件继续冒泡到 CodeMirror（及其默认键位 search.js 的 Shift-Ctrl-F→replace）
+        // 或 Tauri WebView 的原生处理，确保编辑器有焦点时也能且仅由本处触发一次。
+        // （CM 的 extraKeys 仍对相关键置 false 作为兜底。）
+        if (gHandler) {
+          if (ctrl) e.preventDefault(); // Ctrl 类命中照旧阻止浏览器默认行为（Alt 类不拦，避免误吞系统组合）
+          e.stopPropagation();
+          gHandler();
+        }
       }
+    },
 
-      // Block ALL other Ctrl shortcuts from triggering browser defaults
-      e.preventDefault();
-
-      // 主键用 e.code（物理键位）推导，规避某些浏览器/环境下 Ctrl+Shift+字母的
-      // e.key 取值异常（如被当成其它字符），保证 keyStr 与 globalShortcutLookup
-      // 中存储的 'Ctrl+Shift+F' 等稳定匹配。
-      let baseKey;
-      if (e.code && /^Key[A-Za-z]$/.test(e.code)) baseKey = e.code.slice(3).toUpperCase();
-      else if (e.code && /^Digit[0-9]$/.test(e.code)) baseKey = e.code.slice(5);
-      else baseKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-      const gParts = [];
-      if (e.ctrlKey || e.metaKey) gParts.push('Ctrl');
-      if (e.shiftKey) gParts.push('Shift');
-      if (e.altKey) gParts.push('Alt');
-      gParts.push(baseKey);
-      const keyStr = gParts.join('+');
-      const gHandler = this.globalShortcutLookup?.[keyStr];
-      // 全局快捷键在【捕获阶段】统一派发：命中即 stopPropagation，阻断事件继续
-      // 冒泡到 CodeMirror（及其默认键位 search.js 的 Shift-Ctrl-F→replace）或
-      // Tauri WebView 的原生处理，确保编辑器有焦点时也能且仅由本处触发一次。
-      // （CM 的 extraKeys 仍对相关键置 false 作为兜底。）
-      if (gHandler) {
-        e.stopPropagation();
-        gHandler();
+    // 同步「关闭到托盘」全局热键到 Rust（OS 级：窗口隐藏后仍能唤出/隐藏）
+    async _syncGlobalCloseToTrayShortcut(key) {
+      try {
+        await TauriApi.setCloseToTrayShortcut({ key: key || '' });
+      } catch (err) {
+        console.warn('全局热键注册失败（该组合键可能已被其他程序占用）:', key, err);
       }
     },
 

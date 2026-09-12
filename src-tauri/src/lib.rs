@@ -8,6 +8,7 @@ use tauri::path::BaseDirectory;
 use tauri::WindowEvent;
 use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri::menu::{Menu, MenuItem};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use md5::{Md5, Digest};
 
 fn show_window(window: &tauri::WebviewWindow) {
@@ -272,6 +273,61 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
             }
         })
         .build(app)
+}
+
+// ====== 「关闭到托盘」OS 级全局热键 ======
+// 前端 keydown 只能在窗口聚焦时收到按键；窗口隐藏到托盘后 WebView 不再接收任何
+// 键盘事件，因此「隐藏后也能唤回窗口」必须由 OS 级全局热键（tauri-plugin-global-shortcut）
+// 承担。前端在应用启动/修改快捷键时调用 set_close_to_tray_shortcut 注册/注销。
+struct GlobalShortcutState(Mutex<Option<String>>);
+
+// 全局热键回调：窗口可见 → 隐藏到托盘（仅当托盘可见，否则窗口将无法恢复）；
+// 窗口已隐藏/最小化 → 显示并聚焦（show_window 已做 unminimize + show + set_focus）。
+fn toggle_main_window(app: &tauri::AppHandle) {
+    let show_tray = app
+        .try_state::<WindowBehavior>()
+        .and_then(|b| b.show_tray.lock().ok().map(|g| *g))
+        .unwrap_or(true);
+    let Some(window) = app.get_webview_window("main") else { return };
+    if window.is_visible().unwrap_or(false) {
+        if show_tray {
+            let _ = window.hide();
+        }
+    } else {
+        show_window(&window);
+    }
+}
+
+// 前端同步「关闭到托盘」全局热键：key 为空字符串则仅注销旧热键。
+#[tauri::command]
+fn set_close_to_tray_shortcut(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    // 1) 先注销旧的全局热键（存在时）
+    let old = app
+        .state::<GlobalShortcutState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take();
+    if let Some(old_key) = old {
+        if let Ok(s) = old_key.parse::<Shortcut>() {
+            let _ = app.global_shortcut().unregister(s);
+        }
+    }
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        return Ok(());
+    }
+    // 2) 注册新热键；组合键已被其他程序占用等失败会返回 Err，由前端告警
+    let shortcut: Shortcut = key
+        .parse()
+        .map_err(|e| format!("无效全局快捷键 {}: {}", key, e))?;
+    app.global_shortcut().register(shortcut).map_err(|e| e.to_string())?;
+    *app
+        .state::<GlobalShortcutState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())? = Some(key);
+    Ok(())
 }
 
 #[derive(serde::Serialize, Clone, Copy)]
@@ -1136,6 +1192,15 @@ pub fn run() {
                 let _ = app.emit("file-open", files_from_args(argv));
             }
         }))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        toggle_main_window(app);
+                    }
+                })
+                .build(),
+        )
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
@@ -1161,10 +1226,12 @@ pub fn run() {
             Ok(())
         })
         .manage(WatcherState(Mutex::new(None)))
+        .manage(GlobalShortcutState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             get_cli_args,
             set_window_behavior,
+            set_close_to_tray_shortcut,
             quit_app,
             read_file,
             write_file,

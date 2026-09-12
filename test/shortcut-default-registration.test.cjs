@@ -284,7 +284,7 @@ function makeCmStub() {
 
 test('E1 applyShortcuts 把标题 H1~H6 注册进 CM extraKeys（Ctrl-1 ~ Ctrl-6）', () => {
   const cm = makeCmStub();
-  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {} };
+  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {}, _syncGlobalCloseToTrayShortcut() {} };
   applyShortcuts.call(s);
   for (let i = 1; i <= 6; i++) {
     assert.strictEqual(typeof cm._ek['Ctrl-' + i], 'function',
@@ -294,7 +294,7 @@ test('E1 applyShortcuts 把标题 H1~H6 注册进 CM extraKeys（Ctrl-1 ~ Ctrl-6
 
 test('E2 applyShortcuts 把加粗/图片/公式等注册进 CM，并把全局键与编辑器键都填入 globalShortcutLookup', () => {
   const cm = makeCmStub();
-  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {} };
+  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {}, _syncGlobalCloseToTrayShortcut() {} };
   applyShortcuts.call(s);
   assert.strictEqual(typeof cm._ek['Ctrl-B'], 'function', '加粗应注册');
   // 注意：applyShortcuts 内 toCmKey 按修饰键排序（Shift 在前），故 Ctrl+Shift+I → Shift-Ctrl-I
@@ -311,7 +311,7 @@ test('E2 applyShortcuts 把加粗/图片/公式等注册进 CM，并把全局键
 test('E3 编辑器动作的全局项带「聚焦才执行」守卫：未聚焦不误触、聚焦才执行', () => {
   const cm = makeCmStub();
   const spy = [];
-  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {}, wrapSelection: () => spy.push('wrap') };
+  const s = { cm, shortcuts: getDefaultShortcuts(), updateShortcutHints() {}, _syncGlobalCloseToTrayShortcut() {}, wrapSelection: () => spy.push('wrap') };
   applyShortcuts.call(s);
   cm.hasFocus = () => false;
   s.globalShortcutLookup['Ctrl+B']();
