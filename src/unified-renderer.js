@@ -13,6 +13,41 @@ try {
 }
 const rehypeStringify = require('rehype-stringify').default || require('rehype-stringify');
 const { visit } = require('unist-util-visit');
+const { convertMd2Tables } = require('./md2/scan.js');
+const { renderTable: renderMd2Table } = require('./md2/html.js');
+
+// ---- md2 表格支持 ----
+// 单元格内容重入守卫：md2 禁止表格嵌套（§1.4），因此单元格内容渲染期间
+// 不再执行 md2 表格转换。这同时杜绝无限递归——嵌套深度恒为 1，
+// 无需设计规格中的「深度上限」。
+// ⚠️ 前提：本守卫依赖 renderMarkdown 是**同步**的。若日后改为 async，
+// 该模块级标志会在 await 期间被并发渲染串扰，守卫不再可靠。
+let _renderingMd2Cell = false;
+
+/**
+ * md2 单元格内容渲染器：把单元格内的 Markdown 回灌同一条 unified 管线，
+ * 从而获得完整 CommonMark（含行内标记、列表、代码块等）。
+ * 产物作为原始 HTML 拼进表格标记，随后由 rehype-raw 重新解析并 sanitize。
+ */
+function renderMd2CellContent(text) {
+  const src = String(text == null ? '' : text);
+  if (src.trim() === '') return '';
+  if (_renderingMd2Cell) return escapeHTML(src); // 防御：结构上不可达
+  _renderingMd2Cell = true;
+  try {
+    // 剥掉片段相对行号：remarkSourceLine 注入的 data-source-line 是**相对单元格**
+    // 的行号，而 preview-sync 会拿它跳转源码位置——留着会跳到错误行。
+    // 剥掉后行为统一为「不跳」，优于「跳错」。（表格外层的原始 HTML 本就没有该属性。）
+    return renderMarkdown(src, { softBreaks: false }).replace(/\sdata-source-line="[^"]*"/g, '');
+  } catch (err) {
+    // 管线内异常已被 renderMarkdown 自己兜底；能走到这里说明是管线外前置步骤抛错，
+    // 静默吞掉会让这类问题无从诊断。
+    console.error('[md2] 单元格内容渲染失败，回退为转义文本:', err);
+    return escapeHTML(src);
+  } finally {
+    _renderingMd2Cell = false;
+  }
+}
 
 // ---- remark plugin: add data-source-line from AST position ----
 function remarkSourceLine() {
@@ -1478,6 +1513,16 @@ function renderMarkdown(content, options) {
 
   // 4. Convert definition lists
   let processed = convertDefLists(alertResult.content);
+
+  // md2 表格（网格语法 + 带 >> / ^^ 标记的管道表）：仅顶层、且不在单元格重入时执行。
+  // 必须在 convertContainerTables 之前——两者职责分离：本步只认领 md2 语法，
+  // 容器内的普通 GFM 表格仍由下一步处理。
+  if (!_renderingMd2Cell) {
+    processed = convertMd2Tables(processed, {
+      renderTable: renderMd2Table,
+      renderCellContent: renderMd2CellContent,
+    });
+  }
 
   // 4.5. Convert container-embedded tables (lazy continuation)
   processed = convertContainerTables(processed);

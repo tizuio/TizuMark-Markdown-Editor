@@ -1,0 +1,19 @@
+<h1>Grid table with combined row- and column-spanning</h1>
+<p>Two tables. The first has a single cell spanning two rows AND two columns
+(the case most implementations get wrong; note the unbroken bottom border —
+the corner rule omits the internal corner beneath the merged cell). The
+second arranges an independent rowspan next to a colspan.</p>
+<h2>A 2x2 merged cell</h2>
+<table>
+<tbody>
+<tr><td colspan="2" rowspan="2">A 2x2</td><td>B</td></tr>
+<tr><td>C</td></tr>
+</tbody>
+</table>
+<h2>A rowspan next to a colspan</h2>
+<table>
+<tbody>
+<tr><td rowspan="2">R</td><td colspan="2">S spans</td></tr>
+<tr><td>C</td><td>D</td></tr>
+</tbody>
+</table>

@@ -1,0 +1,32 @@
+MIT License
+
+Copyright (c) 2026 Yoong Hor Meng
+Copyright (c) 2026 The md2 authors — 本子系统移植/衍生自 md2，其原始许可同为 MIT。
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---------------------------------------------------------------------------
+注意 / Note
+
+本目录（src/md2/）以 MIT 许可发布。但本目录位于 TizuMark 仓库内，该仓库
+整体以 GPL-3.0 分发（见仓库根目录 LICENSE）。MIT 与 GPL-3.0 兼容：MIT 代码
+可以被并入 GPL 作品，但**合并后的整体作品在分发时仍受 GPL-3.0 约束**。
+因此这里的 MIT 标识说明的是本目录内文件自身的许可（以便他人单独复用这套
+表格解析器），并不改变 TizuMark 的整体许可，也不改变根 README「衍生作品
+必须延续 GPL v3」的表述。

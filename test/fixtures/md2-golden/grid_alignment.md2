@@ -1,0 +1,10 @@
+# Grid table alignment markers
+
+Alignment is declared on the header separator: column 1 left, column 2
+center, column 3 right.
+
++-------+-------+-------+
+| Left  | Mid   | Right |
++:======+:=====:+======:+
+| a     | b     | c     |
++-------+-------+-------+

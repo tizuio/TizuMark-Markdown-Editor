@@ -2138,6 +2138,41 @@ body.is-resizing .side-btn {
 .preview-content th[align="center"], .preview-content td[align="center"] { text-align: center; }
 .preview-content th[align="right"], .preview-content td[align="right"] { text-align: right; }
 
+/* md2 表格解析错误块：语法错误时替代表格显示，文档其余部分照常渲染 */
+.preview-content .md2-error {
+  border: 1px solid var(--border-color);
+  border-left: 3px solid #d9534f;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 12px 0;
+  font-size: calc(var(--ui-font-size) * 0.9231);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.preview-content .md2-error strong {
+  color: #d9534f;
+}
+
+.preview-content .md2-error pre {
+  margin: 8px 0 0;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-size: 0.9em;
+  opacity: 0.75;
+  background: var(--bg-primary);
+  border-radius: 3px;
+}
+
+/* md2 单元格内容回灌 unified 管线会产出 <p>，其在单元格内的默认上下边距会把
+   表格撑开。只重置**唯一子元素**的情形——单元格含多块内容（列表/代码块等）时
+   仍保留正常段落间距。GFM 表格单元格不含 <p>，不受影响。 */
+.preview-content td > p:only-child,
+.preview-content th > p:only-child {
+  margin: 0;
+}
+
 .preview-content img { max-width: 100%; height: auto; border-radius: 4px; cursor: pointer; }
 .mermaid-container svg { cursor: pointer; }
 
