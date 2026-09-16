@@ -1,0 +1,13 @@
+# Grid table with a colspan
+
+The body cell "A spans" spans columns 1–2: its band's content lines omit the
+internal boundary pipe, and the border lines omit the corner at that position
+per the corner rule.
+
++-------+-------+-------+
+| H1    | H2    | H3    |
++=======+=======+=======+
+| A spans       | B     |
++-------+-------+-------+
+| C     | D     | E     |
++-------+-------+-------+

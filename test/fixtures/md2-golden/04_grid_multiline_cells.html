@@ -1,0 +1,29 @@
+<h1>Grid table with multi-line cells</h1>
+<p>Cells may contain several paragraphs, lists, and code blocks. No hard breaks
+here — this exercises multi-line cell content and blank lines within bands
+(which still carry their boundary pipes).</p>
+<table>
+<thead>
+<tr><th>Column A</th><th>Column B</th></tr>
+</thead>
+<tbody>
+<tr><td><p>First paragraph
+in cell A.</p>
+<p>Second
+paragraph.</p>
+</td><td><p>A list:</p>
+<ul>
+<li>
+<p>item one</p>
+</li>
+<li>
+<p>item two</p>
+</li>
+</ul>
+</td></tr>
+<tr><td><p>Code example:</p>
+<pre><code class="language-rust">fn main() {}
+</code></pre>
+</td><td>Text after.</td></tr>
+</tbody>
+</table>
