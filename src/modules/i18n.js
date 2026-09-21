@@ -219,6 +219,7 @@
         setTitle('fmt-collapse', t('collapseExpandToolbar'));
         setTitle('outline-close', t('close'));
         setTitle('folder-close', t('closeFolder'));
+        setTitle('files-header-open', t('openWorkspaceFolderTitle'));
         // 文件目录排序下拉文案随语言刷新由 _folderSortSelect.applyI18n 统一处理（见下方 SETTINGS DROPDOWN OPTIONS）
         this.updateFolderSortOrderButton();
         this.updateFolderMenuLabel();
