@@ -1,0 +1,48 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [feat/spanish-i18n-support, master]
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows Installer & Portable Binary
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer and frontend bundle
+        run: |
+          npm run build:renderer
+          npm run build-frontend
+
+      - name: Build Tauri Desktop Application (Windows)
+        run: npm run build
+
+      - name: Upload Windows Binaries Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TizuMark-Windows-v1.2.3-Spanish
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/TizuMark_*.exe
+          if-no-files-found: error

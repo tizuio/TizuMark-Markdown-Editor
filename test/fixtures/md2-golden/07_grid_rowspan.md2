@@ -1,0 +1,13 @@
+# Grid table with a rowspan
+
+The body cell "R" spans two rows: the border between the two body rows is
+dotted over column 1's range, and the continuation band leaves that cell area
+blank.
+
++-------+-------+
+| H1    | H2    |
++=======+=======+
+| R     | B     |
++.......+-------+
+|       | C     |
++-------+-------+

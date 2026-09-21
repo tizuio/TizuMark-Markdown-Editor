@@ -20,7 +20,8 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(ROOT, 'src', 'index.html'), 'utf8');
 const stylesCss = fs.readFileSync(path.join(ROOT, 'src', 'styles.css'), 'utf8');
-const appJs = fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const appJs = require('./helpers/app-bundle.cjs').readBundle();
 
 let failed = 0;
 function check(name, cond) {

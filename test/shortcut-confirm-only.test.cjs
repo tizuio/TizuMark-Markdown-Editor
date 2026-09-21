@@ -13,7 +13,8 @@ const dom = new JSDOM('<!DOCTYPE html><div id="shortcuts-dialog" class="hidden">
 global.document = dom.window.document;
 const localStorage = dom.window.localStorage;
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const src = require('./helpers/app-bundle.cjs').readBundle();
 
 function extractMethod(s, name) {
   const re = new RegExp('  ' + name + '\\s*\\([^)]*\\)\\s*\\{', 'm');

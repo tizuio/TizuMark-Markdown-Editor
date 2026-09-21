@@ -1,0 +1,13 @@
+# Two header rows with a colspan category cell
+
+Header row 1: "Region" plus the category cell "Sales" spanning the two
+sub-columns "North"/"South" of header row 2. The merge lies entirely inside
+the header block, which is legal.
+
++--------+-------+-------+
+| Region |   Sales       |
++--------+-------+-------+
+|        | North | South |
++========+=======+=======+
+| East   | 10    | 20    |
++--------+-------+-------+

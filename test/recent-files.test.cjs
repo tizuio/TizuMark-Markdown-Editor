@@ -8,7 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const appjs = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const appjs = require('./helpers/app-bundle.cjs').readBundle();
 // P1-5：app.js 运行时依赖 window.TauriApi（原裸 window.__TAURI__ 已收敛到 TauriApi.*），
 // 须像生产（index.html 先加载 tauri-api.js）一样先注入，否则 TauriApi 未定义。
 const tauriApiSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'tauri-api.js'), 'utf8');

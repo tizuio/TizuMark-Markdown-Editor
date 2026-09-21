@@ -1,0 +1,21 @@
+# Grid table with multi-line cells
+
+Cells may contain several paragraphs, lists, and code blocks. No hard breaks
+here — this exercises multi-line cell content and blank lines within bands
+(which still carry their boundary pipes).
+
++-----------------+-----------------+
+| Column A        | Column B        |
++=================+=================+
+| First paragraph | A list:         |
+| in cell A.      |                 |
+|                 | - item one      |
+| Second          | - item two      |
+| paragraph.      |                 |
++-----------------+-----------------+
+| Code example:   | Text after.     |
+|                 |                 |
+| ```rust         |                 |
+| fn main() {}    |                 |
+| ```             |                 |
++-----------------+-----------------+

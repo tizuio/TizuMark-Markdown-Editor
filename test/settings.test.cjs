@@ -898,7 +898,7 @@ test('settings: 切换英文后设置对话框无残留中文（除字体预览�
     // 语言 / 主题 / 关闭行为 / 视图 / Tab / 最大宽度 options（自绘 Select 组件，随语言刷新）
     const lang = ed._selects && ed._selects.language;
     assert.ok(lang, '语言 Select 组件实例应已创建');
-    assert.deepStrictEqual([...lang._options].map(o => o.label), ['Chinese', 'English']);
+    assert.deepStrictEqual([...lang._options].map(o => o.label), ['Chinese', 'English', 'Spanish']);
     const themeSel = ed._selects && ed._selects.themeMode;
     assert.ok(themeSel, '主题 Select 组件实例应已创建');
     assert.deepStrictEqual([...themeSel._options].map(o => o.label), ['Light', 'Dark', 'Follow System']);
@@ -925,6 +925,35 @@ test('settings: 切换英文后设置对话框无残留中文（除字体预览�
       leftovers.push(t.slice(0, 40));
     }
     assert.deepStrictEqual(leftovers, [], '设置对话框不应有残留中文，实际: ' + leftovers.join(' | '));
+  } finally { cleanup(w); }
+});
+
+test('settings: 切换西班牙语后设置对话框无残留中文（除字体预览样例）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    ed.settings.language = 'es';
+    ed.applyLanguage();
+    ed.showSettings();
+
+    const dlg = w.document.getElementById('settings-dialog');
+    assert.ok(dlg, '设置对话框存在');
+    assert.strictEqual(w.document.getElementById('settings-title').textContent, 'Configuración');
+    const sections = [...dlg.querySelectorAll('.settings-section .settings-section-name')].map(h => h.textContent);
+    assert.deepStrictEqual(sections, ['Básico', 'Editor', 'Vista previa', 'Comportamiento', 'Fuentes personalizadas', 'Inserción rápida']);
+    const lang = ed._selects && ed._selects.language;
+    assert.ok(lang, '语言 Select 组件实例应已创建');
+    assert.deepStrictEqual([...lang._options].map(o => o.label), ['Chino', 'Inglés', 'Español']);
+
+    const leftovers = [];
+    const walker = w.document.createTreeWalker(dlg, w.NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent.trim();
+      if (!/[\u4e00-\u9fff]/.test(t)) continue;
+      if (node.parentElement.closest('#font-preview-editor, #font-preview-preview, #font-preview-code')) continue;
+      leftovers.push(t.slice(0, 40));
+    }
+    assert.deepStrictEqual(leftovers, [], '西班牙语设置对话框不应有残留中文，实际: ' + leftovers.join(' | '));
   } finally { cleanup(w); }
 });
 

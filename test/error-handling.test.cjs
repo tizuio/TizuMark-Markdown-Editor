@@ -8,7 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const appjs = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
+// 拆分后业务代码分布在 src/modules/，静态断言需覆盖全部源码（按 index.html 顺序拼接）
+const appjs = require('./helpers/app-bundle.cjs').readBundle();
 
 // 在 jsdom 同一脚本作用域内运行，以便访问 app.js 顶层的 MarkdownEditor / ERROR_MESSAGES（class/const 不跨脚本共享）
 function harnessFn() {

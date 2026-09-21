@@ -34,10 +34,12 @@ function checkVersion(file, pattern, { count = 1 } = {}) {
 
 checkVersion('src-tauri/Cargo.toml', /^version\s*=\s*"([^"]+)"/m, { label: 'Cargo.toml' });
 checkVersion('src-tauri/tauri.conf.json', /"version"\s*:\s*"([^"]+)"/, { label: 'tauri.conf.json' });
-checkVersion('src/app.js', /versionInfo:\s*'TizuMark v([^']+)'/, { count: 2, label: 'app.js versionInfo(zh/en)' });
+// versionInfo 文案随 i18n 字典搬到 src/modules/i18n-data.js（zh/en/es 各一处）
+checkVersion('src/modules/i18n-data.js', /versionInfo:\s*'TizuMark v([^']+)'/, { count: 3, label: 'i18n-data.js versionInfo(zh/en/es)' });
 checkVersion('src/index.html', /id="about-version"[^>]*>TizuMark v([^<]+)</, { label: 'index.html about-version' });
 checkVersion('README.md', /Version-([0-9.]+)-blue/, { label: 'README.md badge' });
 checkVersion('README.en.md', /Version-([0-9.]+)-blue/, { label: 'README.en.md badge' });
+checkVersion('README.es.md', /Version-([0-9.]+)-blue/, { label: 'README.es.md badge' });
 // release-notes.js 运行时从 package.json 读取版本（const VERSION = readPkg().version），恒与基准一致，仅校验存在性
 {
   const rnPath = path.join(ROOT, 'scripts/release-notes.js');
@@ -53,4 +55,4 @@ if (fail.length > 0) {
   for (const f of fail) console.error('  - ' + f);
   process.exit(1);
 }
-console.log(`✓ 版本号一致：v${VERSION}（${8} 处检查通过）`);
+console.log(`✓ 版本号一致：v${VERSION}（9 处检查通过）`);

@@ -1,0 +1,12 @@
+# Two header rows with a rowspan in the leftmost column
+
+"ID" spans both header rows (dotted border between them) and has no
+sub-header beneath it. The merge lies entirely inside the header block.
+
++--------+-------+-------+
+| ID     | North | South |
++........+-------+-------+
+|        | Units | Count |
++========+=======+=======+
+| 1      | a     | b     |
++--------+-------+-------+

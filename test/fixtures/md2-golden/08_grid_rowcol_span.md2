@@ -1,0 +1,22 @@
+# Grid table with combined row- and column-spanning
+
+Two tables. The first has a single cell spanning two rows AND two columns
+(the case most implementations get wrong; note the unbroken bottom border —
+the corner rule omits the internal corner beneath the merged cell). The
+second arranges an independent rowspan next to a colspan.
+
+## A 2x2 merged cell
+
++-------+-------+-------+
+| A 2x2         | B     |
++...............+-------+
+|               | C     |
++---------------+-------+
+
+## A rowspan next to a colspan
+
++-------+-------+-------+
+| R     | S spans       |
++.......+-------+-------+
+|       | C     | D     |
++-------+-------+-------+

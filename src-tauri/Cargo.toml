@@ -19,6 +19,9 @@ tauri-plugin-dialog = "2.2"
 tauri-plugin-fs = "2.2"
 tauri-plugin-shell = "2.2"
 tauri-plugin-single-instance = "2"
+# 「关闭到托盘」OS 级全局热键：窗口隐藏到托盘后前端 keydown 收不到按键，只能靠
+# 系统级热键唤回窗口（见 lib.rs set_close_to_tray_shortcut / toggle_main_window）
+tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 notify = "6"
