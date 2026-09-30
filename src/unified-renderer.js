@@ -238,6 +238,14 @@ function looksLikeMath(inner) {
   return false;
 }
 
+// LaTeX 定界符 \(...\) / \[...\] 的保守判定：inner 须具备 LaTeX 数学特征才当公式。
+// 只认「反斜杠命令（\frac/\alpha/\pi...）」与上标（^）；
+// 刻意不含运算符/花括号/下划线（旧版无条件拦截曾把文献引用 \[J/OL\] 误判为块级公式，
+// v1.2.2 因此移除；下划线常见于文件名/标识符如 my_paper_v2，作特征会误判，下标请用 $a_i$）。
+function looksLikeLatexMath(inner) {
+  return /\\[a-zA-Z]+|\^/.test(inner);
+}
+
 function guardMathBlocks(content) {
   const placeholders = [];
   let result = '';
@@ -324,9 +332,60 @@ function guardMathBlocks(content) {
       continue;
     }
 
-    // \( 与 \[ 故意不拦截：CommonMark 中它们是转义（字面 ( / [），作数学定界符会与
-    // 转义语义冲突（如引用 \[J/OL\] 被误渲染为公式）。数学请用 $ / $$。
-    else if (content[i] === '$' && i + 1 < len && content[i + 1] === '$') {
+    // LaTeX 定界符 \(...\) / \[...\]：保守恢复（v1.2.0 曾无条件支持，v1.2.2 因与 CommonMark
+    // 转义冲突——文献引用 \[J/OL\] 被误判为公式——而移除）。现仅当「同段闭合 + inner 具备
+    // LaTeX 数学特征（looksLikeLatexMath）」才归一化为 $/$$ 交给 KaTeX；否则原样输出，
+    // 交由 CommonMark 转义渲染为字面 ( ) [ ]。数学也可直接用 $ / $$（GitHub 同款语义）。
+    else if (!inBacktick && content[i] === '\\' && content[i + 1] === '(') {
+      // 行内 LaTeX：\( ... \) — 仅限单行，遇换行未闭合即回退字面量（与行内 $...$ 一致）。
+      const start = i;
+      let j = i + 2;
+      let inner = null;
+      while (j < len) {
+        if (content[j] === '\n' || content[j] === '\r') break;
+        if (content[j] === '\\' && content[j + 1] === ')') {
+          inner = content.substring(start + 2, j);
+          j += 2;
+          break;
+        }
+        j++;
+      }
+      if (inner !== null && looksLikeLatexMath(inner)) {
+        const idx = placeholders.length;
+        placeholders.push({ text: '$' + inner + '$', display: false });
+        result += '<!--MATHBLOCK_' + idx + '-->';
+        i = j;
+      } else {
+        result += '\\(';
+        i = start + 2;
+      }
+    } else if (!inBacktick && content[i] === '\\' && content[i + 1] === '[') {
+      // 块级 LaTeX：\[ ... \] — LaTeX 中始终为 display math，可跨行（空行即断，避免吞后续段落）。
+      const start = i;
+      const lineNum = content.substring(0, start).split('\n').length;
+      let j = i + 2;
+      let inner = null;
+      while (j + 1 < len) {
+        if (content[j] === '\n' && (content[j + 1] === '\n' || content[j + 1] === '\r')) break;
+        if (content[j] === '\\' && content[j + 1] === ']') {
+          inner = content.substring(start + 2, j);
+          j += 2;
+          break;
+        }
+        j++;
+      }
+      if (inner !== null && looksLikeLatexMath(inner)) {
+        const idx = placeholders.length;
+        placeholders.push({ text: '$$' + inner + '$$', display: true, line: lineNum });
+        const newlineCount = (inner.match(/\n/g) || []).length;
+        result += '<div class="math-placeholder" data-math-idx="' + idx + '" data-source-line="' + lineNum + '"></div>';
+        for (let n = 0; n < newlineCount; n++) { result += '\n'; }
+        i = j;
+      } else {
+        result += '\\[';
+        i = start + 2;
+      }
+    } else if (content[i] === '$' && i + 1 < len && content[i + 1] === '$') {
       // Display math: $$...$$ — 仅在块级起点（行首或引用前缀后）触发；行内 $$ 一律当字面量，避免跨段配对
       const atBlockStart = isAtBlockStart(content, i);
       if (!atBlockStart) {
