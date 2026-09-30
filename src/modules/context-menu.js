@@ -72,6 +72,9 @@
         document.querySelectorAll('.context-menu-item[data-action]').forEach(item => {
           item.addEventListener('click', (e) => {
             e.stopPropagation();
+            // 禁用的菜单项（.disabled）一律不响应：不执行动作、也不关闭菜单，
+            // 与视觉灰态一致（修复前会照常触发 executeMenuAction）。
+            if (item.classList.contains('disabled')) return;
             const action = item.dataset.action;
             this.hideAllContextMenus();
             this.executeMenuAction(action);

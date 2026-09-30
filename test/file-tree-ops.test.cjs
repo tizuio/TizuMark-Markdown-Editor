@@ -396,9 +396,35 @@ test('file-ops: 空白处右键菜单禁用需要具体节点的操作，保留�
     };
     assert.strictEqual(isDisabled('file-new-file'), false, '空白处应可新建文件');
     assert.strictEqual(isDisabled('file-new-folder'), false, '空白处应可新建文件夹');
-    for (const a of ['file-cut', 'file-copy', 'file-rename', 'file-copy-path', 'file-delete']) {
+    // 需要具体节点的操作：空白处禁用（无选中项），但复制路径/打开文件夹不在此列——指向工作区根目录，本就可用。
+    for (const a of ['file-cut', 'file-copy', 'file-rename', 'file-delete']) {
       assert.strictEqual(isDisabled(a), true, `空白处应禁用 ${a}（无选中项）`);
     }
+    assert.strictEqual(isDisabled('file-copy-path'), false, '空白处复制路径应可用（指向工作区根目录）');
+    assert.strictEqual(isDisabled('folder-open-containing'), false, '空白处打开文件夹应可用（指向工作区根目录）');
+  } finally { cleanup(w); }
+});
+
+test('file-ops: 点击被禁用的菜单项不触发任何动作', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    stubUi(ed);
+    ed.workspaceFolder = '/ws';
+    let called = null;
+    ed.executeMenuAction = (a) => { called = a; };
+    const menu = w.document.getElementById('context-menu-file-tree');
+    const item = menu.querySelector('[data-action="file-delete"]');
+    assert.ok(item, 'file-delete 菜单项应存在');
+    // 模拟 updateFileTreeMenuState 在空白态下的禁用结果
+    ed._fileTreeCtx = { path: '/ws', isDir: true, isBlank: true };
+    ed.updateFileTreeMenuState();
+    assert.ok(item.classList.contains('disabled'), '空白处 file-delete 应为禁用态');
+    item.dispatchEvent(new w.Event('click', { bubbles: true }));
+    assert.strictEqual(called, null, '点击禁用项不应调用 executeMenuAction');
+    // 对照：非禁用项点击应正常触发
+    const copyPath = menu.querySelector('[data-action="file-copy-path"]');
+    copyPath.dispatchEvent(new w.Event('click', { bubbles: true }));
+    assert.strictEqual(called, 'file-copy-path', '非禁用项点击应触发对应动作');
   } finally { cleanup(w); }
 });
 

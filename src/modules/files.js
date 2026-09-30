@@ -501,7 +501,9 @@
         setDisabled('file-new-folder', !targetDir);
         setDisabled('file-paste', !targetDir || !this._fileClipboard);
         // 需要具体节点的操作：空白处一律禁用（没有选中项可操作）。
-        const nodeActions = ['file-cut', 'file-copy', 'file-rename', 'file-copy-path', 'file-delete', 'folder-open-containing'];
+        // 注意：复制路径(file-copy-path)/打开文件夹(folder-open-containing) 不在此列——
+        // 空白处右键上下文 path 已被设为工作区根目录，二者本就可操作，禁用只是视觉误导。
+        const nodeActions = ['file-cut', 'file-copy', 'file-rename', 'file-delete'];
         nodeActions.forEach(a => setDisabled(a, isBlank));
       },
       // 通用输入对话框：返回用户输入的字符串（trim），取消返回 null

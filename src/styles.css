@@ -3501,11 +3501,11 @@ body.is-resizing-row .sidebar-h-resizer {
   opacity: 0.55;
 }
 
-.context-menu-item:hover .shortcut {
+.context-menu-item:not(.disabled):hover .shortcut {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.context-menu-item:hover .submenu-arrow {
+.context-menu-item:not(.disabled):hover .submenu-arrow {
   color: rgba(255, 255, 255, 0.75);
 }
 
