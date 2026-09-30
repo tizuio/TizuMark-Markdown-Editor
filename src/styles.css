@@ -2719,6 +2719,46 @@ body.is-resizing .side-btn {
   color: var(--accent-text);
 }
 
+/* 侧边栏吸附把手：与既有「◀ 折叠编辑器」把手（.side-btn 16×50、左缘贴线向右伸、圆角朝右）
+   完全同款同锚，垂直方向在其上方 6px 处成组（top = 50% - 25px - 6px - 50px），构成整齐边缘控制列。
+   关闭后两侧手都落到左缘（left:0），把手转 accent 常亮作为显眼入口。 */
+.sidebar-float-btn {
+  position: absolute;
+  top: calc(50% - 81px);
+  z-index: 12;
+  width: 16px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: left 0.25s ease, background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.sidebar-float-btn svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sidebar-float-btn:hover {
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+}
+
+/* 关闭态：与 ◀ 把手一样吸附左缘，但 accent 常亮 → 显眼的“打开侧边栏”入口 */
+.sidebar-float-btn:not(.sidebar-open) {
+  left: 0 !important;
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+}
+
 .side-btn.side-hidden {
   opacity: 0;
   pointer-events: none;

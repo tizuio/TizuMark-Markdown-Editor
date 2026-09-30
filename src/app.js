@@ -221,7 +221,6 @@ class MarkdownEditor {
   initMenuButtons() {
     const F = 'file-menu';
     const H = 'help-menu';
-    this._bindMenuAction('btn-sidebar-toggle', () => this.toggleSidebar());
     this._bindMenuAction('btn-new', () => this.newFile(), F);
     this._bindMenuAction('btn-add-tab', () => this.newFile());
     this._bindMenuAction('btn-open', () => this.openFile(), F);
@@ -229,6 +228,8 @@ class MarkdownEditor {
     this._bindMenuAction('btn-save', () => this.saveFile(), F);
     this._bindMenuAction('btn-save-as', () => this.saveAsFile(), F);
     this._bindMenuAction('btn-reload', () => this.reloadFile());
+    // 侧边栏吸附把手（贴分隔线/左缘）：一键开关侧边栏（原「视图 → 侧边栏」菜单已移除）
+    this._bindMenuAction('sidebar-float-btn', () => this.toggleSidebar());
     this._bindMenuAction('btn-reload-menu', () => this.reloadFile(), F);
     this._bindMenuAction('btn-export-html', () => this.exportHTML(), F);
     this._bindMenuAction('btn-export-img', () => this.exportImage(), F);

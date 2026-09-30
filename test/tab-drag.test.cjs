@@ -53,7 +53,7 @@ const harnessFn = function () {
   const src = window.__APPJS_SOURCE;
   const ids = [...new Set([...src.matchAll(/getElementById\('([^']+)'\)/g)].map(m => m[1]))];
   // 另有三个工具栏按钮来自 toolbarDropdowns 数组变量（非 getElementById 字面量），需显式补齐
-  const extraIds = ['btn-file', 'btn-view', 'btn-help'];
+  const extraIds = ['btn-file', 'btn-help'];
   [...ids, ...extraIds].forEach(id => {
     if (document.getElementById(id)) return;
     const el = document.createElement('div');
@@ -68,7 +68,7 @@ const harnessFn = function () {
     document.body.appendChild(el);
   });
   // 三个工具栏按钮需包在 .dropdown 内（initEventListeners 用 closest('.dropdown')）
-  ['btn-file', 'btn-view', 'btn-help'].forEach(bid => {
+  ['btn-file', 'btn-help'].forEach(bid => {
     const btn = document.getElementById(bid);
     if (btn && !btn.closest('.dropdown')) {
       const dd = document.createElement('div');

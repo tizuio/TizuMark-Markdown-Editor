@@ -34,7 +34,6 @@
           if (span) span.textContent = text;
         };
         updateToolbarBtn('btn-file', t('file'));
-        updateToolbarBtn('btn-view', t('view'));
         updateToolbarBtn('btn-help', t('help'));
   
         // File menu items
@@ -214,6 +213,7 @@
         this.updateOutline();
   
         // Toolbar / panel title attributes（2026-08-04 i18n 补漏）
+        setTitle('sidebar-float-btn', t('toggleSidebar'));
         setTitle('btn-reload', t('reloadFile'));
         setTitle('btn-theme', t('toggleTheme'));
         setTitle('fmt-collapse', t('collapseExpandToolbar'));
@@ -390,18 +390,10 @@
   
         // Toolbar button titles
         setTitle('btn-file', t('file'));
-        setTitle('btn-view', t('view'));
         setTitle('btn-help', t('help'));
         setTitle('btn-view-preview', t('previewMode'));
         setTitle('btn-view-edit', t('editMode'));
-  
-        // View menu sidebar toggle
-        const sidebarToggle = document.getElementById('btn-sidebar-toggle');
-        if (sidebarToggle) {
-          const labelSpan = sidebarToggle.querySelector('span:last-of-type');
-          if (labelSpan) labelSpan.textContent = t('sidebar');
-        }
-  
+    
         // Items with data-action (format toolbar + context menus)
         const insActionKeys = {
           'insert-code-block': 'codeBlock',

@@ -941,6 +941,10 @@ function renderCellContent(text) {
     return '%%CODE' + idx + '%%';
   });
 
+  // 还原换行标签（escapeHTML 后为 &lt;br&gt;），覆盖 <br>/<BR>/<br/>/<br /> 变体；
+  // 放在行内代码占位之后，保证行内代码里的 <br> 保持字面显示。
+  result = result.replace(/&lt;(br\s*\/?)&gt;/gi, '<$1>');
+
   result = result
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')

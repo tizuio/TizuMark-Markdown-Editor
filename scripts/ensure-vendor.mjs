@@ -133,9 +133,38 @@ async function buildMathML2OMML() {
   console.log('[ensure-vendor] 打包 mathml2omml.min.js（全局 MathML2OMML）完成');
 }
 
+// @mermaid-js/layout-elk（mermaid 11 的 ELK 布局插件，独立包、仅 ESM 无 UMD）：
+// esbuild 打包为 IIFE 全局 MermaidElkLayouts（三路兼容同 highlight.min.js）。
+// 入口用官方预压缩 dist/mermaid-layout-elk.esm.min.mjs（其 chunks 已 minify；
+// 从 core.mjs 打包会拉入未压缩 chunks，产物 ~5MB，用 esm.min 约 2MB）。
+// 不注册时 mermaid 对 frontmatter `config: layout: elk` 抛「Unknown layout algorithm: elk」
+// 整图渲染失败；注册入口在 preview-post.js 顶部（registerLayoutLoaders 一次即全局生效）。
+async function buildMermaidElkLayouts() {
+  const esbuild = await import('esbuild');
+  const outfile = path.join(LIB, 'mermaid', 'mermaid-layout-elk.min.js');
+  const contents = [
+    "import elkLayouts from '@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';",
+    "if (typeof window !== 'undefined') window.MermaidElkLayouts = elkLayouts;",
+    "if (typeof globalThis !== 'undefined') globalThis.MermaidElkLayouts = elkLayouts;",
+    "if (typeof module !== 'undefined' && module.exports) module.exports = elkLayouts;",
+  ].join('\n');
+  await esbuild.build({
+    stdin: { contents, resolveDir: ROOT, loader: 'js' },
+    bundle: true,
+    format: 'iife',
+    minify: true,
+    platform: 'browser',
+    target: 'es2020',
+    outfile,
+    logLevel: 'silent',
+  });
+  console.log('[ensure-vendor] 打包 mermaid-layout-elk.min.js（全局 MermaidElkLayouts）完成');
+}
+
 await buildHighlightMin();
 await buildDocxMin();
 await buildMathML2OMML();
+await buildMermaidElkLayouts();
 
 let missing = 0;
 for (const [relSrc, relDest] of MANIFEST) {

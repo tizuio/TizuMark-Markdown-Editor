@@ -37,6 +37,7 @@
     "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
+    "@mermaid-js/layout-elk": "^0.2.3",
     "@tauri-apps/api": "^2.1.0",
     "@tauri-apps/cli": "^2.11.3",
     "esbuild": "^0.28.1",

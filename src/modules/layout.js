@@ -18,6 +18,15 @@
         const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
         sideLeft.style.left = outlineWidth + 'px';
         sideRight.style.left = '';
+        // 侧边栏吸附把手：与 ◀ 把手同锚（左缘贴分隔线向右伸），关闭后两侧手同落左缘、本把手 accent 常亮。
+        // 注意 jsdom 无布局，可见性必须按 classList 判定（offsetWidth 恒 0）。
+        const floatBtn = document.getElementById('sidebar-float-btn');
+        if (floatBtn) {
+          const visible = !outlineSidebar.classList.contains('hidden');
+          floatBtn.classList.toggle('sidebar-open', visible);
+          floatBtn.style.left = visible ? outlineWidth + 'px' : '';
+          floatBtn.setAttribute('aria-pressed', String(visible));
+        }
       },
         toggleSidebar() {
           const sidebar = document.getElementById('outline-sidebar');
@@ -66,10 +75,7 @@
           this.applyPanelCollapse();
         },
       updateSidebarChecks() {
-        const sidebar = document.getElementById('outline-sidebar');
-        const visible = !sidebar.classList.contains('hidden');
-        const sidebarToggle = document.getElementById('btn-sidebar-toggle');
-        if (sidebarToggle) sidebarToggle.classList.toggle('checked', visible);
+        // 原「视图 → 侧边栏」菜单已移除，勾选同步不再需要；保留钩子供未来菜单项复用。
       },
       initPanelHeaders() {
         const filesChevron = document.getElementById('files-chevron');

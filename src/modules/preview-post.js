@@ -8,6 +8,17 @@
 //   - opts.escapeHtml / escapeAttr / headingToId: 纯函数（由 app.js 传入，保持既有一致行为）
 // 全局依赖：document / navigator / getComputedStyle / mermaid / renderMathInElement（浏览器环境提供）。
 
+// Mermaid ELK 布局注册：frontmatter `config: layout: elk` 需要独立包 @mermaid-js/layout-elk
+// （mermaid 核心不含 elk，未注册时渲染抛「Unknown layout algorithm: elk」整图失败）。
+// vendor 经 ensure-vendor 打包为全局 MermaidElkLayouts，在此注册一次即全局生效
+// （预览 / 主题切换 / DOCX·PDF 导出共用同一个 mermaid 单例，无需各自注册）。
+try {
+  if (typeof window !== 'undefined' && window.mermaid && window.MermaidElkLayouts
+      && typeof window.mermaid.registerLayoutLoaders === 'function') {
+    window.mermaid.registerLayoutLoaders(window.MermaidElkLayouts);
+  }
+} catch (_) { /* 注册失败不阻断预览：elk 图渲染报错，但不影响其它图 */ }
+
 const EMOJI_MAP = {
   ':smile:': '😄', ':joy:': '😂', ':heart:': '❤️', ':thumbsup:': '👍',
   ':thumbsdown:': '👎', ':clap:': '👏', ':wave:': '👋', ':fire:': '🔥',

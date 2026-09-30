@@ -491,6 +491,7 @@
       switchWorkspaceTitle: '切换工作区',
       switchWorkspaceMsg: '当前已打开工作区，是否切换到 {path}？',
       sidebar: '侧边栏',
+      toggleSidebar: '切换侧边栏',
       // 文件树右键操作（合并自 PR #36）
       fileNewFile: '新建文件',
       newFileNamePrompt: '文件名称（含扩展名，如 note.md）',
@@ -978,6 +979,7 @@
       switchWorkspaceTitle: 'Switch Workspace',
       switchWorkspaceMsg: 'A workspace is already open. Switch to {path}?',
       sidebar: 'Sidebar',
+      toggleSidebar: 'Toggle Sidebar',
       // 文件树右键操作（合并自 PR #36）
       fileNewFile: 'New File',
       newFileNamePrompt: 'File name (with extension, e.g. note.md)',
@@ -1519,6 +1521,7 @@
       switchWorkspaceTitle: 'Cambiar espacio de trabajo',
       switchWorkspaceMsg: 'Ya hay un espacio de trabajo abierto. ¿Cambiar a {path}?',
       sidebar: 'Barra lateral',
+      toggleSidebar: 'Alternar barra lateral',
       fileNewFile: 'Nuevo archivo',
       newFileNamePrompt: 'Nombre del archivo (con extensión, ej. notas.md)',
       fileNewFolder: 'Nueva carpeta',

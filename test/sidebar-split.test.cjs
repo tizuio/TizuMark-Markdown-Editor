@@ -743,3 +743,30 @@ test('sidebar-split: 展开进行中点折叠应取消旧任务，不会继续�
     assert.strictEqual(ed.expandedFolders.size, 0, '折叠后 expandedFolders 应被清空');
   } finally { cleanup(w); }
 });
+
+// 回归：侧边栏吸附把手（用户反馈：标题栏位置不合适，改贴分隔线/左缘悬浮，一键开关免两步菜单）。
+test('sidebar: 吸附把手一键开关侧边栏并同步骑缝/左缘两态', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const btn = w.document.getElementById('sidebar-float-btn');
+    const sidebar = w.document.getElementById('outline-sidebar');
+    assert.ok(btn, 'main 内应存在 #sidebar-float-btn 吸附把手');
+    // 初始：侧边栏可见 → 骑缝态（sidebar-open）
+    assert.strictEqual(sidebar.classList.contains('hidden'), false, '初始侧边栏应可见');
+    assert.strictEqual(btn.classList.contains('sidebar-open'), true, '可见时把手应为骑缝态');
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'true', 'aria-pressed 应为 true');
+    // 点击一次 → 关闭：把手脱离骑缝态（CSS 吸附左缘常亮）
+    btn.dispatchEvent(new w.Event('click', { bubbles: true }));
+    await delay(30);
+    assert.strictEqual(sidebar.classList.contains('hidden'), true, '一次点击应关闭侧边栏');
+    assert.strictEqual(btn.classList.contains('sidebar-open'), false, '关闭后应脱离骑缝态（吸附左缘）');
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', 'aria-pressed 应为 false');
+    assert.strictEqual(ed.settings.sidebarHidden, true, 'settings.sidebarHidden 应同步为 true');
+    // 再点一次 → 打开（此前痛点：菜单要两步）
+    btn.dispatchEvent(new w.Event('click', { bubbles: true }));
+    await delay(30);
+    assert.strictEqual(sidebar.classList.contains('hidden'), false, '再次单击应直接重开侧边栏');
+    assert.strictEqual(btn.classList.contains('sidebar-open'), true, '骑缝态应恢复');
+    assert.strictEqual(btn.style.left, '0px', 'jsdom offsetWidth=0 → left 钳制为 0px（真实环境为 width-10 骑缝）');
+  } finally { cleanup(w); }
+});
