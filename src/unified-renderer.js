@@ -412,6 +412,165 @@ function guardMathBlocks(content) {
   return { content: result, placeholders };
 }
 
+// Obsidian 风格图片嵌入：![[图片路径]] 以及 ![[图片路径|600]]（等比例宽度）、
+// ![[图片路径|600x400]]（宽×高）。仅当路径以图片扩展名结尾时识别为图片；
+// 非图片的 ![[note.md]]（笔记嵌入）、无 ! 的 [[link]] 一律原样保留（最小可用范围：只显示图片）。
+// 路径按笔记目录相对解析（与 ![](路径) 完全一致），真图显示交由 image-processor 的 processImages。
+// 与 math/alert 同构：预处理替换为占位注释，后处理还原为 <img>；源码中的 ![[ ]] 原样不动（不影响保存）。
+const WIKILINK_IMAGE_EXT_RE = /\.(png|jpe?g|gif|bmp|svg|webp|avif|ico)$/i;
+
+function guardWikilinkImages(content) {
+  const embeds = [];
+  let result = '';
+  let i = 0;
+  const len = content.length;
+  let inBacktick = false;
+  let inDoubleBacktick = false;
+  let inCodeBlock = false;
+  let codeFenceCount = 0;
+  let inCodeTag = false;
+
+  while (i < len) {
+    // 围栏代码块（3+ 反引号）
+    if (content[i] === '`') {
+      let btCount = 1;
+      while (i + btCount < len && content[i + btCount] === '`') btCount++;
+      if (btCount >= 3) {
+        if (!inCodeBlock) {
+          inCodeBlock = true;
+          codeFenceCount = btCount;
+          result += content.substring(i, i + btCount);
+          i += btCount;
+          continue;
+        } else if (btCount >= codeFenceCount) {
+          inCodeBlock = false;
+          result += content.substring(i, i + btCount);
+          i += btCount;
+          continue;
+        }
+      }
+    }
+
+    // 围栏代码块内：原样跳过（含双反引号），不处理 wikilink 图片
+    if (inCodeBlock) {
+      result += content[i];
+      i++;
+      continue;
+    }
+
+    // 双反引号行内代码 ``...``
+    if (content[i] === '`' && content[i + 1] === '`' && (i + 2 >= len || content[i + 2] !== '`')) {
+      inDoubleBacktick = !inDoubleBacktick;
+      result += '``';
+      i += 2;
+      continue;
+    }
+
+    // 追踪 <code> / </code>
+    const inAnyCode = inBacktick || inDoubleBacktick;
+    if (!inAnyCode) {
+      if (content.substring(i, i + 6) === '<code>') {
+        inCodeTag = true;
+        result += '<code>';
+        i += 6;
+        continue;
+      }
+      if (content.substring(i, i + 7) === '</code>') {
+        inCodeTag = false;
+        result += '</code>';
+        i += 7;
+        continue;
+      }
+    }
+
+    // <code> 标签内：当文本原样跳过
+    if (inCodeTag) {
+      result += content[i];
+      i++;
+      continue;
+    }
+
+    // 双反引号内：单反引号是内容，不切换状态
+    if (inDoubleBacktick) {
+      result += content[i];
+      i++;
+      continue;
+    }
+
+    // 行内单反引号
+    if (content[i] === '`') {
+      inBacktick = !inBacktick;
+      result += content[i];
+      i++;
+      continue;
+    }
+
+    // 任意行内代码区内：原样输出（上方分支已覆盖，这里兜底）
+    if (inBacktick) {
+      result += content[i];
+      i++;
+      continue;
+    }
+
+    // 检测 ![[ 图片嵌入
+    if (content[i] === '!' && content[i + 1] === '[' && content[i + 2] === '[') {
+      let j = i + 3;
+      let found = -1;
+      while (j + 1 < len) {
+        if (content[j] === ']' && content[j + 1] === ']') { found = j; break; }
+        if (content[j] === '\n') break; // 跨段即放弃，避免吞掉后续内容
+        j++;
+      }
+      if (found !== -1) {
+        const inner = content.substring(i + 3, found);
+        const bar = inner.lastIndexOf('|');
+        let path = inner, spec = '';
+        if (bar !== -1) { path = inner.substring(0, bar); spec = inner.substring(bar + 1); }
+        path = path.trim();
+        if (WIKILINK_IMAGE_EXT_RE.test(path)) {
+          const lineNum = content.substring(0, i).split('\n').length;
+          let width = null, height = null, alt = null;
+          if (spec) {
+            const sizeM = spec.trim().match(/^(\d+)(?:x(\d+))?$/i);
+            if (sizeM) { width = sizeM[1]; height = sizeM[2] || null; }
+            else { alt = spec.trim(); } // 非数字后缀 → 作为 alt 文本（Obsidian 行为）
+          }
+          if (!alt) {
+            const base = path.split(/[/\\]/).pop();
+            alt = base ? base.replace(/\.[^.]+$/, '') : '';
+          }
+          const idx = embeds.length;
+          embeds.push({ path, width, height, alt, line: lineNum });
+          result += '<!--WIKIIMG_' + idx + '-->';
+          i = found + 2;
+          continue;
+        }
+      }
+    }
+
+    result += content[i];
+    i++;
+  }
+  return { content: result, embeds };
+}
+
+// 把 ![[图片]] 占位注释还原为 <img>。属性值经 escapeHTML 编码（含 " 与 &），
+// 由下游 sanitizeHTML 保留 width/height/src，processImages 负责按笔记目录读盘显示。
+function restoreWikilinkImages(html, embeds) {
+  if (!embeds || embeds.length === 0) return html;
+  let result = html;
+  for (let idx = embeds.length - 1; idx >= 0; idx--) {
+    const e = embeds[idx];
+    const marker = '<!--WIKIIMG_' + idx + '-->';
+    if (result.indexOf(marker) === -1) continue;
+    let attrs = 'src="' + escapeHTML(e.path) + '" alt="' + escapeHTML(e.alt || '') + '"';
+    if (e.width) attrs += ' width="' + e.width + '"';
+    if (e.height) attrs += ' height="' + e.height + '"';
+    result = result.split(marker).join('<img ' + attrs + '>');
+  }
+  return result;
+}
+
 // Convert GitHub-style math fences (```math / ```latex / ```tex) into $$...$$ blocks
 // so they flow through the existing KaTeX (processMath) pipeline. This keeps TizuMark
 // behavior aligned with GitHub/Gitee: the fence body is rendered as block math without
@@ -1532,6 +1691,10 @@ function renderMarkdown(content, options) {
   processed = footnoteResult.content;
   const footnoteDefs = footnoteResult.definitions;
 
+  // 4.7 守卫 Obsidian 图片嵌入 ![[图片路径]]（仅图片扩展名），转为占位注释
+  const wikiImgResult = guardWikilinkImages(processed);
+  processed = wikiImgResult.content;
+
   // 5. Unified pipeline
   let html;
   try {
@@ -1572,6 +1735,9 @@ function renderMarkdown(content, options) {
 
   // 8. Restore alert blocks
   html = restoreAlerts(html, alertBlocks);
+
+  // 8.5 还原 Obsidian 图片嵌入占位注释为 <img>
+  html = restoreWikilinkImages(html, wikiImgResult.embeds);
 
   // 9. Sanitize
   html = sanitizeHTML(html);
