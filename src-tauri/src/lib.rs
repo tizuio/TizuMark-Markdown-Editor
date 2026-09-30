@@ -57,10 +57,24 @@ fn set_window_behavior(show_tray: bool, app: tauri::AppHandle) {
     }
 }
 
+// 统一退出入口：先丢掉应用侧 TrayState 持有的 TrayIcon 引用，再调 app.exit。
+// 背景：tray-icon 的平台图标仅在最后一个 Rc 引用 drop 时才发 Shell_NotifyIcon(NIM_DELETE)；
+// app.exit 的 cleanup_before_exit 只清 manager/resources 里的克隆，清不到 app.manage(TrayState)
+// 里的这份——进程退出跳过剩余 Drop，导致托盘图标残留（鼠标掠过才消失，反复开关累积多个）。
+// 此处先 take 掉 TrayState 里的引用，manager 份在退出清理中 drop 时 Rc 归零，图标被真正移除。
+fn exit_app(app: tauri::AppHandle) {
+    if let Some(state) = app.try_state::<TrayState>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = None;
+        }
+    }
+    app.exit(0);
+}
+
 // 前端调此命令真正退出应用（关窗弹框选"退出"时调用）。
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
+    exit_app(app);
 }
 
 // 路径安全校验：拒绝写入/创建到系统关键目录或越界路径。
@@ -252,7 +266,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
                     }
                 }
                 "quit" => {
-                    app.exit(0);
+                    exit_app(app.clone());
                 }
                 _ => {}
             }
@@ -1207,7 +1221,7 @@ pub fn run() {
                 let show_tray = *app.state::<WindowBehavior>().show_tray.lock().unwrap();
                 // 无托盘时直接退出（否则窗口将无法恢复）
                 if !show_tray {
-                    app.exit(0);
+                    exit_app(app.clone());
                 } else {
                     api.prevent_close();
                     let _ = window.emit("close-requested", ());
