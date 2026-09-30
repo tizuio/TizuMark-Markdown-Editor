@@ -759,8 +759,11 @@
           codeBlock: () => this.insertBlock('```javascript\n// code here\n```', 14),
           blockquote: () => this.insertLinePrefix('> '),
           insertTable: () => this.insertBlock('| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |', 2),
-          addTableRow: () => this._addTableRow(cm),
-          addTableColumn: () => this._addTableColumn(cm),
+          // 注意必须用 this.cm：handler 有两条派发路径——CM extraKeys 会传入 cm 实参，
+          // 但 registerGlobal 包装后是 fn() 无参调用；引用闭包外的裸 cm 会直接抛
+          // ReferenceError: cm is not defined（修复前表格插入行/列快捷键即此问题）。
+          addTableRow: () => this._addTableRow(this.cm),
+          addTableColumn: () => this._addTableColumn(this.cm),
           insertUl: () => this.insertLinePrefix('- '),
           insertOl: () => this.insertLinePrefix('1. ', true),
           insertTask: () => this.insertLinePrefix('- [ ] '),

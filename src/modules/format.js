@@ -344,14 +344,21 @@
           const cells = this._splitCells(r.text);
           while (cells.length < colCount) cells.push('');
           out.push(this._buildRow(cells).text);
-          // 在指定数据行下方追加空白行（若紧随其后是分隔行，则延后到分隔行之后，保证表头→分隔→正文顺序）
-          if (blankAfterLine != null && r.origLine === blankAfterLine) {
-            pendingBlank = true;
-          }
-          // 缺分隔行 → 在首行（表头/首数据行）下方补齐
+          // 缺分隔行 → 在首行（表头/首数据行）下方补齐，必须在空白行逻辑之前，
+          // 否则会出现「表头→空白→分隔」的非法顺序
           if (!hasSep && i === 0 && !r.isSep) {
             out.push(this._buildRow(Array(colCount).fill('---')).text);
-            if (pendingBlank) { pushBlank(); pendingBlank = false; }
+            // 光标恰在首行 → 空白行紧随补齐的分隔行之后（即光标行正下方）
+            if (blankAfterLine != null && r.origLine === blankAfterLine) pushBlank();
+          } else if (blankAfterLine != null && r.origLine === blankAfterLine) {
+            // 光标行：下一行是分隔行则延后到分隔行之后（保持 表头→分隔→正文 顺序）；
+            // 否则（下一行是数据行或已到段尾）立即插在光标行正下方。
+            const next = raws[i + 1];
+            if (next && next.isSep) {
+              pendingBlank = true; // 待下一轮遇到分隔行时 flush
+            } else {
+              pushBlank(); // 光标行正下方
+            }
           }
         }
         if (pendingBlank) pushBlank();

@@ -162,3 +162,73 @@ test('addTableRow: 在表格数据行下方插入等列空白行', async () => {
     assert.strictEqual(cursor.ch, 2, '光标应在第一格');
   } finally { cleanup(w); }
 });
+
+// 回归：快捷键设置里给「表格插入行/列」绑键后，编辑器内触发曾抛
+// ReferenceError: cm is not defined——editorMap 的箭头函数引用了闭包外不存在的裸 cm。
+// 修复后 handler 须用 this.cm，且两条派发路径（CM extraKeys / 全局 registerGlobal）都可用。
+test('table-shortcut: extraKeys 路径触发表格插入行/列不抛 cm is not defined 且生效', async () => {
+  const { w, ed } = await makeEditor('| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |');
+  try {
+    ed.shortcuts.addTableRow.key = 'Ctrl+R';
+    ed.shortcuts.addTableColumn.key = 'Ctrl+T';
+    ed.applyShortcuts();
+    const extraKeys = ed.cm.getOption('extraKeys');
+    assert.strictEqual(typeof extraKeys['Ctrl-R'], 'function', 'addTableRow 应绑定到 extraKeys[Ctrl-R]');
+    assert.strictEqual(typeof extraKeys['Ctrl-T'], 'function', 'addTableColumn 应绑定到 extraKeys[Ctrl-T]');
+
+    // 行：光标放在数据行 → handler 以 CM 实参调用（CM extraKeys 派发形态）
+    ed.cm.setCursor({ line: 2, ch: 2 });
+    extraKeys['Ctrl-R'](ed.cm); // 修复前此处抛 ReferenceError: cm is not defined
+    let lines = content(ed).split('\n');
+    assert.strictEqual(lines.length, 4, '插入行后应多一行');
+    assert.strictEqual(lines[3], '|  |  |  |', '新行应为 3 列空白行');
+
+    // 列：每行多一列
+    ed.cm.setCursor({ line: 0, ch: 4 });
+    extraKeys['Ctrl-T'](ed.cm);
+    assert.strictEqual(content(ed).split('\n')[1], '| --- | --- | --- | --- |', '分隔行应变为 4 列');
+  } finally { cleanup(w); }
+});
+
+test('table-shortcut: 全局派发路径(registerGlobal 无参调用)同样生效', async () => {
+  const { w, ed } = await makeEditor('| a | b | c |\n| --- | --- | --- |');
+  try {
+    ed.shortcuts.addTableRow.key = 'Ctrl+R';
+    ed.applyShortcuts();
+    const fn = ed.globalShortcutLookup['Ctrl+R'];
+    assert.strictEqual(typeof fn, 'function', 'addTableRow 应注册到 globalShortcutLookup');
+    ed.cm.setCursor({ line: 0, ch: 9 });
+    ed.cm.focus(); // registerGlobal 包装含 cm.hasFocus() 守卫
+    fn();          // 修复前闭包裸 cm 直接抛 ReferenceError
+    const lines = content(ed).split('\n');
+    assert.strictEqual(lines.length, 3, '经全局派发触发行插入应生效');
+    assert.strictEqual(lines[2], '|  |  |  |', '新行应为 3 列空白行');
+  } finally { cleanup(w); }
+});
+
+test('addTableRow: 光标在表格中间数据行下方（而非段尾）插入空白行', async () => {
+  const { w, ed } = await makeEditor('| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |');
+  try {
+    ed.cm.setCursor({ line: 2, ch: 2 });
+    ed._addTableRow(ed.cm);
+    const lines = content(ed).split('\n');
+    assert.strictEqual(lines.length, 5, '应新增一行');
+    assert.strictEqual(lines[2], '| 1 | 2 | 3 |', '光标行不变');
+    assert.strictEqual(lines[3], '|  |  |  |', '新空白行应在光标行正下方');
+    assert.strictEqual(lines[4], '| 4 | 5 | 6 |', '其下数据行顺移');
+    assert.strictEqual(ed.cm.getCursor().line, 3, '光标应落到新空白行');
+  } finally { cleanup(w); }
+});
+
+test('addTableColumn: 新列插在光标所在列右侧', async () => {
+  const { w, ed } = await makeEditor('| a | b | c |');
+  try {
+    ed.cm.setCursor({ line: 0, ch: 2 }); // 光标在首列 a 中
+    ed._addTableColumn(ed.cm);
+    const line = content(ed);
+    const cells = line.split('|').length - 2;
+    assert.strictEqual(cells, 4, '应新增一列');
+    // 首列是 a → 新列插在 a 右侧：| a |  | b | c |
+    assert.strictEqual(line, '| a |  | b | c |', '新列应插在光标所在列右侧');
+  } finally { cleanup(w); }
+});
