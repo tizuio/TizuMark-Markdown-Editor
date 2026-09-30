@@ -55,7 +55,7 @@ In Edit Mode:
 
 ### Sidebar: Outline & Files
 
-Click `View → Sidebar` to show or hide the sidebar. It has two tabs:
+Click the **floating toggle button on the left edge of the sidebar**, or use the "Toggle Sidebar" shortcut (rebindable in Keyboard Shortcuts), to show or hide the sidebar. It has two tabs:
 
 - **Outline**: Automatically shows the document heading structure (H1–H6), indented by level. **Click any heading** — the preview jumps and centers on it. The outline updates in real time as you edit.
 - **Files**: After opening a directory with `File → Open Folder`, this tab shows a tree view of files in that directory. Click a file to open it in a tab. The tree watches the folder for external additions/removals and refreshes automatically.
@@ -258,6 +258,8 @@ GitHub-style callout blocks for highlighting important information:
 
 [Open the Demo file for all syntax examples →](demo.md)
 
+Recently added syntax features: LaTeX delimiters `\(...\)` (inline) and `\[…\]` (display, rendered as math only when the content contains LaTeX commands or superscripts), `<br>` line breaks inside table cells, and Mermaid ELK auto-layout (declare `layout: elk` in the frontmatter) — see the corresponding Demo sections for details.
+
 ---
 
 ## Image Management
@@ -273,6 +275,16 @@ TizuMark offers comprehensive image support with multiple insertion methods and 
 | Context Menu | Right-click in the editor → Insert Image | Same as above |
 
 > **Dropping** an image file into the window **opens** it as a read-only preview tab — it does **not** insert it into the document you are editing. To insert, use paste or the insert dialog above.
+
+### Obsidian-Style Image Embeds
+
+Besides the standard `![alt](path)` syntax, Obsidian-style `![[path]]` embeds are supported, with an optional size suffix:
+
+- `![[images/photo.png]]` — embedded at original size
+- `![[images/photo.png|600]]` — scaled proportionally to width 600
+- `![[images/photo.png|600x400]]` — explicit width × height
+
+Only paths ending with an image extension are treated as images; non-image uses like `![[note.md]]` are kept as-is. Paths resolve the same way as standard syntax (relative to the current document's directory).
 
 ### Auto Deduplication
 
@@ -421,6 +433,8 @@ All options are available in `File → Settings`:
 | Image Asset Path | Relative / Absolute | Relative | See Image Management |
 | Close Behavior | Ask / Quit / Minimize to Tray | Ask | What happens when closing the last window. Minimize to tray lets you bring the window back via the tray icon |
 | Show Tray Icon | On / Off | On | Show an icon in the system tray to bring the window back at any time |
+
+> If you assign a global shortcut to **Hide to Tray** in Keyboard Shortcuts, pressing it while the window is hidden (in tray) brings the window back instantly — no need to click the tray icon.
 | Show Tray Icon | On / Off | Show or hide the system tray icon |
 
 ### Custom Fonts

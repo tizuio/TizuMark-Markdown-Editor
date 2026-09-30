@@ -138,6 +138,16 @@ TizuMark 支持网络图片、相对路径、绝对路径三种来源。图片�
 ![image](data:image/png;base64,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)
 ```
 
+**6. Obsidian 风格嵌入**（`![[路径]]` 写法，支持 `|宽度` / `|宽x高` 指定尺寸）
+
+![[screenshots/01-main.png|300]]
+
+```markdown
+![[screenshots/01-main.png|300]]
+```
+
+说明：仅当路径以图片扩展名结尾时按图片嵌入；`![[笔记.md]]` 这类非图片写法会原样保留。
+
 > 图片管理相关功能：支持 MD5 自动去重粘贴图片；存储方式可选「复制到 assets/」或「Base64 嵌入」；路径模式可选「相对路径」（默认）或「绝对路径」；**图片查看器**：点击预览区图片可弹出查看，支持鼠标拖拽平移和滚轮缩放。详见 `文件 → 设置`。
 > 
 ---
@@ -373,6 +383,20 @@ jobs:
 | 实时预览     | 所见即所得   | 极速    |
 | 原生性能     | Rust 引擎 | <50MB |
 
+### 单元格内换行
+
+单元格内可以用 `<br>` 换行（`<BR>`、`<br/>` 等变体同样支持）：
+
+| 功能 | 说明 |
+|------|------|
+| 换行 | 第一行<br>第二行 |
+
+```markdown
+| 功能 | 说明 |
+|------|------|
+| 换行 | 第一行<br>第二行 |
+```
+
 ---
 
 ## 引用块
@@ -451,6 +475,16 @@ a_{21}b_{11} + a_{22}b_{21} & a_{21}b_{12} + a_{22}b_{22}
 \end{bmatrix}
 $$
 
+### LaTeX 定界符
+
+除 `$...$` / `$$...$$` 外，也支持 LaTeX 习惯的 `\(...\)`（行内）与 `\[...\]`（独立公式）写法。为避免把文献标注（如 `\[J/OL\]`）误判为公式，仅当内容含 LaTeX 命令（如 `\alpha`、`\frac`）或上标 `^` 时才按公式渲染，其余情况按字面文本显示：
+
+\(\alpha + \beta = \gamma\)
+
+```markdown
+\(\alpha + \beta = \gamma\)
+```
+
 ---
 
 ## 流程图与图表
@@ -461,6 +495,21 @@ TizuMark 内置 Mermaid 图表引擎，用代码即可绘制多种专业图表�
 > 
 > 以下 Mermaid 图表在 Gitee / GitHub 等网页端可能显示为源码，这是平台不支持 Mermaid 渲染所致。**在 TizuMark 软件中可完美渲染。** 打开 [demo.md](https://gitee.com/tizu/TizuMark-Markdown-Editor/blob/master/demo.md) 查看效果。
 > 
+
+**ELK 自动布局**：图表默认使用 dagre 布局，也可在图表 frontmatter 中声明 `layout: elk` 切换为 ELK 引擎，对大型图表的节点排布更友好：
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart LR
+    A[输入] --> B{校验}
+    B -->|通过| C[处理]
+    B -->|失败| D[报错]
+    C --> E[输出]
+```
+
 ### 流程图
 
 ```mermaid
@@ -729,6 +778,7 @@ TizuMark 不只是单文件编辑器，它提供了完整的文件管理体验�
 `文件 → 打开文件夹` 可将整个目录加载为工作区：
 
 - 侧边栏显示**文件树**，支持展开 / 收起子目录
+- 侧边栏左缘有**悬浮开关按钮**，一键展开 / 收起侧边栏
 - 点击文件树中的文件直接在新标签页打开
 - 外部程序增删文件后，文件树**自动刷新**
 
@@ -749,7 +799,7 @@ TizuMark 不只是单文件编辑器，它提供了完整的文件管理体验�
 
 - **文件关联**：双击 `.md` / `.markdown` 文件直接用 TizuMark 打开
 - **命令行打开**：`tizumark.exe document.md` 可直接打开指定文件
-- **系统托盘**：可显示托盘图标，关闭窗口行为可选「每次询问」「退出应用」「最小化到托盘」
+- **系统托盘**：可显示托盘图标，关闭窗口行为可选「每次询问」「退出应用」「最小化到托盘」；可为「关闭到托盘」设置 OS 级全局快捷键，窗口隐藏后一键唤回
 - **会话恢复**：重启后自动恢复上次的标签页、文件夹工作区与展开目录
 
 ---
@@ -793,7 +843,7 @@ TizuMark 提供丰富的自定义选项，`文件 → 设置` 可随时调整。
 - **大文档优化**：超长文档自动切换滑动窗口渲染（~1200 行），数万行文件依然流畅
 - **软换行**：回车渲染为 `<br>` 或保持传统段落模式，开关可控
 - **代码块行号与自动换行**：开关可控
-- **系统托盘**：可显示托盘图标，关闭窗口行为可选「每次询问」「退出应用」「最小化到托盘」
+- **系统托盘**：可显示托盘图标，关闭窗口行为可选「每次询问」「退出应用」「最小化到托盘」；可为「关闭到托盘」设置 OS 级全局快捷键，窗口隐藏后一键唤回
 - **外部变更检测**：文件被其他程序修改后，以非阻塞提示条提醒，支持逐个/批量重新加载或忽略
 - **快捷键预设**：内置 Default / VSCode / Typora / Sublime Text 四种预设方案，也可逐条自定义
 

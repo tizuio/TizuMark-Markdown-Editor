@@ -55,7 +55,7 @@ En modo edición:
 
 ### Barra lateral: Esquema y Archivos
 
-Haz clic en `Ver → Barra lateral` para mostrar u ocultar la barra lateral. Cuenta con dos pestañas:
+Haz clic en el **botón flotante en el borde izquierdo de la barra lateral**, o usa el atajo «Alternar barra lateral» (personalizable en los atajos de teclado), para mostrar u ocultar la barra lateral. Cuenta con dos pestañas:
 
 - **Esquema**: Muestra automáticamente la estructura de títulos del documento (H1–H6), indentada por niveles. **Haz clic en cualquier título**: la vista previa se desplaza y centra en él inmediatamente. El esquema se actualiza en tiempo real mientras escribes.
 - **Archivos**: Tras abrir un directorio con `Archivo → Abrir carpeta`, esta pestaña presenta un árbol de archivos. Haz clic en cualquier archivo para abrirlo en una pestaña. El árbol monitorea la carpeta en busca de adiciones o eliminaciones externas y se actualiza de forma automática.
@@ -251,6 +251,8 @@ Bloques estilizados al estilo de GitHub:
 
 [Abrir el archivo Demo para ver todos los ejemplos de sintaxis →](demo.md)
 
+Novedades de sintaxis: delimitadores LaTeX `\(...\)` (en línea) y `\[…\]` (en bloque, se representan como fórmulas solo si el contenido incluye comandos LaTeX o superíndices), saltos de línea con `<br>` dentro de celdas de tabla y diseño automático ELK de Mermaid (declara `layout: elk` en el frontmatter). Consulta las secciones correspondientes del archivo Demo.
+
 ---
 
 ## Gestión de imágenes
@@ -266,6 +268,16 @@ TizuMark ofrece soporte integral de imágenes con múltiples métodos de inserci
 | Menú contextual | Clic derecho en el editor → Insertar imagen | Mismo diálogo de inserción |
 
 > **Arrastrar** una imagen dentro de la ventana la abre como pestaña de vista previa de solo lectura; no la inserta en el documento activo.
+
+### Inserción de imágenes al estilo Obsidian
+
+Además de la sintaxis estándar `![descripción](ruta)`, se admite la inserción estilo Obsidian `![[ruta]]`, con un sufijo opcional de tamaño:
+
+- `![[images/foto.png]]` — tamaño original
+- `![[images/foto.png|600]]` — escalado proporcional a 600 px de ancho
+- `![[images/foto.png|600x400]]` — ancho × alto explícitos
+
+Solo las rutas con extensión de imagen se tratan como imágenes; usos no gráficos como `![[nota.md]]` se conservan tal cual. Las rutas se resuelven igual que en la sintaxis estándar (relativas al directorio del documento).
 
 ### Deduplicación automática
 

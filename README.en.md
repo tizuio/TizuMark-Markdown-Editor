@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.3-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.2.4-blue" alt="Version">
   <img src="https://img.shields.io/badge/Windows-7%2B-brightgreen" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-Planned-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/Linux-Planned-lightgrey" alt="Linux">
@@ -57,8 +57,8 @@ The world isn't short of Markdown editors. But most fall into one of two camps: 
 - 👁️ **Live WYSIWYG preview**: Write on the left, see it render on the right. Editor and preview scroll auto-synced — no window switching.
 - 🧠 **Smart view per file type**: Markdown auto splits preview/edit; plain text & code open in a pure editor (no preview pane); images open read-only — each file gets the right view.
 - 🧭 **Smart outline navigation**: Auto-parses heading hierarchy, one click to any chapter. Never get lost in long docs.
-- 📐 **Built-in KaTeX math**: Inline formulas, display blocks, matrices, equation systems — papers, notes, formulas all handled.
-- 📊 **Built-in Mermaid diagrams**: Flowcharts, sequence diagrams, Gantt charts, class diagrams, state diagrams… **draw with code, auto-adapts to light/dark theme**.
+- 📐 **Built-in KaTeX math**: Inline formulas, display blocks, matrices, equation systems; supports `$…$` / `$$…$$` as well as LaTeX-style `\(…\)` / `\[…\]` delimiters — papers, notes, formulas all handled.
+- 📊 **Built-in Mermaid diagrams**: Flowcharts, sequence diagrams, Gantt charts, class diagrams, state diagrams… **draw with code, auto-adapts to light/dark theme**, with ELK auto-layout support.
 - 🖼️ **Paste-to-insert images**: Screenshots or drag-drop, auto-dedup via MD5. Store in `assets/` or inline as Base64. Relative paths resolve identically in preview and export.
 - 📤 **Multi-format export**: Standalone HTML (full styling, fully offline), high-res PNG long screenshot, PDF (system print dialog), and **Word DOCX** (math & diagrams rasterized, images auto-scaled to fit the page) — all preserve dark/light theme.
 - ⌨️ **Fully customizable shortcuts**: Every single shortcut can be rebound in `File → Keyboard Shortcuts` to match your muscle memory.

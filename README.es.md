@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.3-blue" alt="Versión">
+  <img src="https://img.shields.io/badge/Version-1.2.4-blue" alt="Versión">
   <img src="https://img.shields.io/badge/Windows-7%2B-brightgreen" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-Planificado-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/Linux-Planificado-lightgrey" alt="Linux">
@@ -55,8 +55,8 @@ No faltan editores de Markdown en el mundo. Sin embargo, la mayoría cae en uno 
 - 👁️ **Vista previa en tiempo real**: Escribe a la izquierda y observa el resultado a la derecha. Desplazamiento bidireccional sincronizado sin tener que alternar ventanas.
 - 🧠 **Vista inteligente según el tipo de archivo**: Markdown divide automáticamente edición y vista previa; texto plano y código abren en editor puro; imágenes abren en vista de solo lectura.
 - 🧭 **Esquema de navegación inteligente**: Analiza la jerarquía de títulos (H1–H6), permitiendo navegar con un solo clic.
-- 📐 **Matemáticas KaTeX integradas**: Fórmulas en línea y en bloque, matrices, sistemas de ecuaciones: artículos, apuntes y fórmulas científicas resueltas con facilidad.
-- 📊 **Diagramas Mermaid nativos**: Diagramas de flujo, diagramas de secuencia, gráficos de estado y Gantt generados a partir de bloques de texto.
+- 📐 **Matemáticas KaTeX integradas**: Fórmulas en línea y en bloque, matrices, sistemas de ecuaciones; compatible con `$…$` / `$$…$$` y los delimitadores LaTeX `\(…\)` / `\[…\]`: artículos, apuntes y fórmulas científicas resueltas con facilidad.
+- 📊 **Diagramas Mermaid nativos**: Diagramas de flujo, diagramas de secuencia, gráficos de estado y Gantt generados a partir de bloques de texto, con motor de diseño automático ELK.
 - 🗂️ **Gestión de carpetas y proyectos**: Abre cualquier directorio con `Archivo → Abrir carpeta`; navega por el árbol de archivos con monitoreo automático de cambios en disco.
 - 🖼️ **Gestión avanzada de imágenes**: Pega imágenes directamente desde el portapapeles con deduplicación por hash MD5 y selector de almacenamiento (carpeta `assets/` o Base64 incrustado).
 - 📑 **Edición multipestaña y restauración de sesión**: Múltiples pestañas con arrastrar para reordenar, advertencia de cambios sin guardar y restauración completa al reiniciar.
