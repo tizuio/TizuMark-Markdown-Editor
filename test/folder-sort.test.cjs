@@ -175,6 +175,9 @@ test('folder-sort: renderFolderTree 按 name 升序渲染，并显示大小/时�
     await ed.renderFolderTree();
     const labels = Array.from(w.document.querySelectorAll('#folder-tree .tree-label')).map((e) => e.textContent);
     assert.deepStrictEqual(labels, ['docs', 'proj', 'a.md', 'c.md']);
+    // 名称被 CSS 截断时，悬停原生 title 应展示完整名称
+    const labelTitles = Array.from(w.document.querySelectorAll('#folder-tree .tree-label')).map((e) => e.title);
+    assert.deepStrictEqual(labelTitles, labels, 'tree-label 的 title 应为完整名称');
     // 大小收进 tooltip（不再常驻渲染），按文件名顺序 a.md(512 B) / c.md(2.0 KB) 应出现在 tooltip
     const titles = Array.from(w.document.querySelectorAll('#folder-tree .tree-time-line')).map((e) => e.title || '');
     assert.ok(titles.some((t) => t.includes('512 B')), 'a.md 大小应出现在 tooltip');
