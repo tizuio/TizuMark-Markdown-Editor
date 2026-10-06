@@ -88,12 +88,20 @@
         if (outlineChevron) {
           outlineChevron.addEventListener('click', () => this.togglePanel('outline'));
         }
-        // 面板标题（左侧图标+文字）点击等效于点击折叠按钮
+        // 文件面板标题（左侧图标+文字）点击 = 在系统文件管理器中打开当前工作区文件夹
+        // （未打开工作区时弹出文件夹选择）；折叠面板仍由 files-chevron 承担。
         const filesHeader = document.querySelector('.files-panel-header .panel-title-group');
         const outlineHeader = document.querySelector('.outline-panel-header .panel-title-group');
         if (filesHeader) {
-          filesHeader.addEventListener('click', () => this.togglePanel('files'));
+          filesHeader.addEventListener('click', async () => {
+            if (this.workspaceFolder) {
+              await this.openContainingFolder(this.workspaceFolder, true);
+            } else {
+              await this.openFolder();
+            }
+          });
         }
+        // 大纲面板标题（左侧图标+文字）点击等效于点击折叠按钮
         if (outlineHeader) {
           outlineHeader.addEventListener('click', () => this.togglePanel('outline'));
         }

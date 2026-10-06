@@ -390,26 +390,38 @@ test('sidebar-split: 全部按钮双态图标 + chevron 方向', async () => {
   } finally { cleanup(w); }
 });
 
-test('sidebar-split: 点击面板标题（图标+文字）等效于点击折叠按钮', async () => {
+test('sidebar-split: 点击文件面板标题（图标+文字）在系统文件管理器中打开工作区文件夹', async () => {
   const { w, ed, getInitErr } = await makeEditor();
   try {
     assert.strictEqual(getInitErr(), null, '初始化不应报错');
-    const filesChevron = w.document.getElementById('files-chevron');
     const filesHeader = w.document.querySelector('.files-panel-header .panel-title-group');
     const outlineHeader = w.document.querySelector('.outline-panel-header .panel-title-group');
     assert.ok(filesHeader, '文件面板标题区域应存在');
     assert.ok(outlineHeader, '大纲面板标题区域应存在');
 
-    // 初始展开态
-    assert.strictEqual(filesChevron.getAttribute('aria-expanded'), 'true', '初始文件面板应展开');
-    // 点击文件标题：应折叠，与点击 chevron 效果一致
+    // 已打开工作区：点击标题 → openContainingFolder(工作区, true)（isDir=true 打开文件夹自身）
+    const origWs = ed.workspaceFolder;
+    ed.workspaceFolder = 'C:\\workspace\\notes';
+    let opened = null;
+    const origOpen = ed.openContainingFolder;
+    ed.openContainingFolder = async (p, isDir) => { opened = { p, isDir }; };
     filesHeader.click();
-    assert.strictEqual(filesChevron.getAttribute('aria-expanded'), 'false', '点击文件标题应折叠面板');
-    // 再点击：应展开
-    filesHeader.click();
-    assert.strictEqual(filesChevron.getAttribute('aria-expanded'), 'true', '再次点击文件标题应展开面板');
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepStrictEqual(opened, { p: 'C:\\workspace\\notes', isDir: true }, '已打开工作区时应打开该文件夹（isDir=true）');
+    ed.openContainingFolder = origOpen;
 
-    // 大纲标题同理
+    // 未打开工作区：点击标题 → openFolder() 弹出文件夹选择
+    ed.workspaceFolder = null;
+    let picked = 0;
+    const origPick = ed.openFolder;
+    ed.openFolder = async () => { picked++; };
+    filesHeader.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.strictEqual(picked, 1, '未打开工作区时应调用 openFolder() 选择文件夹');
+    ed.openFolder = origPick;
+    ed.workspaceFolder = origWs;
+
+    // 大纲标题：仍为折叠/展开切换（折叠面板由 chevron 承担，文件标题不再折叠）
     const outlineChevron = w.document.getElementById('outline-chevron');
     outlineHeader.click();
     assert.strictEqual(outlineChevron.getAttribute('aria-expanded'), 'false', '点击大纲标题应折叠面板');
