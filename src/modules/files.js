@@ -855,6 +855,8 @@
           const label = document.createElement('span');
           label.className = 'tree-label';
           label.textContent = entry.name;
+          // 名称过长会被 CSS 截断（text-overflow: ellipsis），悬停用原生 title 展示全称
+          label.title = entry.name;
   
           if (entry.is_dir) {
             const expanded = this.expandedFolders.has(entry.path);
