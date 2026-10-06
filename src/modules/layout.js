@@ -88,12 +88,25 @@
         if (outlineChevron) {
           outlineChevron.addEventListener('click', () => this.togglePanel('outline'));
         }
-        // 面板标题（左侧图标+文字）点击等效于点击折叠按钮
+        // 文件面板标题（左侧图标+文字）点击 = 弹出文件夹选择，选中后切换工作区
+        // （无论当前是否已打开工作区都弹选择）；折叠面板仍由 files-chevron 承担。
         const filesHeader = document.querySelector('.files-panel-header .panel-title-group');
         const outlineHeader = document.querySelector('.outline-panel-header .panel-title-group');
+        const folderPathEl = document.getElementById('folder-path');
         if (filesHeader) {
-          filesHeader.addEventListener('click', () => this.togglePanel('files'));
+          filesHeader.addEventListener('click', async () => {
+            await this.openFolder();
+          });
         }
+        // 目录路径点击 = 在系统文件管理器中打开当前工作区文件夹
+        if (folderPathEl) {
+          folderPathEl.addEventListener('click', async () => {
+            if (this.workspaceFolder) {
+              await this.openContainingFolder(this.workspaceFolder, true);
+            }
+          });
+        }
+        // 大纲面板标题（左侧图标+文字）点击等效于点击折叠按钮
         if (outlineHeader) {
           outlineHeader.addEventListener('click', () => this.togglePanel('outline'));
         }

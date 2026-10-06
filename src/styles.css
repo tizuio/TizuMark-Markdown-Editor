@@ -3127,6 +3127,13 @@ body.is-resizing-row .sidebar-h-resizer {
   text-overflow: ellipsis;
   white-space: nowrap;
   word-break: break-all;
+  /* 点击路径 = 在系统文件管理器中打开该文件夹 */
+  cursor: pointer;
+}
+
+.folder-path:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 
 .folder-close-btn {
