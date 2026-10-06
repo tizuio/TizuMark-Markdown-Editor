@@ -390,35 +390,49 @@ test('sidebar-split: 全部按钮双态图标 + chevron 方向', async () => {
   } finally { cleanup(w); }
 });
 
-test('sidebar-split: 点击文件面板标题（图标+文字）在系统文件管理器中打开工作区文件夹', async () => {
+test('sidebar-split: 点击文件面板标题切换工作区 + 点击目录路径打开所在文件夹', async () => {
   const { w, ed, getInitErr } = await makeEditor();
   try {
     assert.strictEqual(getInitErr(), null, '初始化不应报错');
     const filesHeader = w.document.querySelector('.files-panel-header .panel-title-group');
     const outlineHeader = w.document.querySelector('.outline-panel-header .panel-title-group');
+    const folderPathEl = w.document.getElementById('folder-path');
     assert.ok(filesHeader, '文件面板标题区域应存在');
     assert.ok(outlineHeader, '大纲面板标题区域应存在');
+    assert.ok(folderPathEl, '目录路径元素应存在');
 
-    // 已打开工作区：点击标题 → openContainingFolder(工作区, true)（isDir=true 打开文件夹自身）
     const origWs = ed.workspaceFolder;
-    ed.workspaceFolder = 'C:\\workspace\\notes';
-    let opened = null;
-    const origOpen = ed.openContainingFolder;
-    ed.openContainingFolder = async (p, isDir) => { opened = { p, isDir }; };
-    filesHeader.click();
-    await new Promise(r => setTimeout(r, 20));
-    assert.deepStrictEqual(opened, { p: 'C:\\workspace\\notes', isDir: true }, '已打开工作区时应打开该文件夹（isDir=true）');
-    ed.openContainingFolder = origOpen;
-
-    // 未打开工作区：点击标题 → openFolder() 弹出文件夹选择
-    ed.workspaceFolder = null;
-    let picked = 0;
     const origPick = ed.openFolder;
+    const origOpen = ed.openContainingFolder;
+
+    // 已打开工作区：点击「文件」标题 → 仍弹出文件夹选择（openFolder()），选中后切换工作区
+    ed.workspaceFolder = 'C:\\workspace\\notes';
+    let picked = 0;
     ed.openFolder = async () => { picked++; };
     filesHeader.click();
     await new Promise(r => setTimeout(r, 20));
-    assert.strictEqual(picked, 1, '未打开工作区时应调用 openFolder() 选择文件夹');
+    assert.strictEqual(picked, 1, '已打开工作区时点击标题也应弹出文件夹选择');
+
+    // 已打开工作区：点击目录路径 → openContainingFolder(工作区, true)（isDir=true 打开文件夹自身）
+    let opened = null;
+    ed.openContainingFolder = async (p, isDir) => { opened = { p, isDir }; };
+    folderPathEl.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepStrictEqual(opened, { p: 'C:\\workspace\\notes', isDir: true }, '点击路径应打开该文件夹（isDir=true）');
+
+    // 未打开工作区：点击标题 → openFolder()；点击路径（无工作区）→ 不动作
+    ed.workspaceFolder = null;
+    picked = 0;
+    filesHeader.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.strictEqual(picked, 1, '未打开工作区时点击标题应调用 openFolder()');
+    opened = null;
+    folderPathEl.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.strictEqual(opened, null, '未打开工作区时点击路径不应触发打开动作');
+
     ed.openFolder = origPick;
+    ed.openContainingFolder = origOpen;
     ed.workspaceFolder = origWs;
 
     // 大纲标题：仍为折叠/展开切换（折叠面板由 chevron 承担，文件标题不再折叠）
