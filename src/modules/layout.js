@@ -884,6 +884,10 @@
     initViewControls() {
       document.getElementById('btn-view-preview').addEventListener('click', () => this.setViewMode('preview'));
       document.getElementById('btn-view-edit').addEventListener('click', () => this.setViewMode('edit'));
+      // 所见即所得（Typora 式）：第三模式，仅 Markdown 可用，setViewMode 内有 _kind 守卫
+      const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
+      if (btnWysiwyg) btnWysiwyg.addEventListener('click', () => this.setViewMode('wysiwyg'));
+      this.initViewModeTooltips();
       document.getElementById('btn-side-left').addEventListener('click', () => this.toggleCollapse('editor'));
       document.getElementById('btn-side-right').addEventListener('click', () => this.toggleCollapse('preview'));
       document.getElementById('large-file-banner-close').addEventListener('click', () => {
@@ -895,6 +899,50 @@
         this._largeFileNoticeSessionSuppressed = true;
         this.hideLargeFileNotice();
       });
+    },
+    // 三模式按钮的悬停简介气泡（自定义 tooltip，跟随主题、可多行）。
+    // 用 data-tip-key 从 i18n 取文案（用户切语言时经 applyI18n 刷新）；
+    // 不用原生 title —— 原生 title 延迟高、无法多行、样式不可控。
+    initViewModeTooltips() {
+      const tabs = document.getElementById('view-mode-tabs');
+      if (!tabs || tabs.dataset.tipBound === '1') return;
+      tabs.dataset.tipBound = '1';
+      let tip = document.getElementById('view-mode-tip');
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'view-mode-tip';
+        tip.className = 'view-mode-tip hidden';
+        document.body.appendChild(tip);
+      }
+      const hide = () => tip.classList.add('hidden');
+      const showFor = (btn) => {
+        const key = btn && btn.dataset ? btn.dataset.tipKey : '';
+        if (!key) return hide();
+        tip.textContent = this.t(key) || '';
+        tip.classList.remove('hidden');
+        // 气泡水平居中于按钮，并夹在视口内（按钮靠窗口边缘时不溢出）
+        const r = btn.getBoundingClientRect();
+        const tw = tip.offsetWidth;
+        let left = r.left + r.width / 2 - tw / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+        tip.style.left = left + 'px';
+        tip.style.top = (r.bottom + 8) + 'px';
+      };
+      tabs.querySelectorAll('.view-mode-tab').forEach((btn) => {
+        btn.addEventListener('mouseenter', () => showFor(btn));
+        btn.addEventListener('mouseleave', hide);
+        // 键盘可达：focus 时同样显示（无障碍；title 做不到）
+        btn.addEventListener('focus', () => showFor(btn));
+        btn.addEventListener('blur', hide);
+      });
+      // 滚动/切标签时按钮位置变化，隐藏气泡避免错位
+      window.addEventListener('scroll', hide, true);
+      window.addEventListener('resize', hide);
+    },
+    // 语言切换后刷新气泡文案（内容依赖当前语言，重建一次即可）
+    refreshViewModeTooltips() {
+      const tip = document.getElementById('view-mode-tip');
+      if (tip) tip.classList.add('hidden');
     },
   };
 

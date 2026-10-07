@@ -262,11 +262,25 @@ class MarkdownEditor {
     });
 
     // 应用退出时全量 revoke Blob URL，避免 WebView 存活期内泄漏（LRU 兜底外的一刀切）
-    window.addEventListener('beforeunload', () => {
+    window.addEventListener('beforeunload', (e) => {
       if (this._imageURLCache && typeof URL !== 'undefined' && URL.revokeObjectURL) {
         for (const url of this._imageURLCache.values()) URL.revokeObjectURL(url);
         this._imageURLCache.clear();
       }
+      // 未保存拦截：正常关闭走 handleAppClose 的保存对话框（托盘/标题栏 X），
+      // 但 WebView 崩溃/任务管理器强杀/窗口被销毁等路径不经过它，
+      // 会在此处静默丢掉未落盘内容。补一道浏览器级提示兜底。
+      // 注意：所见即所得模式下编辑最终仍落到 activeTab.content，
+      // 故 isModified 判定对三种模式一致有效。
+      try {
+        const modified = (this.tabs || []).filter(t => t.isModified);
+        if (modified.length > 0) {
+          e.preventDefault();
+          // 兼容旧内核：部分实现只认 returnValue
+          e.returnValue = '';
+          return '';
+        }
+      } catch (_) { /* 退出期任何异常都不应阻断关闭 */ }
     });
   }
 
@@ -369,6 +383,7 @@ Object.assign(MarkdownEditor.prototype, TMUpdater.mixin);
 Object.assign(MarkdownEditor.prototype, TMFormat.mixin);
 Object.assign(MarkdownEditor.prototype, TMCtxMenu.mixin);
 Object.assign(MarkdownEditor.prototype, TMSlash.mixin);
+Object.assign(MarkdownEditor.prototype, TMEmptyHint.mixin);
 Object.assign(MarkdownEditor.prototype, TMLifecycle.mixin);
 Object.assign(MarkdownEditor.prototype, TMToolbar.mixin);
 Object.assign(MarkdownEditor, TMExport.statics);

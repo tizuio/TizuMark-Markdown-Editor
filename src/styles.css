@@ -772,6 +772,36 @@ body {
   margin-left: 2px;
 }
 
+/* 三模式悬停简介气泡（自定义 tooltip，不用原生 title：延迟高、无法多行、样式不可控） */
+.view-mode-tip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: calc(var(--ui-font-size) * 0.9231);
+  line-height: 1.6;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.view-mode-tip.hidden {
+  display: none;
+}
+
+/* 空行占位提示（CM5 markText 绘制，见 modules/empty-hint.js） */
+.cm-empty-placeholder {
+  color: var(--text-tertiary, #9aa0a6);
+  font-style: normal;
+  pointer-events: none;
+}
+
 .toolbar-separator {
   width: 1px;
   height: 16px;
@@ -2665,6 +2695,14 @@ body.is-resizing .side-btn {
 .editor-container.preview-mode .resizer { display: none; }
 .editor-container.preview-mode .preview-pane { flex: 1; }
 .editor-container.preview-mode .preview-content { padding: 32px; }
+
+/* 所见即所得（Typora 式）：编辑器与预览同屏，渲染层盖在文本层之上。
+   阶段1 仅建立容器态与视觉基线（正文保持排版效果、当前块显示源码）；
+   块级源码/渲染切换与表格单元格编辑在阶段2、虚拟滚动在阶段3 接入。 */
+.editor-container.wysiwyg-mode .resizer { display: none; }
+.editor-container.wysiwyg-mode .editor-pane { flex: 0 0 50%; min-width: 0; }
+.editor-container.wysiwyg-mode .preview-pane { flex: 1 1 50%; min-width: 0; }
+.editor-container.wysiwyg-mode .preview-content { padding: 32px; }
 
 .editor-container.editor-collapsed .resizer { display: none; }
 .editor-container.editor-collapsed .editor-pane { flex: 0; min-width: 0; width: 0; overflow: hidden; }

@@ -252,6 +252,8 @@
         }
         if (_kind === 'image' && mode !== 'preview') { this.showToast(this.t('editUnsupported'), 'warning'); return; }
         if (_kind === 'text' && mode !== 'edit') { this.showToast(this.t('previewUnsupported'), 'warning'); return; }
+        // 所见即所得仅对 Markdown 开放（图片无编辑面、明文无渲染面，均无意义）
+        if (_kind !== 'markdown' && mode === 'wysiwyg') { this.showToast(this.t('previewUnsupported'), 'warning'); return; }
         if (this.viewMode === mode) return;
         
         if (mode === 'preview') {
@@ -290,40 +292,53 @@
         }
         this.applyViewMode();
       },
+      // Ctrl+\ 三模式循环：阅读 → 源码 → 所见即所得 → 阅读。
+      // 图片只支持阅读、非 md 明文只支持源码、非 md 不支持所见即所得：
+      // 由 setViewMode 的 _kind 守卫逐个弹提示拦截，此处只负责给出下一个候选模式。
       toggleViewMode() {
-        this.setViewMode(this.viewMode === 'preview' ? 'edit' : 'preview');
+        const order = ['preview', 'edit', 'wysiwyg'];
+        const cur = order.indexOf(this.viewMode);
+        const next = order[(cur + 1) % order.length];
+        this.setViewMode(next);
       },
       applyViewMode() {
         const container = document.querySelector('.editor-container');
+        // 模式切换后空行提示的行号可能失效（块折叠/展开会改行结构），重置由光标事件重建
+        this.resetEmptyLineHint();
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const btnPreview = document.getElementById('btn-view-preview');
         const btnEdit = document.getElementById('btn-view-edit');
+        const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
         const sideLeft = document.getElementById('btn-side-left');
         const sideRight = document.getElementById('btn-side-right');
-  
+
         editorPane.style.flex = '';
         editorPane.style.width = '';
         previewPane.style.flex = '';
         previewPane.style.width = '';
-  
-        container.classList.remove('preview-mode', 'editor-collapsed', 'preview-collapsed', 'text-only');
+
+        container.classList.remove('preview-mode', 'editor-collapsed', 'preview-collapsed', 'text-only', 'wysiwyg-mode');
         if (this.viewMode === 'preview') {
           container.classList.add('preview-mode');
+        } else if (this.viewMode === 'wysiwyg') {
+          container.classList.add('wysiwyg-mode');
         }
-  
+
         btnPreview.classList.toggle('active', this.viewMode === 'preview');
         btnEdit.classList.toggle('active', this.viewMode === 'edit');
+        if (btnWysiwyg) btnWysiwyg.classList.toggle('active', this.viewMode === 'wysiwyg');
   
         let activeTabKind = this.activeTab ? this.activeTab.kind : 'markdown';
         if (this.activeTab && this.activeTab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
           activeTabKind = window.FileTypes.classifyFile(this.activeTab.filePath);
         }
   
-        // 图片只支持预览、非 md 明文只支持编辑：两个模式按钮都保留可见；
+        // 图片只支持阅读、非 md 明文只支持源码：三个模式按钮都保留可见；
         // 切到不支持的模式时由 setViewMode 的 _kind 守卫弹提示拦截，不隐藏按钮。
         btnPreview.style.display = '';
         btnEdit.style.display = '';
+        if (btnWysiwyg) btnWysiwyg.style.display = '';
   
         // 侧边收缩/展开按钮（#btn-side-left / #btn-side-right）默认隐藏，仅 Markdown 显示。
         sideLeft.classList.add('side-hidden', 'side-active');

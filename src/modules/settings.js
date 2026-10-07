@@ -439,8 +439,9 @@
             t: this.t.bind(this),
             ariaLabelKey: 'defaultView',
             optionsProvider: (t) => ([
-              { value: 'preview', label: t('preview') },
-              { value: 'edit', label: t('edit') },
+              { value: 'preview', label: t('viewModeRead') },
+              { value: 'edit', label: t('viewModeSource') },
+              { value: 'wysiwyg', label: t('viewModeWysiwyg') },
             ]),
             onChange: (v) => { this.settings.defaultView = v; },
           });

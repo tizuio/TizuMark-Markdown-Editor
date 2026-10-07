@@ -214,14 +214,18 @@
           </div>
         </div>
         <div class="toolbar-center" data-tauri-drag-region>
-          <div class="view-mode-tabs">
-            <button id="btn-view-preview" class="view-mode-tab active" title="预览模式">
+          <div class="view-mode-tabs" id="view-mode-tabs">
+            <button id="btn-view-preview" class="view-mode-tab active" data-mode="preview" data-tip-key="viewModeReadTip">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>预览</span>
+              <span>阅读</span>
             </button>
-            <button id="btn-view-edit" class="view-mode-tab" title="编辑模式">
+            <button id="btn-view-edit" class="view-mode-tab" data-mode="edit" data-tip-key="viewModeSourceTip">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-              <span>编辑</span>
+              <span>源码</span>
+            </button>
+            <button id="btn-view-wysiwyg" class="view-mode-tab" data-mode="wysiwyg" data-tip-key="viewModeWysiwygTip">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              <span>所见即所得</span>
             </button>
           </div>
         </div>
@@ -1445,6 +1449,7 @@
 <script src="modules/format.js"></script>
 <script src="modules/context-menu.js"></script>
 <script src="modules/slash.js"></script>
+<script src="modules/empty-hint.js"></script>
 <script src="modules/lifecycle.js"></script>
 <script src="modules/toolbar.js"></script>
 <script src="controllers/preview-controller.js"></script>

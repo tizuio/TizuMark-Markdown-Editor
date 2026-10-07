@@ -331,6 +331,8 @@
             this._previewFocusLine = this.cm.getCursor().line;
           }
           this.debounceUpdatePreview();
+          // 空行占位提示：输入后当前行可能不再为空、或空行新起一行，需重算
+          this.updateEmptyLineHint();
         });
   
         this.cm.on('renderLine', (cm, line, el) => {
@@ -357,6 +359,8 @@
           this.updateBreadcrumb();
           // 光标移动时大纲同步高亮当前标题（与面包屑一致）
           this.updateOutlineActive(cursor.line);
+          // 光标进出空行时增删占位提示（源码 + 所见即所得两模式均生效）
+          this.updateEmptyLineHint();
         });
   
         // 双标志锁机制（demo 风格：canScroll.editor / canScroll.showDom）
