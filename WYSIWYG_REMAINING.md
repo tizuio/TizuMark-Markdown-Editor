@@ -130,3 +130,10 @@ node --test test/wysiwyg-blocks.test.cjs test/view-mode-wysiwyg.test.cjs
 - [ ] 滚动长文档，视口内容不漂移
 - [ ] 任务复选框可点击切换
 - [ ] 中英文输入不吞字
+
+## 8. 推送与远程同步约定（2026-10-07 起）
+
+- **只推 gitee（origin）**：`git push origin master`。本机 `origin` 已切到 SSH（`git@gitee.com:tizu/TizuMark-Markdown-Editor.git`），因本机无 gitee HTTPS 凭据。
+- gitee 已配置到 github 的**镜像自动同步**：推 gitee 后由 gitee 自动同步到 `git@github.com:tizuio/TizuMark-Markdown-Editor.git`，**不再手动推 github**。
+- 切换电脑后：任选 gitee / github 一端 clone 即可，两者内容一致。
+- 分叉根因备忘：本地曾因「重建 git 基线」产生孤儿根提交 `20bec86` 并误带 `.git-broken-20261006` junk；已用 commit-tree 在 github master(64964fd) 上重建 C1/C2/C3 干净线性历史并快进推送，junk 已剔除。
