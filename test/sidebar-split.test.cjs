@@ -418,6 +418,64 @@ test('sidebar-split: 点击面板标题（图标+文字）等效于点击折叠�
   } finally { cleanup(w); }
 });
 
+test('sidebar-split: 「上一级」按钮切换到上级目录 + 到根禁用', async () => {
+  const { w, ed, getInitErr } = await makeEditor();
+  try {
+    assert.strictEqual(getInitErr(), null, '初始化不应报错');
+    const upBtn = w.document.getElementById('folder-up');
+    assert.ok(upBtn, '「上一级」按钮应存在');
+
+    // 上级目录计算：Windows / 盘符根 / POSIX / POSIX 根
+    ed.workspaceFolder = 'C:\\workspace\\notes';
+    assert.strictEqual(ed.workspaceParentPath(), 'C:\\workspace', 'Windows 路径应取上级目录');
+    ed.workspaceFolder = 'C:\\workspace';
+    assert.strictEqual(ed.workspaceParentPath(), 'C:\\', '盘符下一级应补回分隔符到 C:\\');
+    ed.workspaceFolder = 'C:\\';
+    assert.strictEqual(ed.workspaceParentPath(), '', '盘符根应无上级目录');
+    ed.workspaceFolder = '/home/user/docs';
+    assert.strictEqual(ed.workspaceParentPath(), '/home/user', 'POSIX 路径应取上级目录');
+    ed.workspaceFolder = '/home';
+    assert.strictEqual(ed.workspaceParentPath(), '/', 'POSIX 一级目录的上级应为根 /');
+    ed.workspaceFolder = '/';
+    assert.strictEqual(ed.workspaceParentPath(), '', 'POSIX 根应无上级目录');
+
+    const origOpen = ed.openFolderPath;
+
+    // 点击：把工作区切换到上级目录
+    let target = null;
+    ed.openFolderPath = async (p) => { target = p; };
+    ed.workspaceFolder = 'C:\\workspace\\notes';
+    upBtn.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.strictEqual(target, 'C:\\workspace', '点击应切换到上级目录');
+
+    // 已到最上级：不切换，仅提示状态
+    target = null;
+    let status = null;
+    const origStatus = ed.setStatus;
+    ed.setStatus = (m) => { status = m; };
+    ed.workspaceFolder = 'C:\\';
+    upBtn.click();
+    await new Promise(r => setTimeout(r, 20));
+    assert.strictEqual(target, null, '已到最上级不应切换工作区');
+    assert.strictEqual(status, ed.t('atRootFolder'), '应提示已到最上级');
+
+    // renderFolderTree 同步禁用态：有上级→可用；到根→禁用
+    ed.openFolderPath = origOpen;
+    ed.setStatus = origStatus;
+    const origListDir = w.TauriApi.listDir;
+    w.TauriApi.listDir = async () => [];
+    ed.workspaceFolder = 'C:\\workspace\\notes';
+    await ed.renderFolderTree();
+    assert.strictEqual(upBtn.disabled, false, '有上级目录时按钮应可用');
+    ed.workspaceFolder = 'C:\\';
+    await ed.renderFolderTree();
+    assert.strictEqual(upBtn.disabled, true, '已到最上级时按钮应禁用');
+    w.TauriApi.listDir = origListDir;
+    ed.workspaceFolder = null;
+  } finally { cleanup(w); }
+});
+
 test('sidebar-split: 按钮体系字形族区分 + 无边框 + aria 状态', async () => {
   const { w, ed, getInitErr } = await makeEditor();
   try {

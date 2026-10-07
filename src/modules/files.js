@@ -567,6 +567,27 @@
         const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
         return idx >= 0 ? path.substring(idx + 1) : path;
       },
+      // 当前工作区的上级目录；已到最上级（盘符根 / 文件系统根）返回 ''。
+      // 注意 parentPath 会把 'C:\\' 也算成 'C:'，故需先判根，再对盘符补回分隔符成 'C:\\'。
+      workspaceParentPath() {
+        const ws = this.workspaceFolder;
+        if (!ws) return '';
+        if (/^[A-Za-z]:[\\/]?$/.test(ws) || ws === '/') return '';
+        let parent = this.parentPath(ws);
+        if (/^[A-Za-z]:$/.test(parent)) parent += '\\';
+        // POSIX 一级目录（如 /home）的上级是根 '/'
+        if (!parent && ws.startsWith('/')) parent = '/';
+        return parent;
+      },
+      // 「上一级」按钮：把工作区切换到上级目录（显式操作，直接切换不再二次确认）
+      async goToParentWorkspace() {
+        const parent = this.workspaceParentPath();
+        if (!parent) {
+          this.setStatus(this.t('atRootFolder'));
+          return;
+        }
+        await this.openFolderPath(parent);
+      },
       async pathExists(path) {
         try {
           const parent = this.parentPath(path);
@@ -791,9 +812,12 @@
         }
         const headerEl = document.getElementById('folder-header');
         const pathEl = document.getElementById('folder-path');
+        const upBtn = document.getElementById('folder-up');
         treeEl.innerHTML = '';
         if (pathEl) pathEl.textContent = this.workspaceFolder || '';
         if (headerEl) headerEl.classList.toggle('hidden', !this.workspaceFolder);
+        // 「上一级」按钮：无工作区或已到最上级时禁用
+        if (upBtn) upBtn.disabled = !this.workspaceParentPath();
         if (!this.workspaceFolder) {
           const empty = document.createElement('button');
           empty.className = 'folder-empty';
