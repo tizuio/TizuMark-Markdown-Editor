@@ -70,6 +70,17 @@ Skills 位于 `.claude/skills/` 目录，每个 skill 有独立的 `SKILL.md` �
 
 <!-- superpowers-zh:end -->
 
+## 新电脑开发环境初始化（Windows）
+
+详细指南见 `docs/DEV_SETUP.md`，一键脚本在 `scripts/`：
+
+- **全新电脑**：clone 后 `powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1`，重开终端跑 `-VerifyOnly` 验证，然后 `npm ci && npm run dev`。
+  - VS BuildTools 只装最小组件（`Microsoft.VisualStudio.Component.VC.Tools.x86.x64` + `Microsoft.VisualStudio.Component.Windows11SDK.22621`，**不加** `--includeRecommended`，约 2GB 而非 5-7GB）。
+  - Tauri Windows 编译必须要 MSVC `link.exe` + Windows SDK（Rust MSVC 目标的平台级要求，含 WebView2 静态加载器链接）。
+- **工具链目录从旧电脑整目录搬移**：跑 `scripts\fix-moved-toolchain.ps1` 把 vcvars64 环境变量持久化到用户环境（零下载）；
+  若 `~/.cargo/bin` 出现 **0 字节空壳** rustc/cargo、或 `~/.rustup/toolchains/...` 文件数/体积明显偏小（完整工具链应有数百文件、数百 MB），用 `rustup toolchain uninstall/install stable-x86_64-pc-windows-msvc` 重装（仅几百 MB）。
+- **环境验证标准**：hello-world 真实走 `link.exe` 编译链接 + `src-tauri` 下 `cargo check` 通过（`-VerifyOnly` 模式自动完成）。
+
 ## Release 发布流程
 
 ### 发布格式

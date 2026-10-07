@@ -163,15 +163,30 @@
 
 ### 从源码构建
 
-```bash
+**Windows 开发环境前置**（为什么需要 C++ Build Tools，见 docs 说明）：
+
+- Node.js ≥ 22
+- Rust stable（MSVC 目标）
+- VS C++ Build Tools 2022（最小组件即可，无需完整 VS IDE）
+- WebView2 Runtime（Win10/11 一般自带）
+
+```powershell
 git clone https://github.com/tizuio/TizuMark-Markdown-Editor.git
 # 或国内镜像：
 git clone https://gitee.com/tizu/TizuMark-Markdown-Editor.git
-cd tizu-mark
-npm install
+cd TizuMark-Markdown-Editor
+
+# 一键初始化环境（VS BuildTools 最小 + Rust + Node）
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1
+# 重开终端后验证：
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1 -VerifyOnly
+
+npm ci
 npm run dev      # 开发模式
-npm run build    # 构建发布版本
+npm run build    # 构建发布版本（发布流程见 CLAUDE.md）
 ```
+
+> 📖 完整初始化指南（含「工具链目录跨电脑搬移」等换机场景）：[docs/DEV_SETUP.md](docs/DEV_SETUP.md)
 
 ---
 

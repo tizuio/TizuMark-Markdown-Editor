@@ -57,6 +57,7 @@ release/
 .git-rewrite/
 .opencode/
 ccstart.bat
+.tmp/
 
 # Ad-hoc debug scripts (临时调试产物，勿入库)
 dbg-*.cjs
