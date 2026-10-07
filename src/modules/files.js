@@ -579,14 +579,26 @@
         if (!parent && ws.startsWith('/')) parent = '/';
         return parent;
       },
-      // 「上一级」按钮：把工作区切换到上级目录（显式操作，直接切换不再二次确认）
+      // 「上一级」按钮：把工作区切换到上级目录（显式操作，直接切换不再二次确认）。
+      // 只刷新文件工作区本身，不复用 openFolderPath——后者会弹全屏 loading 遮罩
+      // 并重建大纲/侧边栏，观感上像「刷新整个页面」。
       async goToParentWorkspace() {
         const parent = this.workspaceParentPath();
         if (!parent) {
           this.setStatus(this.t('atRootFolder'));
           return;
         }
-        await this.openFolderPath(parent);
+        try {
+          this.workspaceFolder = parent;
+          this.expandedFolders = new Set();
+          await this.renderFolderTree();
+          this.startFolderWatch();
+          this.saveSession();
+          this.addRecentWorkspace(parent);
+          this.setStatus(this.t('folderOpened', { path: parent }));
+        } catch (e) {
+          this.setStatus(this.t('openFailed') + ': ' + e);
+        }
       },
       async pathExists(path) {
         try {
