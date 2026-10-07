@@ -39,7 +39,7 @@ const KNOWN_GLOBALS = new Set([
   'TMI18n', 'TMSettings', 'TMLayout', 'TMTheme', 'TMFont', 'TMShortcuts',
   'TMEditorCore', 'TMTabs', 'TMFind', 'TMMiscUI', 'TMFiles', 'TMExport',
   'TMPreviewSync', 'TMNotify', 'TMUpdater', 'TMFormat', 'TMCtxMenu', 'TMSlash',
-  'TMLifecycle', 'TMToolbar', 'TMEmptyHint',
+  'TMLifecycle', 'TMToolbar', 'TMEmptyHint', 'TMWysiwyg',
 ]);
 
 // 不锚行首：\bwindow\.[A-Z][A-Za-z0-9]*\s*=

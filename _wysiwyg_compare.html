@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="src/lib/codemirror/codemirror.css">
+<link rel="stylesheet" href="src/styles.css">
+<style>body { margin: 0; } #editor { width: 700px; height: 600px; }</style>
+</head>
+<body>
+<div id="editor"></div>
+<div id="reading"></div>
+<script src="src/lib/codemirror/codemirror.js"></script>
+<script src="src/lib/unified-bundle.js"></script>
+<script src="src/lib/highlight.js/highlight.min.js"></script>
+<script src="src/lib/katex/katex.min.js"></script>
+<script src="src/lib/katex/auto-render.min.js"></script>
+<script src="src/modules/preview-post.js"></script>
+<script src="src/modules/code-block.js"></script>
+<script src="src/modules/wysiwyg.js"></script>
+<script src="src/modules/empty-hint.js"></script>
+<script>
+// 对比 harness：真实 CM5 + 真实 UnifiedRenderer + 真实 wysiwyg/empty-hint 遮罩代码。
+// 由 scripts/wysiwyg-browser-check.mjs 驱动，结果写回 window.__RESULT / __RESULT2。
+(function () {
+  'use strict';
+
+  const DOC = [
+    '# Superpowers-ZH 中文增强版',
+    '',
+    '本项目已安装 superpowers-zh 技能框架（20 个 skills）。',
+    '',
+    '## 核心规则',
+    '',
+    '1.',
+    '    收到任务，先检查是否有匹配的 skill — 哪怕只有 1% 的可能性也要检查',
+    '',
+    '2.',
+    '    设计先于编码 — 收到功能需求时，先用 brainstorming skill 做需求分析',
+    '',
+    '- 普通列表项 A',
+    '- 普通列表项 B',
+    '',
+    '- [ ] 待办任务一',
+    '- [x] 已完成任务二',
+    '',
+    '> 引用块第一行',
+    '> 引用块第二行',
+    '',
+    '$$ E = mc^2 $$',
+    '',
+    '| 列甲 | 列乙 |',
+    '| --- | --- |',
+    '| 1 | 2 |',
+    '',
+    '```js',
+    'const a = 1; // 围栏内 # 与 | 都不应切块',
+    '```',
+    '',
+    '结尾段落。',
+  ].join('\n');
+
+  function makeEditor(doc) {
+    const host = document.getElementById('editor');
+    host.innerHTML = '';
+    const cm = CodeMirror(host, { value: doc, lineWrapping: true });
+    cm.setSize('700px', '600px');
+    const ed = Object.assign(
+      { cm, settings: { softBreaks: false, tabSize: 4, extendedSyntax: true }, t: (k) => k },
+      window.TMWysiwyg.mixin,
+      window.TMEmptyHint.mixin
+    );
+    ed.viewMode = 'wysiwyg';
+    // 模拟 editor-core 的事件接线（真实 app 中 cursorActivity/change 都接到这里）
+    cm.on('cursorActivity', () => ed.syncWysiwygActiveBlock());
+    cm.on('change', () => { if (ed.viewMode === 'wysiwyg') ed.refreshWysiwygBlocks(); ed.updateEmptyLineHint(); });
+    return { cm, ed, host };
+  }
+
+  const tagsOf = (h) => (h.match(/<(h\d|p|ol|ul|li|blockquote|table|thead|tbody|tr|pre|code|input)[^>]*>/g) || [])
+    .map(t => t.replace(/\s[\s\S]*$/, '>')).join(',');
+
+  // ---------- 场景 1：渲染一致性 + 提示 + 点击 + 复选框 ----------
+  window.__runCompare = function () {
+    const { cm, ed, host } = makeEditor(DOC);
+
+    const readingHtml = window.UnifiedRenderer.renderMarkdown(DOC, ed.settings);
+    document.getElementById('reading').innerHTML = readingHtml;
+    ed.renderWysiwygMasks();
+
+    const maskNodes = Array.from(host.querySelectorAll('.wysiwyg-block-mask'));
+    const maskHtmls = maskNodes.map(n => n.innerHTML);
+
+    // 1) white-space
+    const ws = maskNodes.length ? getComputedStyle(maskNodes[0]).whiteSpace : 'none';
+
+    // 2) 逐块与整篇同构（活动块现渲染插回对齐）
+    const activeIdx = ed._wysiwygActiveIdx;
+    let mi = 0;
+    const alignedTags = [];
+    ed._wysiwygBlocks.forEach((b, i) => {
+      const html = (i === activeIdx) ? ed.renderWysiwygBlockHtml(b.start, b.end) : maskHtmls[mi++];
+      alignedTags.push(tagsOf(html || ''));
+    });
+    const wholeTags = tagsOf(readingHtml);
+    // math 块产出 0 个结构标签（span 不在结构集内）：逐块 join 会留空段、整篇不会，
+    // 比较前两侧都去掉空段，判据才对「块级结构同构」保持对称
+    const norm = (s) => s.split(',').filter(t => t !== '').join(',');
+    const structureEqual = norm(wholeTags) === norm(alignedTags.join(','));
+
+    // 3) 列表序号与内容同行
+    let listInlineGap = null;
+    const ol = host.querySelector('.wysiwyg-block-mask ol');
+    if (ol) {
+      const li = ol.querySelector('li');
+      const p = li && li.querySelector('p');
+      if (li && p) listInlineGap = Math.abs(p.getBoundingClientRect().top - li.getBoundingClientRect().top);
+    }
+
+    // 4) 无空列表项
+    const emptyLi = maskNodes.filter(n => Array.from(n.querySelectorAll('li'))
+      .some(li => li.textContent.trim() === '')).length;
+
+    // 5) 空行塌缩
+    const blankCollapsed = host.querySelectorAll('.cm-wysiwyg-blank').length;
+
+    // 6) 空行提示：光标落空行 → wrap 类挂上 + ::after 内容 = 提示文案
+    let hintClass = false, hintText = null;
+    try {
+      cm.setCursor({ line: 1, ch: 0 }); // 空行
+      ed.updateEmptyLineHint();
+      const wrappers = host.querySelectorAll('.cm-empty-placeholder');
+      hintClass = wrappers.length > 0;
+      if (hintClass) {
+        const lineEl = wrappers[0].querySelector('.CodeMirror-line');
+        hintText = getComputedStyle(lineEl, '::after').content;
+      }
+    } catch (e) { hintClass = false; }
+
+    // 7) 点击锚定：点击遮罩中部，被点中的源码行顶边应回到点击时的屏幕 y（±8px）。
+    //    判据用「行顶边」而非光标像素：光标落行尾，长行换行时光标自然不在行首，那是行内偏移不是视口跳动。
+    let clickAnchorGap = null, clickDiag = null;
+    try {
+      cm.setCursor({ line: 0, ch: 0 });
+      ed.renderWysiwygMasks();
+      // 先滚到文档中段：锚定本质是「把目标行拉回点击处」，若已抵文档顶/底则被浏览器钳制，
+      // 那种偏差是物理上不可消除的，放在顶部测只会得到假失败。
+      cm.scrollTo(0, 260);
+      ed.updateWysiwygViewportMasks();
+      const vis = Array.from(host.querySelectorAll('.wysiwyg-block-mask'))
+        .filter(n => { const r = n.getBoundingClientRect(); return r.top > 120 && r.bottom < 520 && r.height > 20; });
+      const target = vis[0] || Array.from(host.querySelectorAll('.wysiwyg-block-mask'))[3];
+      const rect = target.getBoundingClientRect();
+      const clickY = rect.top + rect.height / 2;
+      target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: clickY }));
+      const ln = cm.getCursor().line;
+      const top = cm.charCoords({ line: ln, ch: 0 }, 'window').top;
+      clickAnchorGap = Math.round(Math.abs(top - clickY) * 100) / 100;
+      clickDiag = { line: ln, clickY: Math.round(clickY), top: Math.round(top), scrollTop: Math.round(cm.getScrollInfo().top) };
+    } catch (e) { clickAnchorGap = null; }
+
+    // 8) 表格单元格点击定位：最后一个数据格（| 1 | 2 | 位于源码行 25，公式块占 21-22 后表头 23、分隔 24）
+    let tableCellLine = null;
+    try {
+      cm.setCursor({ line: 0, ch: 0 });
+      ed.renderWysiwygMasks();
+      const tds = Array.from(host.querySelectorAll('.wysiwyg-block-mask td'));
+      const td = tds[tds.length - 1];
+      td.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: td.getBoundingClientRect().top + 2 }));
+      tableCellLine = cm.getCursor().line;
+    } catch (e) { tableCellLine = null; }
+
+    // 9) 复选框
+    let checkboxToggled = false;
+    try {
+      cm.setCursor({ line: 0, ch: 0 });
+      ed.renderWysiwygMasks();
+      const box = host.querySelector('.wysiwyg-block-mask input[type="checkbox"]');
+      ed.toggleWysiwygTaskCheckbox(box);
+      checkboxToggled = /\[x\]/.test(cm.getLine(15));
+      ed.toggleWysiwygTaskCheckbox(host.querySelector('.wysiwyg-block-mask input[type="checkbox"]'));
+    } catch (e) { checkboxToggled = false; }
+
+    // 10) 预览后处理对齐：公式须转 KaTeX、代码须高亮包裹、复选框须移除 disabled
+    //（renderMarkdown 只产出结构 HTML，KaTeX/高亮是预览端独立 pass，遮罩不补跑就露源码）
+    let mathRendered = false, codeHighlighted = false, checkboxEnabled = false;
+    try {
+      cm.setCursor({ line: 0, ch: 0 });
+      ed.renderWysiwygMasks();
+      const masks = Array.from(host.querySelectorAll('.wysiwyg-block-mask'));
+      mathRendered = masks.some(n => n.querySelector('.math-display .katex'));
+      codeHighlighted = masks.some(n => n.querySelector('code .code-scroll'));
+      const cb = host.querySelector('.wysiwyg-block-mask input[type="checkbox"]');
+      checkboxEnabled = !!cb && !cb.disabled;
+    } catch (e) { }
+
+    window.__RESULT = {
+      maskCount: maskNodes.length,
+      blockCount: ed._wysiwygBlocks.length,
+      activeIdx,
+      ws, structureEqual, listInlineGap, emptyLi, blankCollapsed,
+      hintClass, hintText,
+      clickAnchorGap, clickDiag, tableCellLine, checkboxToggled,
+      mathRendered, codeHighlighted, checkboxEnabled,
+      wholeTagsSample: wholeTags.slice(0, 300),
+      maskTagsSample: alignedTags.join(',').slice(0, 300),
+    };
+  };
+
+  // ---------- 场景 2：大文档虚拟遮罩 + IME 守卫 ----------
+  window.__runVirtual = function () {
+    const parts = [];
+    for (let i = 0; i < 150; i++) {
+      parts.push('## 段落标题 ' + i, '', '这是第 ' + i + ' 段的正文内容，用来撑起一个较大的文档。', '');
+    }
+    const big = parts.join('\n');
+    const { cm, ed, host } = makeEditor(big);
+    const t0 = performance.now();
+    ed.renderWysiwygMasks();
+    const elapsed = Math.round(performance.now() - t0);
+
+    const maskCount = host.querySelectorAll('.wysiwyg-block-mask').length;
+    const virtual = !!ed._wysiwygVirtual;
+    cm.scrollTo(0, 2000);
+    ed.updateWysiwygViewportMasks();
+    const maskCountAfterScroll = host.querySelectorAll('.wysiwyg-block-mask').length;
+
+    // IME 守卫：组合期间防抖补齐被顺延（计时器重新武装而非立即执行）
+    let imeDeferred = false;
+    try {
+      ed._wysiwygComposing = true;
+      ed.refreshWysiwygBlocks();
+      imeDeferred = ed._wysiwygMaskTimer != null;
+      ed._wysiwygComposing = false;
+      if (ed._wysiwygMaskTimer) { clearTimeout(ed._wysiwygMaskTimer); ed._wysiwygMaskTimer = null; }
+    } catch (e) { imeDeferred = false; }
+
+    window.__RESULT2 = { blockCount: ed._wysiwygBlocks.length, maskCount, maskCountAfterScroll, virtual, elapsed, imeDeferred };
+  };
+
+  // ---------- 场景 3：长文档上的严格点击锚定 ----------
+  // 用户反馈「点击后屏幕乱跳到不知道什么位置」的核心场景。短文档遮罩后不足一屏、scrollTop 恒为 0，
+  // 锚定必然被浏览器钳制，测不出真实偏差；这里用长文档保证上下都有滚动余量。
+  window.__runAnchor = function () {
+    const parts = [];
+    for (let i = 0; i < 60; i++) {
+      parts.push('## 段落标题 ' + i, '', '这是第 ' + i + ' 段的正文内容，用来撑起一个较高的文档以便滚动。', '');
+    }
+    const { cm, ed, host } = makeEditor(parts.join('\n'));
+    ed.renderWysiwygMasks();
+
+    const samples = [];
+    // 在文档中段连点 5 个遮罩，每次都要求「被点中的源码行顶边 ≈ 点击时的屏幕 y」
+    for (let k = 0; k < 5; k++) {
+      cm.scrollTo(0, 1200 + k * 400);
+      ed.updateWysiwygViewportMasks();
+      const nodes = Array.from(host.querySelectorAll('.wysiwyg-block-mask'))
+        .filter(n => { const r = n.getBoundingClientRect(); return r.top > 150 && r.bottom < 480 && r.height > 24; });
+      if (!nodes.length) { samples.push(null); continue; }
+      const target = nodes[Math.floor(nodes.length / 2)];
+      const rect = target.getBoundingClientRect();
+      const clickY = rect.top + rect.height / 2;
+      target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: clickY }));
+      const ln = cm.getCursor().line;
+      const pos = { line: ln, ch: 0 };
+      const top = cm.charCoords(pos, 'window').top;
+      samples.push({
+        line: ln,
+        clickY: Math.round(clickY),
+        top: Math.round(top),
+        gap: Math.round(Math.abs(top - clickY) * 100) / 100,
+        scrollTop: Math.round(cm.getScrollInfo().top),
+      });
+    }
+    // 连点同一块两次：验证 _wysiwygClickAnchor 不残留（残留会污染后续普通光标移动 → 乱跳）
+    cm.scrollTo(0, 1500);
+    ed.updateWysiwygViewportMasks();
+    const nodes2 = Array.from(host.querySelectorAll('.wysiwyg-block-mask'))
+      .filter(n => { const r = n.getBoundingClientRect(); return r.top > 150 && r.bottom < 480 && r.height > 24; });
+    const t2 = nodes2[0];
+    let residual = null;
+    if (t2) {
+      const r2 = t2.getBoundingClientRect();
+      t2.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: r2.top + r2.height / 2 }));
+      residual = ed._wysiwygClickAnchor; // 消费后必须为 null
+    }
+
+    window.__RESULT3 = { samples, residualClean: residual === null || residual === undefined, maxGap: Math.max(...samples.filter(Boolean).map(s => s.gap)) };
+  };
+
+  // ---------- 场景 4：虚拟模式滚动锚定 ----------
+  // 滚动 → 视口遮罩更新（挂/撤遮罩改变文档高度）→ 视口内容不得漂移。
+  // 判据：滚动 100px 后，同一源码行的窗口位置也应恰好下移 100px（偏差 < 20px）。
+  window.__runScrollAnchor = function () {
+    const parts = [];
+    for (let i = 0; i < 60; i++) parts.push('## 段落标题 ' + i, '', '这是第 ' + i + ' 段的正文内容，用来撑起一个较高的文档。', '');
+    const { cm, ed } = makeEditor(parts.join('\n'));
+    ed.renderWysiwygMasks();
+
+    const drifts = [];
+    for (const base of [1000, 1600, 2200]) {
+      // 判据：滚动到新位置后，视口遮罩更新（挂/撤遮罩改变文档高度）前后，
+      // 视口顶行的窗口位置不得漂移——即用户看到的滚动落点保持稳定。
+      cm.scrollTo(0, base);
+      const ln = cm.coordsChar({ left: 0, top: cm.getWrapperElement().getBoundingClientRect().top + 20 }, 'window').line;
+      const t1 = cm.charCoords({ line: ln, ch: 0 }, 'window').top;
+      ed.updateWysiwygViewportMasks();
+      const t2 = cm.charCoords({ line: ln, ch: 0 }, 'window').top;
+      drifts.push(Math.round(Math.abs(t2 - t1) * 100) / 100);
+    }
+    window.__RESULT5 = { drifts, maxDrift: Math.max(...drifts) };
+  };
+})();
+</script>
+</body>
+</html>

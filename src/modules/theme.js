@@ -305,6 +305,8 @@
         const container = document.querySelector('.editor-container');
         // 模式切换后空行提示的行号可能失效（块折叠/展开会改行结构），重置由光标事件重建
         this.resetEmptyLineHint();
+        // 所见即所得：先清旧遮罩，模式/布局稳定后再重建（applyViewMode 末尾有 50ms 定时器）
+        this.clearWysiwygMasks();
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const btnPreview = document.getElementById('btn-view-preview');
@@ -364,6 +366,9 @@
         this._viewModeRestoreTimer = setTimeout(() => {
           this.cm.refresh();
           this.updateSideButtons();
+          // 所见即所得：cm.refresh() 后行高与坐标已稳定，此时重建块遮罩，
+          // 否则 addLineWidget 依据的 charCoords 是切换中的中间值，会算错覆盖位置。
+          if (this.viewMode === 'wysiwyg') this.renderWysiwygMasks();
           // 切换视图模式后，若虚拟滚动状态与新模式不一致则按新模式重建预览
           if (this.previewWindow && this._previewVirtual !== (this.viewMode === 'preview')) {
             this.updatePreview();

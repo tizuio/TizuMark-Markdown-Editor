@@ -907,7 +907,8 @@ test('settings: 切换英文后设置对话框无残留中文（除字体预览�
     assert.deepStrictEqual([...close._options].map(o => o.label), ['Ask every time', 'Quit app', 'Minimize to tray']);
     const view = ed._selects && ed._selects.defaultView;
     assert.ok(view, '默认视图 Select 组件实例应已创建');
-    assert.deepStrictEqual([...view._options].map(o => o.label), ['Preview', 'Edit']);
+    // 三模式（所见即所得阶段1）：阅读 / 源码 / 所见即所得
+    assert.deepStrictEqual([...view._options].map(o => o.label), ['Read', 'Source', 'WYSIWYG']);
     const tab = ed._selects && ed._selects.tabSize;
     assert.ok(tab, 'Tab 宽度 Select 组件实例应已创建');
     assert.deepStrictEqual([...tab._options].map(o => o.label), ['2 spaces', '4 spaces', '8 spaces']);

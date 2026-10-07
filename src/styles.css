@@ -795,8 +795,14 @@ body {
   display: none;
 }
 
-/* 空行占位提示（CM5 markText 绘制，见 modules/empty-hint.js） */
-.cm-empty-placeholder {
+/* 空行占位提示（光标停在独立空行时绘制，见 modules/empty-hint.js）。
+   类挂在行包装器（addLineClass 'wrap'），::after 落在该行 pre.CodeMirror-line 行内——
+   伪元素不改变行高，光标行不跳动。
+   文案走 CSS 变量（empty-hint.js 写入 --empty-hint-text，切语言时自动刷新）；
+   ⚠️ 不能用 data-hint + attr()：CM5 拿不到行 DOM（没有 getLineElement API），
+   属性永远写不上（2026-10-07 真机反馈「空行没有提示」的根因）。 */
+.CodeMirror .cm-empty-placeholder .CodeMirror-line::after {
+  content: var(--empty-hint-text, '');
   color: var(--text-tertiary, #9aa0a6);
   font-style: normal;
   pointer-events: none;
@@ -2697,12 +2703,58 @@ body.is-resizing .side-btn {
 .editor-container.preview-mode .preview-content { padding: 32px; }
 
 /* 所见即所得（Typora 式）：编辑器与预览同屏，渲染层盖在文本层之上。
-   阶段1 仅建立容器态与视觉基线（正文保持排版效果、当前块显示源码）；
-   块级源码/渲染切换与表格单元格编辑在阶段2、虚拟滚动在阶段3 接入。 */
+   阶段1 已建立容器态 + 块级遮罩（光标所在块显源码、其余块显示渲染结果）。 */
 .editor-container.wysiwyg-mode .resizer { display: none; }
-.editor-container.wysiwyg-mode .editor-pane { flex: 0 0 50%; min-width: 0; }
-.editor-container.wysiwyg-mode .preview-pane { flex: 1 1 50%; min-width: 0; }
+.editor-container.wysiwyg-mode .editor-pane { flex: 1 1 100%; min-width: 0; }
+.editor-container.wysiwyg-mode .preview-pane { display: none; }
 .editor-container.wysiwyg-mode .preview-content { padding: 32px; }
+
+/* 块遮罩（src/modules/wysiwyg.js）。
+   节点同时带 preview-content 类，用以继承预览的全部排版规则 —— 这些规则的作用域是
+   `.preview-content xxx`（styles.css 1801 起），不带该类则标题/表格/列表全无样式，渲染走形。
+   下面再用更高优先级（.CodeMirror + 双类）把容器级属性覆盖回「行内片段」应有的样子，
+   否则会被 preview-content 自身的 flex / padding / overflow / background 撑坏 CM 行布局。
+   ⚠️ 不得靠 JS 设 pointer-events:none：那是 overlay 时代的写法，文本已被 replacedWith 替换，
+      那样点击会穿透到空白、CM 拿不到有效坐标 → 点不进块（2026-10-06 真机反馈）。 */
+.CodeMirror .wysiwyg-block-mask.preview-content {
+  flex: none;
+  display: block;
+  width: 100%;
+  padding: 1px 0 2px 0;
+  margin: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: visible;
+  /* 淡色块标识（阶段1 计划项）：渲染态块给一层极淡底色，提示「这是渲染结果非源码」；
+     亮/暗主题都取自 --bg-secondary，低不透明度不干扰正文 */
+  background: color-mix(in srgb, var(--bg-secondary, #f5f5f5) 55%, transparent);
+  border-bottom: 1px solid transparent;
+  transition: none;
+  color: var(--text-primary);
+  line-height: 1.7;
+  cursor: text;
+  -webkit-user-select: none;
+  user-select: none;
+  /* ⚠️ 关键：CM 行是 white-space:pre（codemirror.css:244/258），遮罩若继承，
+     渲染 HTML 里标签之间的换行符会全部显示为真实换行——列表序号单独成行、
+     块内出现大空隙（2026-10-07 真机截图对比阅读模式定位）。必须恢复 normal。 */
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.CodeMirror .wysiwyg-block-mask.preview-content > *:first-child { margin-top: 0; }
+.CodeMirror .wysiwyg-block-mask.preview-content > *:last-child { margin-bottom: 0; }
+
+/* 块间空行塌缩（类由 wysiwyg.js updateWysiwygBlankLines 管理）。
+   空行按全高渲染会让块与块之间隔出整行空白（真机反馈「间隔了很多空行」）；
+   塌缩为小间距即 Typora 式段落间隔。光标所在空行由 JS 临时摘掉该类恢复全高。 */
+.CodeMirror .cm-wysiwyg-blank .CodeMirror-line { line-height: 12px; }
+
+/* 遮罩所在行：行盒 strut（行自身的行高盒）会额外撑出一行高度。
+   置 0 后该行高度 = 遮罩块自身高度；遮罩内部已各自声明 line-height 不受影响。 */
+.CodeMirror pre.CodeMirror-line:has(> span > .CodeMirror-widget > .wysiwyg-block-mask) {
+  line-height: 0;
+}
 
 .editor-container.editor-collapsed .resizer { display: none; }
 .editor-container.editor-collapsed .editor-pane { flex: 0; min-width: 0; width: 0; overflow: hidden; }

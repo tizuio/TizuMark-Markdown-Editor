@@ -1836,8 +1836,58 @@ function renderMarkdown(content, options) {
   return html;
 }
 
+// 按顶层块切分并逐块渲染（所见即所得遮罩专用，见 src/modules/wysiwyg.js）。
+//
+// ⚠️ 块边界必须来自 remark 解析器本身（与阅读模式同一套解析），
+// 不允许再用手写行级切块器：它与 CommonMark 的边界存在系统性偏差——
+// 实测 `1.` 单独成行 + 缩进内容会被拆成两块，渲染出「空列表项（只剩序号）+ 独立段落」，
+// 与阅读模式完全对不上（2026-10-07 真机反馈「带有序号的空行」）。
+// 用解析器的 node.position 切源码，再对每块走完整 renderMarkdown 管线，
+// 保证逐块渲染结果与阅读模式对同一区域的渲染一致。
+// 已知局限：链接引用定义 / 脚注定义跨块引用时，单块渲染拿不到别块的定义（整篇渲染才有）。
+//
+// options.maxBlocks：块数超过该值时跳过逐块渲染（html 置空 + skipped 标记），
+// 供调用方（wysiwyg 大文档模式）按视口按需渲染——18k 行文档每次停顿都全量渲染会卡。
+function renderMarkdownBlocks(content, options) {
+  const md = String(content == null ? '' : content);
+  if (!md.trim()) return [];
+  const lines = md.split('\n');
+  let tree;
+  try {
+    tree = unified()
+      .use(remarkParse)
+      .use(remarkGfm, { singleTilde: false })
+      .parse(md);
+  } catch (e) {
+    console.error('renderMarkdownBlocks: 解析失败，交由调用方回退:', e);
+    return null;
+  }
+  const children = (tree && tree.children) || [];
+  const skipHtml = !!(options && options.maxBlocks && children.length > options.maxBlocks);
+  const blocks = [];
+  for (const node of children) {
+    if (!node || !node.position) continue;
+    const start = node.position.start.line - 1; // 0-based
+    const end = node.position.end.line;         // 开区间
+    if (end <= start || start < 0 || end > lines.length) continue;
+    const slice = lines.slice(start, end).join('\n');
+    if (!slice.trim()) continue;
+    let html = '';
+    if (!skipHtml) {
+      try {
+        html = renderMarkdown(slice, options) || '';
+      } catch (e) {
+        console.error('renderMarkdownBlocks: 块渲染失败，该块保持源码态:', e);
+        html = '';
+      }
+    }
+    blocks.push({ start, end, html, skipped: skipHtml });
+  }
+  return blocks;
+}
+
 // Export for Node.js bundling; also expose as global for browser
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { renderMarkdown };
+  module.exports = { renderMarkdown, renderMarkdownBlocks };
 }
-return { renderMarkdown };
+return { renderMarkdown, renderMarkdownBlocks };

@@ -64,9 +64,10 @@
         updateMenuText('btn-check-update', t('checkUpdate'));
         updateMenuText('btn-devtools', t('devtools'));
   
-        // View mode tabs
-        updateMenuText('btn-view-preview', t('preview'));
-        updateMenuText('btn-view-edit', t('edit'));
+        // View mode tabs（三模式：阅读 / 源码 / 所见即所得）
+        updateMenuText('btn-view-preview', t('viewModeRead'));
+        updateMenuText('btn-view-edit', t('viewModeSource'));
+        updateMenuText('btn-view-wysiwyg', t('viewModeWysiwyg'));
   
         // Theme button
         setText('theme-text', this.isDark ? t('themeDark') : t('themeLight'));
@@ -391,8 +392,9 @@
         // Toolbar button titles
         setTitle('btn-file', t('file'));
         setTitle('btn-help', t('help'));
-        setTitle('btn-view-preview', t('previewMode'));
-        setTitle('btn-view-edit', t('editMode'));
+        setTitle('btn-view-preview', t('viewModeReadTip'));
+        setTitle('btn-view-edit', t('viewModeSourceTip'));
+        setTitle('btn-view-wysiwyg', t('viewModeWysiwygTip'));
     
         // Items with data-action (format toolbar + context menus)
         const insActionKeys = {

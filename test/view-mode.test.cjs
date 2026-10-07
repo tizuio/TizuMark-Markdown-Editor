@@ -23,18 +23,27 @@ test('viewmode: 初始化 viewMode 继承 settings.defaultView', async () => {
   } finally { cleanup(w); }
 });
 
-test('viewmode: toggleViewMode 在 edit/preview 间循环', async () => {
+test('viewmode: toggleViewMode 在 阅读/源码/所见即所得 三模式间循环', async () => {
   const { w, ed } = await makeEditor();
   try {
     const container = w.document.querySelector('.editor-container');
+    // 从源码起步：阅读 → 源码 → 所见即所得 → 阅读
     if (ed.viewMode === 'preview') ed.setViewMode('edit');
     assert.strictEqual(ed.viewMode, 'edit');
     assert.ok(!container.classList.contains('preview-mode'));
+
     ed.toggleViewMode();
-    assert.strictEqual(ed.viewMode, 'preview');
+    assert.strictEqual(ed.viewMode, 'wysiwyg', '源码之后应循环到所见即所得');
+    assert.ok(container.classList.contains('wysiwyg-mode'), '切到 wysiwyg 应有 wysiwyg-mode 类');
+
+    ed.toggleViewMode();
+    assert.strictEqual(ed.viewMode, 'preview', '所见即所得之后应循环回阅读');
     assert.ok(container.classList.contains('preview-mode'), '切到 preview 应有 preview-mode 类');
+
     ed.toggleViewMode();
-    assert.strictEqual(ed.viewMode, 'edit');
+    assert.strictEqual(ed.viewMode, 'edit', '阅读之后应循环到源码');
+    assert.ok(!container.classList.contains('preview-mode'));
+    assert.ok(!container.classList.contains('wysiwyg-mode'), '离开所见即所得应清掉 wysiwyg-mode');
   } finally { cleanup(w); }
 });
 

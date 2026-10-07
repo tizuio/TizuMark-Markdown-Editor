@@ -384,13 +384,17 @@ Object.assign(MarkdownEditor.prototype, TMFormat.mixin);
 Object.assign(MarkdownEditor.prototype, TMCtxMenu.mixin);
 Object.assign(MarkdownEditor.prototype, TMSlash.mixin);
 Object.assign(MarkdownEditor.prototype, TMEmptyHint.mixin);
+Object.assign(MarkdownEditor.prototype, TMWysiwyg.mixin);
 Object.assign(MarkdownEditor.prototype, TMLifecycle.mixin);
 Object.assign(MarkdownEditor.prototype, TMToolbar.mixin);
 Object.assign(MarkdownEditor, TMExport.statics);
 
 
 function updateLoadingProgress(percent, text) {
-  document.getElementById('loading-progress-fill').style.width = Math.min(100, Math.max(0, percent)) + '%';
+  // 进度条元素只存在于启动 loading 界面；进入编辑器后（或测试 harness 未渲染 loading 屏时）
+  // 可能查不到。加空值守卫，避免异步进度回调抛 TypeError 中断启动流程。
+  const fill = document.getElementById('loading-progress-fill');
+  if (fill) fill.style.width = Math.min(100, Math.max(0, percent)) + '%';
   const textEl = document.getElementById('loading-text');
   if (textEl && text) textEl.textContent = text;
 }

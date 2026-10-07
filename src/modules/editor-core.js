@@ -333,6 +333,11 @@
           this.debounceUpdatePreview();
           // 空行占位提示：输入后当前行可能不再为空、或空行新起一行，需重算
           this.updateEmptyLineHint();
+          // 所见即所得：仅更新块行索引缓存。
+          // ⚠️ 绝不可在 change 里调 renderWysiwygMasks()——那样每次按键都要
+          //    clear 全部标记 + 对所有块跑一遍 Markdown 渲染 + cm.refresh()，
+          //    实测造成严重卡顿与抖动（2026-10-06 真机反馈）。昂贵渲染走 250ms 防抖补齐。
+          if (this.viewMode === 'wysiwyg') this.refreshWysiwygBlocks();
         });
   
         this.cm.on('renderLine', (cm, line, el) => {
@@ -341,6 +346,15 @@
           } else {
             el.classList.remove('cm-base64-line');
           }
+        });
+
+        // IME 防吞字（阶段3 计划项）：中文输入法组合期间，任何 cm.refresh() / 遮罩重排
+        // 都可能打断 composition 导致吞字。组合期间仅记录状态，compositionend 后再补刷新。
+        this._wysiwygComposing = false;
+        this.cm.on('compositionstart', () => { this._wysiwygComposing = true; });
+        this.cm.on('compositionend', () => {
+          this._wysiwygComposing = false;
+          if (this.viewMode === 'wysiwyg') this.refreshWysiwygBlocks();
         });
   
         this.cm.on('cursorActivity', () => {
@@ -361,6 +375,8 @@
           this.updateOutlineActive(cursor.line);
           // 光标进出空行时增删占位提示（源码 + 所见即所得两模式均生效）
           this.updateEmptyLineHint();
+          // 所见即所得：跨块时重建块遮罩（当前块显源码、上一块恢复渲染），含块高抖动补偿
+          this.syncWysiwygActiveBlock();
         });
   
         // 双标志锁机制（demo 风格：canScroll.editor / canScroll.showDom）
