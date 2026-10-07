@@ -94,6 +94,13 @@
         if (filesHeader) {
           filesHeader.addEventListener('click', () => this.togglePanel('files'));
         }
+        // 「上一级」按钮点击 = 把工作区切换到上级目录
+        const folderUpEl = document.getElementById('folder-up');
+        if (folderUpEl) {
+          folderUpEl.addEventListener('click', async () => {
+            await this.goToParentWorkspace();
+          });
+        }
         if (outlineHeader) {
           outlineHeader.addEventListener('click', () => this.togglePanel('outline'));
         }

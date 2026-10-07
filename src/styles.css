@@ -3239,6 +3239,38 @@ body.is-resizing-row .sidebar-h-resizer {
   color: var(--text-primary);
 }
 
+/* 「上一级」按钮：位于工作区标题栏最左侧，点击把工作区切换到上级目录 */
+.folder-up-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.folder-up-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.folder-up-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover, rgba(128, 128, 128, 0.08));
+  color: var(--text-primary);
+}
+
+/* 已到最上级（无父目录）时禁用：降低不透明度并禁用指针 */
+.folder-up-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .folder-sort {
   display: flex;
   align-items: center;
