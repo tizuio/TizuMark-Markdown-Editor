@@ -224,6 +224,9 @@
       // 覆盖「打开文件 / 切换标签 / 当前标签」所有情况。
       syncViewModeToTab() {
         const tab = this.activeTab;
+        // 切标签：取消在飞的所见即所得预渲染（它面向旧标签，不能在新标签上切视图，
+        // 按钮「渲染中」也要还原）
+        if (this._wysiwygPreRendering) this._cancelWysiwygPreRender();
         // 未命名（无路径）不按类型切换，保留当前视图：newFile 已显式 setViewMode('edit')，
         // 初始化则继承 settings.defaultView。与改动前行为一致。
         if (!tab || !tab.filePath) return;
@@ -255,7 +258,16 @@
         // 所见即所得仅对 Markdown 开放（图片无编辑面、明文无渲染面，均无意义）
         if (_kind !== 'markdown' && mode === 'wysiwyg') { this.showToast(this.t('previewUnsupported'), 'warning'); return; }
         if (this.viewMode === mode) return;
-        
+
+        // 所见即所得全量预渲染：行数 ≤ 上限时先在后台预渲染（模式按钮显示「渲染中」），
+        // 完成后再切视图——全程不露源码中间态（2026-10-09 用户需求，Q9a）
+        if (mode === 'wysiwyg') {
+          if (this._wysiwygPreRendering) return; // 预渲染在飞，忽略重复点击
+          if (this.beginWysiwygPreRender && this.beginWysiwygPreRender()) return;
+        } else if (this._wysiwygPreRendering) {
+          this._cancelWysiwygPreRender(); // 用户抢先切到别的模式：取消预渲染
+        }
+
         if (mode === 'preview') {
           document.getElementById('find-panel').classList.add('hidden');
         } else {

@@ -517,7 +517,9 @@
         this.cm.setOption('tabSize', s.tabSize);
         this.cm.setOption('indentUnit', s.tabSize);
         this.cm.setOption('lineWrapping', s.lineWrap);
-        this.cm.setOption('lineNumbers', s.lineNumbers);
+        // 行号 + 最大宽度由所见即所得外壳统一同步（所见即所得下强制去行号，离开按设置恢复）
+        if (this.applyWysiwygEditorChrome) this.applyWysiwygEditorChrome();
+        else this.cm.setOption('lineNumbers', s.lineNumbers);
         this.preview.style.fontSize = s.previewFontSize + 'px';
         this.previewZoom = null; // 应用设置时回落到设置字号（与编辑器 tab.fontSize 重置一致）
         this.preview.style.lineHeight = String(s.lineHeight);

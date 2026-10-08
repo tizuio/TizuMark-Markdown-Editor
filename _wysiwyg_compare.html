@@ -4,18 +4,35 @@
 <meta charset="utf-8">
 <link rel="stylesheet" href="src/lib/codemirror/codemirror.css">
 <link rel="stylesheet" href="src/styles.css">
-<style>body { margin: 0; } #editor { width: 700px; height: 600px; }</style>
+<style>
+  body { margin: 0; }
+  /* 与真实 app 同构的容器层级：wysiwyg 规则（去行号、32px 行留白、遮罩样式）都挂在
+     .editor-container.wysiwyg-mode 作用域下，harness 必须复刻这层结构才测得到真实样式 */
+  .harness-container { width: 700px; height: 600px; flex: none; }
+</style>
 </head>
 <body>
-<div id="editor"></div>
-<div id="reading"></div>
+<div class="editor-container wysiwyg-mode harness-container" id="wysiwyg-container">
+  <div class="editor-pane">
+    <div id="editor"></div>
+  </div>
+  <div class="preview-pane"></div>
+</div>
+<div class="editor-container preview-mode harness-container" id="reading-container">
+  <div class="editor-pane"></div>
+  <div class="preview-pane">
+    <div class="preview-content" id="reading"></div>
+  </div>
+</div>
 <script src="src/lib/codemirror/codemirror.js"></script>
 <script src="src/lib/unified-bundle.js"></script>
 <script src="src/lib/highlight.js/highlight.min.js"></script>
+<link rel="stylesheet" href="src/lib/katex/katex.min.css">
 <script src="src/lib/katex/katex.min.js"></script>
 <script src="src/lib/katex/auto-render.min.js"></script>
 <script src="src/modules/preview-post.js"></script>
 <script src="src/modules/code-block.js"></script>
+<script src="src/modules/image-processor.js"></script>
 <script src="src/modules/wysiwyg.js"></script>
 <script src="src/modules/empty-hint.js"></script>
 <script>
@@ -57,15 +74,74 @@
     '```',
     '',
     '结尾段落。',
+    '',
+    // 缩写定义与使用放同一块（逐块渲染的已知边界：跨块拿不到别块的定义），
+    // 这样逐块与整篇渲染行为一致，可检验遮罩内缩写还原。
+    // 注意本渲染器的缩写语法是 *[term]: def（定义行单独解析，非 GFM 的 *[term]*: ）。
+    // 多行展示公式且内部含独占一行的 `=`（CommonMark setext 下划线触发器）：
+    // 切块若未先做公式守卫，remark 会把 `=` 当 setext 标题，公式劈成两块、前半渲染成巨型 h1
+    // （真机 demo.md 矩阵乘法实测，2026-10-08 用户截图）。守卫后必须是一个完整块。
+    '矩阵乘法：',
+    '',
+    '$$',
+    '\\begin{bmatrix}',
+    'a_{11} & a_{12} \\\\',
+    'a_{21} & a_{22}',
+    '\\end{bmatrix}',
+    '=',
+    '\\begin{bmatrix}',
+    'c_{11} & c_{12} \\\\',
+    'c_{21} & c_{22}',
+    '\\end{bmatrix}',
+    '$$',
+    '',
+    '*[Tizu]: TizuMark Editor',
+    '本段使用缩写 Tizu 指代编辑器。',
+    '',
+    '这个特性 :rocket: 让两种模式保持一致。',
+    '',
+    '<details>',
+    '<summary>折叠内容</summary>',
+    '折叠块内部文字。',
+    '</details>',
   ].join('\n');
 
   function makeEditor(doc) {
     const host = document.getElementById('editor');
     host.innerHTML = '';
-    const cm = CodeMirror(host, { value: doc, lineWrapping: true });
+    // lineNumbers: true 与真实 app 一致（app 建 CM 时恒开行号），
+    // 进入所见即所得后由 applyWysiwygEditorChrome 关掉——可验证「去行号」行为
+    const cm = CodeMirror(host, { value: doc, lineWrapping: true, lineNumbers: true });
     cm.setSize('700px', '600px');
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const headingToId = (text) => {
+      let id = '';
+      for (const ch of String(text || '')) {
+        if (/[\p{L}\p{N}]/u.test(ch)) id += ch.toLowerCase();
+        else if (ch === ' ' || ch === '-' || ch === '_') id += '-';
+      }
+      return id.replace(/-+/g, '-').replace(/^-|-$/g, '');
+    };
+    // 阅读模式参照物：#preview 的字体/字号/行高是 applySettings 写内联样式的，
+    // 这里复刻真实默认值（16px / 1.7），wysiwyg 遮罩必须与之完全一致
+    const reading = document.getElementById('reading');
+    reading.style.fontSize = '16px';
+    reading.style.lineHeight = '1.7';
     const ed = Object.assign(
-      { cm, settings: { softBreaks: false, tabSize: 4, extendedSyntax: true }, t: (k) => k },
+      {
+        cm,
+        settings: { softBreaks: false, tabSize: 4, extendedSyntax: true, codeLineNumbers: false, lineNumbers: true, maxWidth: 0 },
+        t: (k) => k,
+        preview: reading,
+        isDark: false,
+        escapeHtml: esc,
+        escapeAttr: esc,
+        headingToId,
+        _mermaidCache: new Map(),
+        _imageBase64Cache: new Map(),
+        getCachedImageURL: (u) => u,
+        activeTab: null,
+      },
       window.TMWysiwyg.mixin,
       window.TMEmptyHint.mixin
     );
@@ -88,17 +164,31 @@
     ed.renderWysiwygMasks();
 
     const maskNodes = Array.from(host.querySelectorAll('.wysiwyg-block-mask'));
-    const maskHtmls = maskNodes.map(n => n.innerHTML);
+
+    // 遮罩内容统一从 mark 模型取（markText 的 replacedWith 节点），不依赖 CM 视口物化：
+    // 文档底部块在 600px 视口内未渲染进 DOM，querySelectorAll 会漏掉它们（滚动才物化）。
+    const markHtmlByIdx = new Map();
+    // 汇总所有遮罩节点到独立容器：CM5 只把视口附近的行物化进 DOM，文档底部块不在
+    // host 的 DOM 里（querySelectorAll 会漏），但 mark.replacedWith 节点始终持有完整
+    // （已后处理的）innerHTML。内容检查统一走这里，与滚动位置解耦。
+    const maskFrag = document.createElement('div');
+    try {
+      ed._wysiwygMarks.forEach((mark, idx) => {
+        if (!mark || !mark.replacedWith) return;
+        markHtmlByIdx.set(idx, mark.replacedWith.innerHTML);
+        maskFrag.appendChild(mark.replacedWith.cloneNode(true));
+      });
+    } catch (e) { }
+    let maskCountModel = markHtmlByIdx.size;
 
     // 1) white-space
     const ws = maskNodes.length ? getComputedStyle(maskNodes[0]).whiteSpace : 'none';
 
     // 2) 逐块与整篇同构（活动块现渲染插回对齐）
     const activeIdx = ed._wysiwygActiveIdx;
-    let mi = 0;
     const alignedTags = [];
     ed._wysiwygBlocks.forEach((b, i) => {
-      const html = (i === activeIdx) ? ed.renderWysiwygBlockHtml(b.start, b.end) : maskHtmls[mi++];
+      const html = (i === activeIdx) ? ed.renderWysiwygBlockHtml(b.start, b.end) : (markHtmlByIdx.get(i) || '');
       alignedTags.push(tagsOf(html || ''));
     });
     const wholeTags = tagsOf(readingHtml);
@@ -186,30 +276,121 @@
     try {
       cm.setCursor({ line: 0, ch: 0 });
       ed.renderWysiwygMasks();
-      const masks = Array.from(host.querySelectorAll('.wysiwyg-block-mask'));
-      mathRendered = masks.some(n => n.querySelector('.math-display .katex'));
-      codeHighlighted = masks.some(n => n.querySelector('code .code-scroll'));
-      const cb = host.querySelector('.wysiwyg-block-mask input[type="checkbox"]');
+      // 重建汇总（renderWysiwygMasks 会重建 marks）
+      maskFrag.innerHTML = '';
+      ed._wysiwygMarks.forEach((mark) => {
+        if (mark && mark.replacedWith) maskFrag.appendChild(mark.replacedWith.cloneNode(true));
+      });
+      mathRendered = !!maskFrag.querySelector('.math-display .katex, .katex');
+      codeHighlighted = !!maskFrag.querySelector('code .code-scroll');
+      const cb = maskFrag.querySelector('input[type="checkbox"]');
       checkboxEnabled = !!cb && !cb.disabled;
     } catch (e) { }
 
+    // 11) 显示效果与阅读模式逐项对齐（2026-10-08 需求）：
+    //     行号隐藏 / 字号、行高、字体族一致 / 无块级底色 / 32px 水平边距 /
+    //     emoji、缩写、标题锚点 id、details 展开、代码块复制按钮
+    let gutterHidden = null, fontSizeParity = null, lineHeightParity = null, fontFamilyParity = null;
+    let bgTransparent = null, paddingParity = null, emojiRendered = false, abbrRendered = false;
+    let headingIdSet = false, detailsOpened = false, copyBtnPresent = false;
+    try {
+      cm.setCursor({ line: 0, ch: 0 });
+      ed.renderWysiwygMasks();
+      const reading = document.getElementById('reading');
+      const m = host.querySelector('.wysiwyg-block-mask');
+      if (m) {
+        const csM = getComputedStyle(m);
+        const csR = getComputedStyle(reading);
+        gutterHidden = !host.querySelector('.CodeMirror-linenumber');
+        fontSizeParity = csM.fontSize === csR.fontSize;
+        lineHeightParity = csM.lineHeight === csR.lineHeight;
+        fontFamilyParity = csM.fontFamily === csR.fontFamily;
+        bgTransparent = csM.backgroundColor === 'rgba(0, 0, 0, 0)';
+        // 水平边距：遮罩首个块级元素相对编辑器容器左缘 vs 阅读区首个块级元素相对其容器左缘
+        const firstInMask = m.querySelector('h1,h2,h3,h4,h5,h6,p,ul,ol,table,pre,blockquote,hr');
+        const firstInReading = reading.querySelector('h1,h2,h3,h4,h5,h6,p,ul,ol,table,pre,blockquote,hr');
+        const wrapRect = host.getBoundingClientRect();
+        const readRect = reading.getBoundingClientRect();
+        if (firstInMask && firstInReading) {
+          const lm = Math.round(firstInMask.getBoundingClientRect().left - wrapRect.left);
+          const lr = Math.round(firstInReading.getBoundingClientRect().left - readRect.left);
+          paddingParity = { mask: lm, reading: lr, equal: Math.abs(lm - lr) <= 1 };
+        }
+        // 内容检查走 mark 模型汇总（含视口外未物化块；renderWysiwygMasks 刚重建过 marks）
+        maskFrag.innerHTML = '';
+        markHtmlByIdx.clear();
+        ed._wysiwygMarks.forEach((mark, idx) => {
+          if (!mark || !mark.replacedWith) return;
+          markHtmlByIdx.set(idx, mark.replacedWith.innerHTML);
+          maskFrag.appendChild(mark.replacedWith.cloneNode(true));
+        });
+        maskCountModel = markHtmlByIdx.size;
+        emojiRendered = /🚀/.test(maskFrag.textContent);
+        abbrRendered = !!maskFrag.querySelector('abbr[title="TizuMark Editor"]');
+        const hs = Array.from(maskFrag.querySelectorAll('h1, h2'));
+        headingIdSet = hs.length > 0 && hs.every(h => !!h.id);
+        detailsOpened = !!maskFrag.querySelector('details[open]');
+        copyBtnPresent = !!maskFrag.querySelector('pre .copy-btn');
+      }
+    } catch (e) { window.__ERR11 = (e && e.message) || String(e); }
+
+    // 12) 多行展示公式（内含独占一行的 `=`，setext 触发器）必须是【一个完整块】：
+    //     切块未做公式守卫时 remark 会把 `=` 当 setext 下划线，公式劈成两块、前半渲染成巨型 h1
+    let mathBlockIntact = false;
+    try {
+      const blks = ed._wysiwygBlocks || [];
+      mathBlockIntact = blks.some(b => {
+        if (b.end - b.start < 5) return false;
+        return cm.getLine(b.start).trim() === '$$' && cm.getLine(b.end - 1).trim() === '$$';
+      });
+    } catch (e) { mathBlockIntact = false; }
+
     window.__RESULT = {
-      maskCount: maskNodes.length,
+      maskCount: maskCountModel,
       blockCount: ed._wysiwygBlocks.length,
       activeIdx,
       ws, structureEqual, listInlineGap, emptyLi, blankCollapsed,
       hintClass, hintText,
       clickAnchorGap, clickDiag, tableCellLine, checkboxToggled,
       mathRendered, codeHighlighted, checkboxEnabled,
+      gutterHidden, fontSizeParity, lineHeightParity, fontFamilyParity,
+      bgTransparent, paddingParity, emojiRendered, abbrRendered,
+      headingIdSet, detailsOpened, copyBtnPresent, mathBlockIntact,
       wholeTagsSample: wholeTags.slice(0, 300),
       maskTagsSample: alignedTags.join(',').slice(0, 300),
     };
   };
 
+  // ---------- 场景 5：整篇视觉比对（截图素材） ----------
+  // 用真实文档（如 demo.md 内容）同时渲染「所见即所得（顶部）」与「阅读模式」，
+  // 供驱动脚本截图后人工/视觉模型比对。
+  window.__runVisual = function (docText) {
+    const doc = docText != null ? docText : DOC;
+    const { cm, ed, host } = makeEditor(doc);
+    window.__wysiwygLast = { cm, ed, host }; // 供诊断脚本访问实例
+    ed.renderWysiwygMasks();
+    const reading = document.getElementById('reading');
+    try {
+      reading.innerHTML = window.UnifiedRenderer.renderMarkdown(doc, ed.settings);
+      // 阅读模式后处理（与 preview-controller.render 同源）：数学 + 代码高亮 + 复制按钮
+      if (window.PreviewPost) {
+        window.PreviewPost.processMath(reading);
+        window.PreviewPost.addCopyButtons(reading, { t: (k) => k });
+      }
+      if (window.CodeBlock && typeof hljs !== 'undefined') {
+        window.CodeBlock.processCodeBlocks(reading, { hljs: window.hljs, cache: new Map(), lineNumbers: false });
+      }
+    } catch (e) { }
+    // 滚回顶部，截图取文档首屏
+    try { cm.scrollTo(0, 0); reading.scrollTop = 0; } catch (e) { }
+    return { blocks: (ed._wysiwygBlocks || []).length };
+  };
+
   // ---------- 场景 2：大文档虚拟遮罩 + IME 守卫 ----------
+  // ⚠️ 行数必须 > 10000（全量预渲染上限）：2600 段 × 4 行 = 10400 行，确保走虚拟模式
   window.__runVirtual = function () {
     const parts = [];
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 2600; i++) {
       parts.push('## 段落标题 ' + i, '', '这是第 ' + i + ' 段的正文内容，用来撑起一个较大的文档。', '');
     }
     const big = parts.join('\n');
@@ -308,6 +489,91 @@
       drifts.push(Math.round(Math.abs(t2 - t1) * 100) / 100);
     }
     window.__RESULT5 = { drifts, maxDrift: Math.max(...drifts) };
+  };
+
+  // ---------- 场景 6：全量模式快速滚动（≤10000 行：全量预渲染 + 全量视图驻留） ----------
+  // 验收：全量标志 + 视口驻留（viewportMargin ≥ 行数）+ 遮罩全挂 + 任意位置首跳落点
+  // 误差 ≤1px（几何自愈：refresh 重置高度后全量视图重渲重测，不漂移、不闪源码）。
+  window.__runFullFast = async function (sections) {
+    const n = sections || 750; // 750 段 × 4 行 = 3000 行 → 全量模式
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      parts.push('## 全量段 ' + i, '', '第 ' + i + ' 段正文，用于验证全量预渲染与全量视图驻留。', '');
+    }
+    const { cm, ed } = makeEditor(parts.join('\n'));
+    const t0 = performance.now();
+    ed.renderWysiwygMasks();
+    const renderMs = Math.round(performance.now() - t0);
+
+    const lineCount = cm.lineCount();
+    const margin = cm.options.viewportMargin;
+    const blockCount = (ed._wysiwygBlocks || []).length;
+    const maskCount = ed._wysiwygMarks ? ed._wysiwygMarks.size : 0;
+    const full = !!ed._wysiwygFull;
+
+    // 快速跳转：滚到远处后，目标行顶边应贴住视口顶（高度模型 = 实测值）
+    const jumps = [];
+    for (const frac of [0.3, 0.5, 0.8, 0.95]) {
+      const targetLine = Math.min(lineCount - 1, Math.floor(lineCount * frac));
+      const want = cm.heightAtLine(targetLine, 'local');
+      cm.scrollTo(0, want);
+      await new Promise(r => setTimeout(r, 150)); // 等 CM display 更新落定
+      const c = cm.charCoords({ line: targetLine, ch: 0 }, 'window');
+      const wrapTop = cm.getWrapperElement().getBoundingClientRect().top;
+      const err = c && isFinite(c.top) ? Math.abs(c.top - wrapTop) : 9999;
+      jumps.push({ frac, targetLine, errPx: Math.round(err * 100) / 100 });
+    }
+    // 模拟 refresh（app 中切模式/输入都会触发）：几何须自愈
+    try { cm.refresh(); } catch (e) {}
+    await new Promise(r => setTimeout(r, 150));
+    const targetLine = Math.min(lineCount - 1, Math.floor(lineCount * 0.6));
+    const want = cm.heightAtLine(targetLine, 'local');
+    cm.scrollTo(0, want);
+    await new Promise(r => setTimeout(r, 150));
+    const c = cm.charCoords({ line: targetLine, ch: 0 }, 'window');
+    const wrapTop = cm.getWrapperElement().getBoundingClientRect().top;
+    const errAfterRefresh = c && isFinite(c.top) ? Math.abs(c.top - wrapTop) : 9999;
+
+    const maskCountAfter = ed._wysiwygMarks ? ed._wysiwygMarks.size : 0;
+    window.__RESULT6 = {
+      lineCount, margin, blockCount, maskCount, maskCountAfter, full, renderMs,
+      jumps,
+      maxJumpErr: Math.max(...jumps.map(j => j.errPx)),
+      errAfterRefresh: Math.round(errAfterRefresh * 100) / 100,
+    };
+    return window.__RESULT6;
+  };
+
+  // ---------- 场景 7：按钮点击预渲染流程（后台预计算 → 完成后才切视图 → 消费块表） ----------
+  // 模拟 theme.js setViewMode 拦截：beginWysiwygPreRender 启动（当前视图保持 edit），
+  // 完成回调里 viewMode='wysiwyg' + applyViewMode（内部 clearWysiwygMasks）+ 50ms 计时器
+  // renderWysiwygMasks 消费预渲染块表——验证「块表在 applyViewMode 之后落位」的时序。
+  window.__runPreRenderFlow = async function () {
+    const parts = [];
+    for (let i = 0; i < 300; i++) parts.push('## 预渲染段 ' + i, '', '预渲染流程验证段 ' + i + ' 的正文。', '');
+    const { cm, ed } = makeEditor(parts.join('\n'));
+    ed.viewMode = 'edit'; // 模拟从源码模式点「所见即所得」
+    // 复刻 theme.js applyViewMode 的关键时序：先 clearWysiwygMasks，50ms 后重建遮罩
+    ed.applyViewMode = function () {
+      const self = this;
+      this.clearWysiwygMasks();
+      setTimeout(() => { if (self.viewMode === 'wysiwyg') self.renderWysiwygMasks(); }, 50);
+    };
+    const started = ed.beginWysiwygPreRender();
+    await new Promise(r => setTimeout(r, 400)); // 预渲染 50ms + applyViewMode 计时器 50ms + 余量
+    const maskCount = ed._wysiwygMarks ? ed._wysiwygMarks.size : 0;
+    const blocks = (ed._wysiwygBlocks || []).length;
+    window.__RESULT7 = {
+      started,
+      preRenderingDone: !ed._wysiwygPreRendering,
+      mode: ed.viewMode,
+      full: !!ed._wysiwygFull,
+      lineCount: cm.lineCount(),
+      margin: cm.options.viewportMargin,
+      maskCount, blocks,
+      masksConsumed: maskCount === blocks - 1,
+    };
+    return window.__RESULT7;
   };
 })();
 </script>

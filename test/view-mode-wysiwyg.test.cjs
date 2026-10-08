@@ -201,9 +201,10 @@ test('遮罩必须带 preview-content 类，否则标题/表格/列表全无排�
   //    换行符全显示为真实换行（列表序号单独成行、块内大空隙）——2026-10-07 真机定位
   assert.match(css, /wysiwyg-block-mask\.preview-content[\s\S]{0,900}white-space: normal;/,
     '遮罩未恢复 white-space:normal（渲染 HTML 的标签间换行会变成真实换行）');
-  // 淡色块标识（阶段1 计划项）
-  assert.match(css, /wysiwyg-block-mask\.preview-content[\s\S]{0,900}background: color-mix/,
-    '缺少淡色块标识底色');
+  // 与阅读模式完全一致（2026-10-08 用户要求）：早期「淡色块标识」灰底（color-mix --bg-secondary）
+  // 让整页呈灰条观感、与阅读模式肉眼可辨，已改为透明底；渲染态与源码态靠字体差异区分
+  assert.match(css, /wysiwyg-block-mask\.preview-content[\s\S]{0,900}background: transparent;/,
+    '遮罩应为透明底（与阅读模式一致，不得再有块级底色）');
 });
 
 test('点击必须能进块：遮罩自行接管 mousedown，不得依赖 CM 坐标映射', () => {
@@ -408,10 +409,15 @@ test('点击定位须关闭 CM 自动滚动（ensureCursorVisible 会抢先滚�
   assert.ok(calls.length >= 2, `遮罩 mousedown 应有两处 setSelection（表格/普通），实得 ${calls.length}`);
   for (const c of calls) {
     assert.match(c, /scroll: false/, 'setSelection 未关闭自动滚动（滚动权必须独占在锚定手里）');
-    assert.match(c, /origin: '\*mouse'/, 'setSelection 未标注鼠标来源');
+  }
+  // 鼠标来源标注只约束 mousedown 分支（另有 #锚点跳转的程序化 setSelection，非鼠标触发）
+  const md = mousedownBlock(wsrc);
+  const mouseCalls = md.match(/cm\.setSelection\([\s\S]{0,200}?\}\)/g) || [];
+  assert.ok(mouseCalls.length >= 2, `mousedown 内应有两处 setSelection（表格/普通），实得 ${mouseCalls.length}`);
+  for (const c of mouseCalls) {
+    assert.match(c, /origin: '\*mouse'/, 'mousedown 内 setSelection 未标注鼠标来源');
   }
   // 不得再用会触发自动滚动的 setCursor
-  const md = mousedownBlock(wsrc);
   assert.ok(!/cm\.setCursor\(/.test(md), 'mousedown 内仍用 setCursor（会 ensureCursorVisible）');
 });
 
@@ -445,22 +451,56 @@ test('活动块未变时也要消费点击锚点（残留会污染后续光标�
 
 // ---------- 12. 遮罩渲染后处理对齐（真机 demo.md：公式块露 $$ 源码） ----------
 
-test('遮罩须补跑预览后处理（KaTeX 公式 + 代码高亮 + 复选框解禁）', () => {
+test('遮罩须补跑预览后处理（与阅读模式 render() 同序全链）', () => {
   const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
   assert.match(wsrc, /_postProcessWysiwygNode\(node\)/, 'maskWysiwygBlock 未调用后处理');
-  // renderMarkdown 只产出结构 HTML，KaTeX/highlight 是预览端独立 pass（preview-controller 207/217）
+  // renderMarkdown 只产出结构 HTML，各 pass 都是预览端独立步骤（preview-controller render()），
+  // 遮罩里须逐一补跑（同步 pass 在 _postProcessWysiwygNode，异步 pass 在 _wysiwygPostProcessAsync）
   const pIdx = wsrc.indexOf('_postProcessWysiwygNode(node) {');
-  const pblk = wsrc.slice(pIdx, pIdx + 1300);
+  const pblk = wsrc.slice(pIdx, pIdx + 4000);
+  assert.match(pblk, /PreviewPost\.processEmojiShortcodes\(node\)/, '未补跑 emoji 还原（遮罩里露 :rocket: 短码）');
   assert.match(pblk, /PreviewPost\.processMath\(node\)/, '未补跑公式渲染（遮罩里会露原始 $$ 源码）');
+  assert.match(pblk, /PreviewPost\.processAbbreviations\(node, postOpts\)/, '未补跑缩写还原');
+  assert.match(pblk, /PreviewPost\.processHeadings\(node, postOpts\)/, '未补跑标题锚点 id（#链接跳转失效）');
+  assert.match(pblk, /PreviewPost\.addCopyButtons\(node, postOpts\)/, '未补跑代码块复制按钮');
   assert.match(pblk, /CodeBlock\.processCodeBlocks\(node/, '未补跑代码高亮（遮罩里代码无高亮）');
-  // lineNumbers 跟随设置，与阅读模式一致
-  assert.match(pblk, /settings\.codeLineNumbers/, '代码行号未跟随 settings.codeLineNumbers');
+  // 代码行号与阅读模式同源：看 #preview 的 code-line-numbers 类（同一设置写入，
+  // preview-controller:220 同款判据）
+  assert.match(pblk, /preview\.classList\.contains\('code-line-numbers'\)/, '代码行号未与阅读模式同源');
   // remark-gfm 输出 disabled 复选框，渲染后须解禁（否则渲染态点不动）
   assert.match(pblk, /removeAttribute\('disabled'\)/, '复选框未解禁');
   // 后处理要在 innerHTML 赋值之后、markText 之前对节点执行
   const mIdx = wsrc.indexOf('node.innerHTML = html;');
   const seg = wsrc.slice(mIdx, mIdx + 300);
   assert.match(seg, /_postProcessWysiwygNode\(node\)/, '后处理未紧跟 innerHTML 赋值');
+});
+
+test('遮罩异步 pass（图片/Mermaid/TOC）与排版同步、行号隐藏、锚点跳转齐备', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  // 异步 pass：挂遮罩后触发，代数（_wysiwygMaskGen）防旧请求写脏重建后的 DOM
+  assert.match(wsrc, /_wysiwygPostProcessAsync\(node, idx\)/, 'maskWysiwygBlock 未触发异步 pass');
+  assert.match(wsrc, /ImageProcessor\.processImages\(node/, '未补跑图片本地解析（相对路径图片不显示）');
+  assert.match(wsrc, /processMermaid\(node, postOpts\)/, '未补跑 Mermaid 渲染（遮罩里露源码）');
+  assert.match(wsrc, /_wysiwygReplaceToc\(node\)/, '未补跑 [TOC] 目录替换');
+  assert.match(wsrc, /_wysiwygMaskGen = \(this\._wysiwygMaskGen \|\| 0\) \+ 1/, '缺代数递增（遮罩重建后旧异步会写脏 DOM）');
+  // 排版同步：阅读模式的字号/行高/字体是 #preview 的内联样式，遮罩必须复制计算值
+  assert.match(wsrc, /_wysiwygMaskTypography\(node\)/, 'maskWysiwygBlock 未同步排版');
+  assert.match(wsrc, /getComputedStyle\(this\.preview\)/, '排版同步未读 #preview 计算值');
+  // 行号：所见即所得下强制隐藏，离开按设置恢复
+  assert.match(wsrc, /applyWysiwygEditorChrome\(\) \{/, '缺少编辑器外壳同步方法');
+  assert.match(wsrc, /cm\.setOption\('lineNumbers', on \? false :/, '行号未在所见即所得下隐藏');
+  assert.match(wsrc, /this\.applyWysiwygEditorChrome\(\);\n    \},\n  \};/, 'clearWysiwygMasks 未恢复编辑器外壳');
+  // #锚点跳转（wysiwyg 下 TOC/交叉引用点击须定位到源码行）
+  assert.match(wsrc, /_wysiwygScrollToAnchor\(id\) \{/, '缺少锚点跳转方法');
+  assert.match(wsrc, /_wysiwygScrollLineToCenter\(line\);/, '锚点跳转未把目标行滚到视口中部');
+  // 链接分派与阅读模式共用
+  const musrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'misc-ui.js'), 'utf8');
+  assert.match(musrc, /async handlePreviewLinkClick\(link\) \{/, '缺少链接统一分派方法');
+  assert.match(musrc, /this\.viewMode === 'wysiwyg'/, '链接分派未区分所见即所得的锚点行为');
+  // 设置变更不得把行号改回（applySettings 走外壳同步入口）
+  const ssrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'settings.js'), 'utf8');
+  assert.match(ssrc, /if \(this\.applyWysiwygEditorChrome\) this\.applyWysiwygEditorChrome\(\);/,
+    'applySettings 未走所见即所得外壳同步（设置变更会把行号改回）');
 });
 
 // ---------- 13. 虚拟模式滚动锚定（真机：滚动/点击视口内容被冲走） ----------
@@ -471,11 +511,145 @@ test('视口遮罩更新须做滚动锚定，恢复性滚动不得再触发 scro
   const ublk = wsrc.slice(uIdx, wsrc.indexOf('_ensureWysiwygScrollHook()', uIdx));
   // 更新前采锚（虚拟模式才需要；小文档窗口=全文，遮罩集合不变）
   assert.match(ublk, /if \(this\._wysiwygVirtual\) \{[\s\S]{0,400}coordsChar/, '未在更新前采集视口顶行锚点');
-  // 迭代收敛补偿：单次 scrollTo 会被 CM 高度重算时序部分 clamp
-  assert.match(ublk, /for \(let i = 0; i < 4; i\+\+\)/, '未做迭代收敛补偿（单次 scrollTo 会残留漂移）');
+  // 迭代收敛补偿：单次 scrollTo 会被 CM 高度重算时序部分 clamp；
+  // 循环次数为调优参数（6 轮给远距一次性跳转的结构级位移留收敛余量），不锁死具体值
+  assert.match(ublk, /for \(let i = 0; i < \d+; i\+\+\)[\s\S]{0,80}charCoords\(\{ line: anchor\.line/, '未做迭代收敛补偿（单次 scrollTo 会残留漂移）');
   assert.match(ublk, /_wysiwygAnchorRestoring = true/, '恢复性滚动未加标志位');
   // scroll 钩子须跳过恢复性滚动，否则锚定 → scroll → 更新 → 再锚定死循环
   const hIdx = wsrc.indexOf("_ensureWysiwygScrollHook() {");
   const hblk = wsrc.slice(hIdx, hIdx + 600);
   assert.match(hblk, /if \(self\._wysiwygAnchorRestoring\) return;/, 'scroll 钩子未跳过恢复性滚动（会死循环）');
+});
+
+// ---------- 14. 全量预渲染 + 全量视图驻留（2026-10-09：快速滚动源码闪现/落点漂移） ----------
+
+test('行数 ≤ 10000 走全量预渲染：上限常量 + 预计算 + 前台兜底', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  assert.match(wsrc, /WYSIWYG_FULL_RENDER_MAX_LINES = 10000;/, '缺少全量渲染行数上限（10000）');
+  // 全量块表：maxBlocks:Infinity（一块不跳）+ 回退切块器
+  assert.match(wsrc, /precomputeWysiwygBlocksFull\(\) \{/, '缺少全量预计算入口');
+  assert.match(wsrc, /maxBlocks: Infinity/, '全量预计算未用 maxBlocks:Infinity（会跳块）');
+  // renderWysiwygMasks：按行数定全量/虚拟，全量时走 _enterWysiwygFullView
+  assert.match(wsrc, /const full = cm\.lineCount\(\) <= WYSIWYG_FULL_RENDER_MAX_LINES;/, '未按行数决定全量模式');
+  assert.match(wsrc, /this\._wysiwygFull = full;/, '未记录全量模式标志');
+  assert.match(wsrc, /if \(full\) \{[\s\S]{0,60}?this\._enterWysiwygFullView\(\);/, '全量模式未走全量视图驻留');
+  // 全量预渲染期间源文变化须作废预渲染结果
+  assert.match(wsrc, /cm\.getValue\(\) === preValue/, '预渲染结果未校验源文未变（期间编辑会挂旧块表）');
+});
+
+test('全量视图驻留：直接写 cm.options 扩视口（避开 setOption 的内置 refresh），离开时恢复', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  // ⚠️ 必须直接写 cm.options：setOption('viewportMargin') 的选项处理器自带 cm.refresh()，
+  // 会多一次全量重渲染（万行文档 ~1.8s，2026-10-09 实测）
+  assert.match(wsrc, /cm\.options\.viewportMargin = cm\.lineCount\(\) \+ 100;/, '全量视图驻留未扩视口到整篇');
+  assert.doesNotMatch(wsrc, /setOption\('viewportMargin', cm\.lineCount/, '扩视口走了 setOption（触发内置 refresh，多一次全量重渲染）');
+  // 单 operation 批量挂全部非活动块遮罩
+  const eIdx = wsrc.indexOf('_enterWysiwygFullView() {');
+  const eblk = wsrc.slice(eIdx, eIdx + 800);
+  assert.match(eblk, /cm\.operation\(\(\) => \{/, '全量挂遮罩未用单 operation 批量（逐块=数千次 display 更新）');
+  // 离开所见即所得恢复默认视口余量
+  const cIdx = wsrc.indexOf('clearWysiwygMasks() {');
+  const cblk = wsrc.slice(cIdx, cIdx + 1700);
+  assert.match(cblk, /setOption\('viewportMargin', 10\)/, '离开全量模式未恢复默认视口余量');
+  assert.match(cblk, /this\._wysiwygFull = false;/, '离开未复位全量标志');
+});
+
+test('setViewMode 拦截走后台预渲染：按钮「渲染中」，完成后才切视图', () => {
+  const themeSrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'theme.js'), 'utf8');
+  // setViewMode 在同步切换流程之前拦截 wysiwyg
+  assert.match(themeSrc, /if \(mode === 'wysiwyg'\) \{[\s\S]{0,300}?beginWysiwygPreRender/, 'setViewMode 未拦截所见即所得走预渲染');
+  assert.match(themeSrc, /this\._cancelWysiwygPreRender\(\); \/\/ 用户抢先切到别的模式：取消预渲染/, '切到别的模式未取消在飞预渲染');
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  // 预渲染入口：行数超限/空文档不启动（返回 false 走同步流程）
+  assert.match(wsrc, /beginWysiwygPreRender\(\) \{/, '缺少预渲染入口');
+  assert.match(wsrc, /if \(cm\.lineCount\(\) > WYSIWYG_FULL_RENDER_MAX_LINES\) return false;/, '超限行数未退回同步流程');
+  // 让出一帧再跑昂贵步骤（wysiwyg.js 禁 rAF），完成前校验标签/模式未变
+  const bIdx = wsrc.indexOf('beginWysiwygPreRender() {');
+  const bblk = wsrc.slice(bIdx, bIdx + 4000);
+  assert.match(bblk, /setTimeout\(/, '预渲染未让出主线程（首帧 spinner 画不出来）');
+  assert.match(bblk, /self\.activeTab !== self\._wysiwygPreRenderTab || self\.viewMode !== self\._wysiwygPreRenderMode/, '预渲染完成未校验标签/模式未变（期间切走会错切视图）');
+  assert.match(bblk, /self\.viewMode = 'wysiwyg';/, '预渲染完成后未执行模式切换');
+  assert.match(bblk, /self\.applyViewMode\(\);/, '预渲染完成后未 applyViewMode（遮罩由 50ms 计时器消费预渲染块表）');
+  // 预渲染结果在 applyViewMode 之后写入（其内部 clearWysiwygMasks 会清掉未消费结果）
+  assert.match(bblk, /self\.applyViewMode\(\);[\s\S]{0,200}?self\._wysiwygPreRenderedBlocks = blocks;/, '预渲染块表未在 applyViewMode 之后落位（会被内部清理吃掉）');
+  // 取消路径：代数递增 + 清定时器 + 按钮还原
+  assert.match(wsrc, /_cancelWysiwygPreRender\(\) \{/, '缺少预渲染取消方法');
+  assert.match(wsrc, /clearTimeout\(this\._wysiwygPreRenderTimer\)/, '取消未清预渲染定时器');
+  // 按钮「渲染中」指示（类 + 文案）
+  assert.match(wsrc, /_setWysiwygButtonRendering\(on\) \{/, '缺少按钮渲染中指示方法');
+  assert.match(wsrc, /btn\.classList\.toggle\('wysiwyg-rendering', !!on\)/, '未切换 wysiwyg-rendering 类');
+  assert.match(wsrc, /t\('viewModeWysiwygRendering'\)/, '按钮文案未走 i18n');
+});
+
+test('切标签取消在飞预渲染（它面向旧标签，不能在新标签上切视图）', () => {
+  const themeSrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'theme.js'), 'utf8');
+  const sIdx = themeSrc.indexOf('syncViewModeToTab() {');
+  assert.ok(sIdx > 0, '缺少 syncViewModeToTab');
+  assert.match(themeSrc.slice(sIdx, sIdx + 400), /if \(this\._wysiwygPreRendering\) this\._cancelWysiwygPreRender\(\);/,
+    '切标签未取消在飞预渲染（会在新标签上错切视图 + 按钮残留「渲染中」）');
+});
+
+test('全量模式增量刷新：只重切边界 + 仅重挂源文变化的块（输入停顿不卡）', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  // refreshWysiwygBlocks 的全量快速路径
+  assert.match(wsrc, /if \(self\._wysiwygFull\) \{\n          self\._refreshWysiwygFullIncremental\(\);/,
+    '防抖刷新未走全量增量路径（万行文档每次停顿全量重挂会卡数秒）');
+  const fIdx = wsrc.indexOf('_refreshWysiwygFullIncremental() {');
+  assert.ok(fIdx > 0, '缺少全量增量刷新方法');
+  const fblk = wsrc.slice(fIdx, fIdx + 2500);
+  // 只切边界不渲染 html（skipHtml）
+  assert.match(fblk, /this\.computeWysiwygBlocks\(true\)/, '增量刷新未按仅解析模式重切块');
+  // 源文本同一性匹配：未变块保留旧 marker（CM 标记自动跟随文本）
+  assert.match(fblk, /b\.src = this\._wysiwygBlockSource\(b\);/, '增量刷新未计算块源文本键');
+  assert.match(fblk, /nb\.html = \(ob\.html !== undefined\) \? ob\.html : nb\.html;/, '未变块未复用缓存 html');
+  assert.match(fblk, /data-block-index/, '块索引位移未同步遮罩节点块号（点击映射会落错块）');
+  // 变化块在单 operation 内重挂
+  assert.match(fblk, /cm\.operation\(\(\) => \{/, '增量刷新重挂未用单 operation 批量');
+  assert.match(fblk, /this\.maskWysiwygBlock\(k\);/, '未重挂变化的块');
+  // 渲染器支持 skipHtml（只切边界）
+  const rsrc = fs.readFileSync(path.join(ROOT, 'src', 'unified-renderer.js'), 'utf8');
+  assert.match(rsrc, /options\.skipHtml/, 'renderMarkdownBlocks 缺 skipHtml 选项');
+});
+
+test('旧块重渲后同步源文本键（否则增量刷新误判「源未变」保留旧遮罩）', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  assert.match(wsrc, /b\.src = this\._wysiwygBlockSource\(b\); \}/, 'setWysiwygActiveBlock 重渲旧块后未同步源文本键');
+});
+
+test('虚拟模式（>10000 行）增强预取：沿滚动方向加大遮罩窗口', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  assert.match(wsrc, /WYSIWYG_PREFETCH_MARGIN = 200;/, '缺少虚拟模式增强预取边距');
+  const uIdx = wsrc.indexOf('updateWysiwygViewportMasks() {');
+  const ublk = wsrc.slice(uIdx, wsrc.indexOf('_ensureWysiwygScrollHook()', uIdx));
+  assert.match(ublk, /this\._wysiwygLastScrollTop/, '未记录上次滚动位置（方向预取无从谈起）');
+  assert.match(ublk, /top > this\._wysiwygLastScrollTop/, '未识别向下滚动方向');
+  assert.match(ublk, /WYSIWYG_PREFETCH_MARGIN \* 2/, '滚动方向未加倍预取');
+});
+
+test('批量 DOM：空行挂类 / 撤遮罩均单 operation（万行文档不进出不卡）', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  // 空行 diff 挂类单 operation
+  const blIdx = wsrc.indexOf('updateWysiwygBlankLines() {');
+  const blblk = wsrc.slice(blIdx, blIdx + 1200);
+  assert.match(blblk, /cm\.operation\(\(\) => \{/, '空行挂类未用单 operation 批量（数千空行=数千次 display 更新）');
+  // 视口遮罩挂/撤单 operation
+  const uIdx = wsrc.indexOf('updateWysiwygViewportMasks() {');
+  const ublk = wsrc.slice(uIdx, wsrc.indexOf('_ensureWysiwygScrollHook()', uIdx));
+  assert.match(ublk, /cm\.operation\(\(\) => \{\n        \/\/ 撤掉窗外遮罩/, '视口遮罩挂/撤未用单 operation 批量');
+});
+
+test('渲染中指示：CSS spinner + 三语言 i18n key', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'src', 'styles.css'), 'utf8');
+  assert.match(css, /\.view-mode-tab\.wysiwyg-rendering \.icon \{\s*display: none;\s*\}/, '渲染中未隐藏原图标');
+  assert.match(css, /\.view-mode-tab\.wysiwyg-rendering::before \{/, '缺少渲染中 spinner 伪元素');
+  assert.match(css, /wysiwyg-rendering::before[\s\S]{0,300}animation: wysiwyg-mode-spin/, 'spinner 未接旋转动画');
+  assert.match(css, /@keyframes wysiwyg-mode-spin/, '缺少旋转关键帧');
+  const i18n = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'i18n-data.js'), 'utf8');
+  const zh = i18n.indexOf("viewModeWysiwyg: '所见即所得'");
+  const en = i18n.indexOf("viewModeWysiwyg: 'WYSIWYG'");
+  const es = i18n.indexOf("viewModeWysiwyg: 'WYSIWYG'", en + 10);
+  for (const [name, idx] of [['zh', zh], ['en', en], ['es', es]]) {
+    assert.ok(idx > 0, '未找到 ' + name + ' 的 viewModeWysiwyg');
+    assert.match(i18n.slice(idx, idx + 200), /viewModeWysiwygRendering: '[^']+'/, name + ' 缺 viewModeWysiwygRendering 文案');
+  }
 });

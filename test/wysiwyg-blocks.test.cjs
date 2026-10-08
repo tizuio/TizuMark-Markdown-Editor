@@ -245,3 +245,37 @@ test('remark 切块：块边界与阅读模式一致（逐块 html 与整篇渲�
   const byBlocks = blocks.map(b => tagsOf(b.html)).join(',');
   assert.strictEqual(byBlocks, whole, '逐块渲染的标签序列应与整篇一致');
 });
+
+test('remark 切块：多行展示公式内含独占一行的 `=`（setext 下划线）必须整块且渲染为公式而非巨型 h1', () => {
+  // 真机 demo.md 矩阵乘法公式（2026-10-08 用户截图）：公式内部有一行单独的 `=`，
+  // 若切块前未做公式守卫，remark 会把 `=` 当 setext 标题下划线，把公式劈成两块、
+  // 前半渲染成一个装着公式源码的巨型 h1。切块必须先经 guardMathBlocks 保护。
+  const md = [
+    '矩阵乘法：',
+    '',
+    '$$',
+    '\\begin{bmatrix}',
+    'a_{11} & a_{12} \\\\',
+    'a_{21} & a_{22}',
+    '\\end{bmatrix}',
+    '=',
+    '\\begin{bmatrix}',
+    'c_{11} & c_{12} \\\\',
+    'c_{21} & c_{22}',
+    '\\end{bmatrix}',
+    '$$',
+    '',
+    '结尾段落',
+  ].join('\n');
+  const blocks = renderMarkdownBlocks(md, {});
+  // 公式（行 2..12，0-based）必须是【一个】块，不得被 `=` 行劈开
+  const mathBlock = blocks.find(b => b.start <= 2 && 2 < b.end);
+  assert.ok(mathBlock, '应存在覆盖公式起始行的块');
+  assert.strictEqual(mathBlock.start, 2, '公式块应从 `$$` 行开始');
+  assert.strictEqual(mathBlock.end, 13, '公式块应吃到闭合 `$$` 行（含），实际 end=' + mathBlock.end);
+  assert.doesNotMatch(mathBlock.html, /<h1[\s>]/, '公式块不得渲染出巨型 h1（setext 误判）');
+  assert.match(mathBlock.html, /math-display/, '公式块应渲染为展示公式容器');
+  // 公式前后的普通块不受影响
+  assert.ok(blocks.some(b => /矩阵乘法/.test(b.html)), '公式前段落块应保留');
+  assert.ok(blocks.some(b => /结尾段落/.test(b.html)), '公式后段落块应保留');
+});

@@ -199,10 +199,17 @@ async function buildEnv(options = {}) {
   // codemirror 模块加载时会访问全局 document/window，需先指向 jsdom
   const prevGlobals = {
     window: global.window, document: global.document, navigator: global.navigator,
+    getComputedStyle: global.getComputedStyle,
   };
   global.window = w;
   global.document = w.document;
   global.navigator = w.navigator;
+  // CM5 构造器在 webkit UA + lineWrapping 时会裸调 getComputedStyle（codemirror.js:7981）。
+  // codemirror 走 require 活在 Node 全局作用域，而 jsdom 的 getComputedStyle 只挂在 window 上——
+  // 不提到全局，本测试环境的编辑器初始化必挂（ReferenceError，app-core/app-fileops 等整批
+  // buildEnv 用例 30s 超时）。真实浏览器里 getComputedStyle 本来就是全局对象成员，此为忠实
+  // 复刻而非绕过；与 test/helpers/dom.js 的同款绑定一致。
+  global.getComputedStyle = w.getComputedStyle ? w.getComputedStyle.bind(w) : global.getComputedStyle;
   w.CodeMirror = require('codemirror');
   require('codemirror/addon/search/searchcursor');
   require('codemirror/addon/search/search.js'); // 统一加载，避免个别测试按需加载导致 require 缓存中 CodeMirror.commands 状态不一致
@@ -299,6 +306,7 @@ async function buildEnv(options = {}) {
     global.window = prevGlobals.window;
     global.document = prevGlobals.document;
     global.navigator = prevGlobals.navigator;
+    global.getComputedStyle = prevGlobals.getComputedStyle;
   };
   return result;
 }

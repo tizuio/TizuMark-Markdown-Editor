@@ -772,6 +772,24 @@ body {
   margin-left: 2px;
 }
 
+/* 所见即所得全量预渲染中：图标换成 spinner，文案换「渲染中」（JS 切换类 + 文本） */
+.view-mode-tab.wysiwyg-rendering .icon {
+  display: none;
+}
+.view-mode-tab.wysiwyg-rendering::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: wysiwyg-mode-spin 0.8s linear infinite;
+}
+@keyframes wysiwyg-mode-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* 三模式悬停简介气泡（自定义 tooltip，不用原生 title：延迟高、无法多行、样式不可控） */
 .view-mode-tip {
   position: fixed;
@@ -2708,6 +2726,14 @@ body.is-resizing .side-btn {
 .editor-container.wysiwyg-mode .editor-pane { flex: 1 1 100%; min-width: 0; }
 .editor-container.wysiwyg-mode .preview-pane { display: none; }
 .editor-container.wysiwyg-mode .preview-content { padding: 32px; }
+/* 水平边距与阅读模式一致：阅读模式 #preview 是 padding:32px（preview-mode 规则），
+   所见即所得的内容流在 CM 行里，给每行（源码态 + 遮罩态）同样的 32px 左右留白，
+   两种状态切换时内容不水平跳动。 */
+.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line,
+.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line-like {
+  padding-left: 32px;
+  padding-right: 32px;
+}
 
 /* 块遮罩（src/modules/wysiwyg.js）。
    节点同时带 preview-content 类，用以继承预览的全部排版规则 —— 这些规则的作用域是
@@ -2725,9 +2751,9 @@ body.is-resizing .side-btn {
   min-height: 0;
   max-width: none;
   overflow: visible;
-  /* 淡色块标识（阶段1 计划项）：渲染态块给一层极淡底色，提示「这是渲染结果非源码」；
-     亮/暗主题都取自 --bg-secondary，低不透明度不干扰正文 */
-  background: color-mix(in srgb, var(--bg-secondary, #f5f5f5) 55%, transparent);
+  /* 与阅读模式完全一致：无块级底色（早期的淡色块标识会让整页呈「灰条」观感，
+     与阅读模式肉眼可辨，2026-10-08 按用户要求去除） */
+  background: transparent;
   border-bottom: 1px solid transparent;
   transition: none;
   color: var(--text-primary);

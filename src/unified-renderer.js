@@ -1848,32 +1848,78 @@ function renderMarkdown(content, options) {
 //
 // options.maxBlocks：块数超过该值时跳过逐块渲染（html 置空 + skipped 标记），
 // 供调用方（wysiwyg 大文档模式）按视口按需渲染——18k 行文档每次停顿都全量渲染会卡。
+// options.skipHtml：只切块边界不渲染 html（同样置 skipped 标记）——wysiwyg 全量模式
+// 输入后的增量刷新只需新块边界（既有遮罩按 marker.find() 自动跟随文本，仅重挂变化块）。
+// options.maxBlocks: Infinity：一块不跳（全量预渲染，wysiwyg ≤10000 行进入时的后台步骤）。
 function renderMarkdownBlocks(content, options) {
-  const md = String(content == null ? '' : content);
-  if (!md.trim()) return [];
+  const mdRaw = String(content == null ? '' : content);
+  if (!mdRaw.trim()) return [];
+  // 与 renderMarkdown 主流程一致：先统一换行，避免 \r 污染行首判定与行数
+  const md = mdRaw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = md.split('\n');
+  // ⚠️ 必须先经 guardMathBlocks 保护公式区再做 remark 解析切块（与 renderMarkdown 主流程同一保护）：
+  // 展示公式内部可以含「长得像 CommonMark 语法」的行——如矩阵乘法里的 `=` 行，remark 会把它当
+  // setext 标题下划线，把公式劈成两半，前半渲染成一个装着公式源码的巨型 h1（真机 demo.md
+  // 实测，2026-10-08 用户截图反馈）；`---` 变 hr、`# x` 变标题同理。受保护内容里公式被替换为
+  // 占位 div（行数由补行保持），remark 不再误解析公式内部语法；占位 div 只占第一行（HTML 块
+  // 遇空行即断），故下面再按占位符的 line/text 把展示公式的完整行段并回一个整块。
+  const mathResult = guardMathBlocks(md);
   let tree;
   try {
     tree = unified()
       .use(remarkParse)
       .use(remarkGfm, { singleTilde: false })
-      .parse(md);
+      .parse(mathResult.content);
   } catch (e) {
     console.error('renderMarkdownBlocks: 解析失败，交由调用方回退:', e);
     return null;
   }
   const children = (tree && tree.children) || [];
   const skipHtml = !!(options && options.maxBlocks && children.length > options.maxBlocks);
+  // 先只收块范围（不渲染 html）：公式行段合并之后 slice 才最终确定
   const blocks = [];
   for (const node of children) {
     if (!node || !node.position) continue;
     const start = node.position.start.line - 1; // 0-based
     const end = node.position.end.line;         // 开区间
     if (end <= start || start < 0 || end > lines.length) continue;
-    const slice = lines.slice(start, end).join('\n');
+    blocks.push({ start, end, html: '', skipped: skipHtml });
+  }
+  // 展示公式行段并回：占位 div 的 line 是 1-based 起始行，text 是含定界符的公式全文，
+  // 行数 = text 换行数 + 1（与 guardMathBlocks 补的行数一致），整段必须作为一个块，
+  // 逐块渲染（renderMarkdown(slice)）才会走到同一套公式守卫，输出与阅读模式一致。
+  for (const ph of (mathResult.placeholders || [])) {
+    if (!ph || ph.display !== true || !ph.line) continue;
+    const s = ph.line - 1;
+    const e = Math.min(lines.length, s + String(ph.text || '').split('\n').length);
+    if (e <= s) continue;
+    let target = null;
+    for (const b of blocks) {
+      if (b.start <= s && s < b.end) { target = b; break; }
+    }
+    if (target) {
+      target.start = Math.min(target.start, s);
+      target.end = Math.max(target.end, e);
+    } else {
+      blocks.push({ start: s, end: e, html: '', skipped: skipHtml });
+    }
+  }
+  blocks.sort((a, b) => a.start - b.start);
+  // 相邻/重叠段合并（两个公式区与同一块相交、或紧挨的两个区被同一节点覆盖时兜底）
+  for (let k = 1; k < blocks.length; k++) {
+    if (blocks[k].start < blocks[k - 1].end) {
+      blocks[k - 1].end = Math.max(blocks[k - 1].end, blocks[k].end);
+      blocks.splice(k, 1);
+      k--;
+    }
+  }
+  // 范围稳定后统一渲染（跳过空块）
+  const out = [];
+  for (const b of blocks) {
+    const slice = lines.slice(b.start, b.end).join('\n');
     if (!slice.trim()) continue;
     let html = '';
-    if (!skipHtml) {
+    if (!b.skipped) {
       try {
         html = renderMarkdown(slice, options) || '';
       } catch (e) {
@@ -1881,9 +1927,9 @@ function renderMarkdownBlocks(content, options) {
         html = '';
       }
     }
-    blocks.push({ start, end, html, skipped: skipHtml });
+    out.push({ start: b.start, end: b.end, html, skipped: b.skipped });
   }
-  return blocks;
+  return out;
 }
 
 // Export for Node.js bundling; also expose as global for browser

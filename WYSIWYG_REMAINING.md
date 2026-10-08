@@ -1,7 +1,7 @@
 # TizuMark 所见即所得（WYSIWYG）模式 — 剩余开发任务
 
 > 用途：本文件记录「所见即所得」模式的**剩余未开发项**，供换设备后继续开发时对照。
-> 状态时间：2026-10-07。已完成的根因修复见 `git log` 与本仓库 `.workbuddy/memory/2026-10-07.md`。
+> 状态时间：2026-10-08。已完成的根因修复见 `git log` 与本仓库 `.workbuddy/memory/`。
 
 ## 1. 这是什么
 
@@ -18,10 +18,10 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
 | `src/controllers/preview-controller.js:206-222` | 阅读模式的后处理链：processEmoji/Math/Abbre/Headings/Mermaid/Images + CodeBlock |
 | `src/modules/preview-post.js` | Process* 系列预览后处理函数（被 wysiwyg 复用的就是这些） |
 | `src/modules/code-block.js` | 代码高亮 + 行号 + 复制按钮 |
-| `scripts/wysiwyg-browser-check.mjs` + `_wysiwyg_compare.html` | 无头浏览器对比测试（真 Chromium，4 场景 22 项） |
+| `scripts/wysiwyg-browser-check.mjs` + `_wysiwyg_compare.html` | 无头浏览器对比测试（真 Chromium，7 场景 45 项） |
 | `test/wysiwyg-blocks.test.cjs` / `test/view-mode-wysiwyg.test.cjs` | jsdom 回归 |
 
-## 3. 已完成的里程碑（本轮已提交，非本文件范围）
+## 3. 已完成的里程碑
 
 - 渲染与阅读模式一致：remark 切块、white-space:normal、空列表项消除
 - 遮罩后处理已接 **KaTeX 公式 + 代码高亮 + 复选框解禁**（见 `_postProcessWysiwygNode`）
@@ -29,34 +29,38 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
 - 虚拟模式滚动锚定：漂移 395px → 0.38px
 - 表格单元格点击定位、任务复选框渲染态切换、IME 防吞字
 
+### 2026-10-08 —「与阅读模式完全一致」专项（R1/R2/R3/R4 全部完成）
+
+- **R1 图片**：`_wysiwygPostProcessAsync` 调 `ImageProcessor.processImages`（与阅读模式同一纯函数 + 同一 `_imageBase64Cache`），`getRenderGeneration` 用 `_wysiwygMaskGen` 防止遮罩重建后旧请求写脏 DOM。
+- **R2 Mermaid**：`_wysiwygPostProcessAsync` 调 `PreviewPost.processMermaid`（同一 `_mermaidCache`，命中缓存近乎同步）；就绪后经 `_wysiwygRefreshAfterMaskChange` 刷新 CM 并做滚动补偿，SVG 撑高不冲走视口。
+- **R3 后处理链**：`_postProcessWysiwygNode` 与阅读模式 `render()` 同序补跑 复选框解禁 → details 展开 → emoji → KaTeX → 缩写 → 标题锚点 id → 复制按钮 → 代码高亮（行号开关读 `#preview` 的 `code-line-numbers` 类）。`[TOC]` 由 `_wysiwygReplaceToc` 调 Rust `generate_toc`（内容键控缓存）。
+- **R4 复制按钮**：遮罩 mousedown 对 `button.copy-btn` 放行（不 preventDefault），点击走原生复制。
+- **行号**：`applyWysiwygEditorChrome` 进入所见即所得强制 `lineNumbers:false`，离开按设置恢复；`settings.js` 的 applySettings 也走该入口，设置变更不会把行号改回来。
+- **排版一致**：`_wysiwygMaskTypography` 把 `#preview` 的**计算值**（font-size/line-height/font-family/`--font-code-preview`）逐项内联到遮罩，并同步 `code-line-numbers/code-wrap/code-no-scroll` 类——阅读模式的字号行高是内联样式（16px/1.7），遮罩若只靠 CSS 会继承 CM 的 14px。
+- **CSS 一致**：遮罩去掉灰底（`color-mix` → `transparent`）；wysiwyg 模式下 CM 每行加 32px 左右留白，与阅读模式 `#preview` 的 32px padding 对齐；`maxWidth` 设置生效时对 `.CodeMirror-lines` 做同款居中。
+- **交互一致**：`misc-ui.js` 抽出 `handlePreviewLinkClick(link)`（预览点击监听器与遮罩共用）；wysiwyg 下 `#锚点` 走 `_wysiwygScrollToAnchor`（块偏移 + data-source-line 还原绝对行号，虚拟模式回退按 headingToId 扫源码），目标行滚到视口中部 + 闪显；遮罩内图片/mermaid 点击分别走 `showImageLightbox`/`showLightbox(svg)`。
+- 已知差异（保留）：脚注/缩写**定义行跨块**时逐块渲染拿不到别块定义（unified-renderer `renderMarkdownBlocks` 注释记录的边界）；缩写定义单独成块时整块被遮罩为不可见（与阅读模式一致），定义与使用同块时缩写正常还原。
+
+### 2026-10-09 — 快速滚动闪源码 / 落点漂移（全量预渲染 + 全量视图驻留）
+
+- **根因**：CM5 只对视口内行实测高度，视口外行按源文估计（`estimateHeight`）——WYSIWYG 遮罩行远高于源文，远跳首落点偏（实测 -425px）；且 lineWrapping 编辑器的 `cm.refresh()` 会调 `estimateLineHeights` 把所有实测高度重置回估计值。
+- **设计（≤10000 行，全量模式）**：
+  - 入口 = **后台全量预渲染**：`setViewMode('wysiwyg')` 被 theme.js 拦截，当前视图保持、模式按钮显示「渲染中」spinner（`_setWysiwygButtonRendering`，i18n key `viewModeWysiwygRendering`）；让出主线程的 setTimeout 跑 `precomputeWysiwygBlocksFull()`（`maxBlocks:Infinity` 全块渲染 html），完成且期间源文/标签/模式未变才切 viewMode + applyViewMode；预渲染结果在 applyViewMode **之后**写入（其内部 clearWysiwygMasks 会清掉未消费结果），由 50ms 遮罩计时器 `renderWysiwygMasks` 消费。
+  - **全量视图驻留**：进入后直接写 `cm.options.viewportMargin = lineCount + 100`（**绕过 setOption**——viewportMargin 选项处理器自带 `cm.refresh()`，会多一次全量重渲染），整篇恒渲染、行高恒实测：任意位置远跳精确落位（≤0.5px），任何 `refresh()`（切模式/输入）在同一次全量视图重渲中重测回正——几何自愈。离开所见即所得用 `setOption('viewportMargin', 10)` 恢复默认。
+  - **输入停顿** = `_refreshWysiwygFullIncremental`（250ms 防抖）：仅解析模式重切块边界（渲染器新增 `skipHtml` 选项），源文未变的块**复用旧 markText 标记**（CM 标记编辑后自动跟随文本，省去重跑昂贵后处理），变化/新增/分裂/合并块单 operation 重挂；块索引位移同步遮罩节点 `data-block-index`。
+  - 批量 DOM（全量挂/撤遮罩、空行挂类、离开清理）一律单 `cm.operation`——万行文档进出不卡数秒。
+  - 取消路径：切别的模式 / 切标签（`syncViewModeToTab`）/ 打开文件（clearWysiwygMasks）都调 `_cancelWysiwygPreRender`（代数递增 + 清定时器 + 按钮还原 + 作废已存的切换锚点）。
+- **设计（>10000 行，虚拟模式）**：方向感知增强预取（`WYSIWYG_PREFETCH_MARGIN=200`，向下滚动下方 ×2 / 向上滚动上方 ×2，尾随侧保持 60），用户到达前遮罩已就绪。
+- **验收实测**（无头 Chromium，7 场景 45 项全绿）：3000 行全量重建 ~0.7s、任意位置首跳误差 ≤0.3px、`cm.refresh()` 后 0.41px 自愈；10400 行虚拟模式窗口遮罩 24–27 个；点击锚定 0.41px；滚动锚定漂移 0px。
+- **回归守卫**：`test/view-mode-wysiwyg.test.cjs` 新增第 14 节 9 用例（上限常量 / cm.options 直写 / setViewMode 拦截与取消 / 预渲染消费时序 / 增量刷新与源文本键 / 方向预取 / 单 operation 批量 / spinner + 三语言 i18n）；`test/view-mode.test.cjs` 三模式循环测试更新为异步预渲染契约（toggle 后预渲染在飞 → 完成后才切模式）。
+
 ## 4. 剩余任务清单（按优先级）
 
-### P0 — 核心渲染缺口（用户能直接感知"不一样"）
+### P0 — 核心渲染缺口
 
-**R1. 图片在遮罩里不显示**
-- 现状：`renderMarkdown` 产 `<img src="相对路径">`，但本地图片需 `processImages()` 解析资源/转 base64 才显示。wysiwyg 的 `_postProcessWysiwygNode` 没调它。
-- 目标：遮罩块内图片与阅读模式一致显示。
-- 入口：`src/controllers/preview-controller.js:196` `await this.app.processImages()`；在 `_postProcessWysiwygNode` 里对 `node` 补跑（注意它是异步 + 依赖 `this.app` 的资源解析，需注入 app 或把图片解析抽成纯函数）。
-- 风险：图片是异步加载，遮罩树频繁重建下要避免重复加载/闪烁。
-
-**R2. Mermaid 图表在遮罩里显示源码**
-- 现状：`processMermaid` 是异步 pass，遮罩没接（见 §2 已完成项只接了 math/code）。
-- 入口：`src/modules/preview-post.js:295` `processMermaid(preview, opts)`，`opts.mermaidCache` 来自 `app._mermaidCache`。
-- 方案：`maskWysiwygBlock` 渲染后 `await PreviewPost.processMermaid(node, postOpts)`；但 maskWysiwygBlock 当前同步，需改成允许异步（挂遮罩时先放源码块、mermaid 就绪后替换内部 SVG），或用消息队列。
-- 坑：mermaid 实例需在浏览器初始化；遮罩重建时复用 `mermaidCache` 避免重算。
-
-**R3. 其他预览后处理 pass 在遮罩里缺失**
-- 现状：`_postProcessWysiwygNode` 只调了 `processMath` + `processCodeBlocks` + 解禁复选框。
-- 缺失：`processEmojiShortcodes`、`processAbbreviations`、`processHeadings`（标题锚点跳转）、`processFootnotes`、任务复选框外的 `input` 交互。
-- 目标：遮罩块与阅读模式在 emoji/缩写/脚注/标题锚点上表现一致。
-- 入口：全在 `preview-controller.js:206-222`，逐个补进 `_postProcessWysiwygNode` 即可（除 processMermaid 异步外都是同步）。
+（R1–R4 已于 2026-10-08 完成，见 §3。）
 
 ### P1 — 交互完善
-
-**R4. 代码块复制按钮在遮罩内失效**
-- 现状：`addCopyButtons` 在 `preview-controller.js:213` 调用，遮罩没跑。
-- 入口：`PreviewPost.addCopyButtons(node, postOpts)` 加到 `_postProcessWysiwygNode`（在 processCodeBlocks 之后）。
-- 注意：复制按钮依赖 `navigator.clipboard`，桌面 WebView2 可用；按钮的 mousedown 不要被遮罩接管逻辑吞掉（见 §5 的 pointer-events 说明）。
 
 **R5. 表格单元格渲染态内联编辑**
 - 现状：点击表格某格只把光标定位到对应**源码行**（`maskWysiwygBlock` 内 `td,th` 分支），用户仍在源码态改。
@@ -78,7 +82,7 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
 ### P2 — 健壮性 / 边界
 
 **R8. 超大文档（~18k 行）虚拟遮罩边界**
-- 现状：`WYSIWYG_MAX_BLOCKS = 80`，超阈值进入虚拟模式（块 html 被 skipped，滚动时按视口渲染）。
+- 现状：行数 > `WYSIWYG_FULL_RENDER_MAX_LINES`（10000）进入虚拟模式（块 html 被 skipped，滚动时按视口渲染）；2026-10-09 起虚拟模式已有方向感知增强预取（快速滚动零闪现）。
 - 验证：极端行数下滚动锚定补偿是否仍 0.38px 量级、滚动不卡。
 - 入口：`src/modules/wysiwyg.js` 顶部常量 + `updateWysiwygViewportMasks` + `_ensureWysiwygScrollHook`（120ms debounce）。
 
@@ -105,17 +109,24 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
    - `setSelection` 默认 `ensureCursorVisible` 会抢先滚动 → 必须 `{scroll:false}`；
    - cursorActivity 在 setSelection 的 operation 内触发，此时滚动被 CM 记 pending 冲掉 → 精确锚定必须在 setSelection 返回后做；
    - `scrollTo` 在 refresh 后 DOM 高度未落定时被 clamp → 用 `scrollIntoView`（margin 语义=行精确落在距视口顶 margin 处）。
-5. **`renderMarkdown` 只产结构 HTML**：KaTeX/highlight/图片/mermaid 都是预览端独立 pass，遮罩里不补跑就露源码。已接 math/code，R1/R2/R3 补齐其余。
+5. **`renderMarkdown` 只产结构 HTML**：KaTeX/highlight/图片/mermaid/emoji/缩写等都是预览端独立 pass，遮罩里不补跑就露源码。现已全接：同步 pass 在 `_postProcessWysiwygNode`（与阅读模式 `render()` 同序），异步 pass（图片/Mermaid/TOC/代码滚动条）在 `_wysiwygPostProcessAsync`，用 `_wysiwygMaskGen` 代数防旧请求写脏重建后的 DOM。
 6. **`data-source-line` 是块切片内相对行号**，不是整篇行号——回写源码须加 `block.start`（复选框回写已处理，其他回写逻辑要照做）。
 7. 遮罩后处理 `b.html` 缓存的是未后处理结构 HTML，每次挂遮罩都要重跑后处理（两个 pass 幂等，可重复）。
+8. **`cm.setOption('viewportMargin', n)` 的选项处理器自带 `cm.refresh()`**（codemirror.js 同步触发）——扩视口必须直接写 `cm.options.viewportMargin`，否则多一次全量重渲染（万行文档 ~1.8s）。
+9. **headless fullPage 截图伪影**：Playwright fullPage（captureBeyondViewport）不绘制原视口（默认 720px）以下 overflow 容器的内容，截图会「下半片空白」但 DOM 正常——整页截图先 `setViewportSize` 到整页高度再普通截图（驱动场景 5 已处理）。
+10. **全量模式增量刷新靠块源文本同一性**：`b.src`（块切片源码 join）是 diff 键——凡是从新源码重渲染了块 html 的地方（`setWysiwygActiveBlock` 旧块回遮罩、任务复选框切换）必须同步 `b.src = this._wysiwygBlockSource(b)`，否则下次增量刷新误判「源未变」保留过期遮罩。
 
 ## 6. 本地验证命令
 
 ```bash
-# 无头浏览器对比（需装全局 playwright + chromium；真实 CM5 + 真实渲染管线）
+# 无头浏览器对比（真实 CM5 + 真实渲染管线；playwright 按 PLAYWRIGHT_MODULE 环境变量
+# → 本地依赖 → 用户全局 npm 目录 依次解析，浏览器可执行文件自动扫 %LOCALAPPDATA%\ms-playwright 缓存）
 node scripts/wysiwyg-browser-check.mjs
-# 结果：4 场景 22 项全绿（渲染同构、空行提示、点击锚定 0.5px、表格定位、复选框、
-#       KaTeX/高亮对齐、虚拟遮罩、IME 守卫、滚动锚定 0.38px）
+# 结果：7 场景 45 项全绿（渲染同构、空行提示、点击锚定 0.4px、表格定位、复选框、
+#       KaTeX/高亮/emoji/缩写/标题锚点/复制按钮/details 对齐、行号隐藏、
+#       字号/行高/字体族/边距/底色与阅读模式一致、>10000 行虚拟遮罩、IME 守卫、
+#       滚动锚定 0px、场景 6 全量模式 3000 行快速滚动首跳 ≤0.3px + refresh 自愈、
+#       场景 7 按钮点击后台预渲染时序、场景 5 输出 demo.md 整篇双栏截图）
 
 # jsdom 单测
 node --test test/wysiwyg-blocks.test.cjs test/view-mode-wysiwyg.test.cjs
@@ -123,9 +134,14 @@ node --test test/wysiwyg-blocks.test.cjs test/view-mode-wysiwyg.test.cjs
 
 ## 7. 真机验收清单（每改一项逐项看）
 
+- [ ] 所见即所得左侧**无行号**（切回源码模式行号按设置恢复）
+- [ ] 遮罩正文**字号/行高/字体与阅读模式一致**（无「一大一小」跳变）
+- [ ] 遮罩**无灰色块底**，左右留白与阅读模式一致
 - [ ] 打开含数学公式的 md，遮罩块内公式已渲染（非 `$$...$$` 源码）
-- [ ] 代码块已语法高亮，有复制按钮
-- [ ] 图片正常显示
+- [ ] 代码块已语法高亮，复制按钮可点
+- [ ] 图片正常显示（本地相对路径）
+- [ ] Mermaid 图表渲染为 SVG，点击可放大
+- [ ] 点击渲染块内链接/锚点，跳到对应源码行（无大跳动）
 - [ ] 点击渲染块，光标行停在点击位置附近（无大跳动）
 - [ ] 滚动长文档，视口内容不漂移
 - [ ] 任务复选框可点击切换
