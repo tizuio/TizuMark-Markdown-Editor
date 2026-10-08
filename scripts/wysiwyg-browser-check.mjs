@@ -57,6 +57,19 @@ try {
   page.on('pageerror', (e) => errors.push('页面异常: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); });
 
+  // S10 的虚构相对图片（img1.png / sub/img2.png）：遮罩内裸 <img src> 会触发浏览器原生 load，
+  // 文件在磁盘上不存在 → 404 被计入页面错误（真实磁盘读逻辑由 mock TauriApi 覆盖，不受影响）。
+  // 拦截并回一份有效 1x1 PNG，让原生 load 成功、不产生噪音。
+  const TINY_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64');
+  for (const p of ['img1.png', 'sub/img2.png']) {
+    await page.route('**/' + p, (route) => route.fulfill({
+      contentType: 'image/png',
+      body: TINY_PNG,
+    }));
+  }
+
   // ---------- 场景 1：渲染一致性 ----------
   await page.goto(url, { waitUntil: 'load' });
   await page.evaluate(() => window.__runCompare());
@@ -247,6 +260,74 @@ try {
     [`块底边点击落在块末两行 [${L8.start + L8.lines - 2},${L8.end - 1}]: line=${b8 && b8.line}`, !!b8 && b8.line >= L8.start + L8.lines - 2 && b8.line <= L8.end - 1],
   ];
   for (const [label, ok] of checks8) {
+    console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+    if (!ok) fail++;
+  }
+
+  // ---------- S9：[TOC] 目录（WYSIWYG 与阅读模式同规则；回归异步 pass 生命周期） ----------
+  await page.evaluate(() => window.__runToc());
+  const tc = await page.evaluate(() => window.__RESULT_TOC);
+  console.log('\n=== S9：[TOC] 目录（所见即所得 vs 阅读模式）===');
+  const checks9 = [
+    [`遮罩 [TOC] 块已替换为 toc-wrapper（批量挂遮罩后异步 pass 必须补跑）: ${tc.hasToc}`, tc.hasToc === true],
+    [`目录链接数 = 4（4 个标题，含 3 级嵌套）: ${tc.linkCount}`, tc.linkCount === 4],
+    [`目录内容与阅读模式同构（同一份 toc HTML）: ${tc.tocEqual}`, tc.tocEqual === true],
+    [`遮罩内无残留 [TOC] 源文本: ${tc.tocLeft}`, tc.tocLeft === 0],
+    [`[TOC] 块可被光标移入（转源码态，活动块契约）: ${tc.activeIsToc}`, tc.activeIsToc === true],
+    [`光标移出后重挂遮罩，TOC 再次注入: ${tc.tocAfterRemask}`, tc.tocAfterRemask === true],
+  ];
+  for (const [label, ok] of checks9) {
+    console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+    if (!ok) fail++;
+  }
+
+  // ---------- S10：图片（读盘 pass + 光标移动后重挂不失效） ----------
+  await page.evaluate(() => window.__runImages());
+  const im = await page.evaluate(() => window.__RESULT_IMG);
+  console.log('\n=== S10：图片（遮罩内图片加载 + 重挂回归）===');
+  console.log('  entry: ' + JSON.stringify(im.entry) + '  afterMove: ' + JSON.stringify(im.afterMove));
+  const checks10 = [
+    [`进入后两张遮罩图片均加载为 data URI: ${im.entry.loaded}/${im.entry.total}`, im.entry.total === 2 && im.entry.loaded === 2],
+    [`无透明占位/相对路径残留: transparent=${im.entry.transparent} other=${im.entry.other}`, im.entry.transparent === 0 && im.entry.other === 0],
+    [`光标移动后重挂的图片仍加载: ${im.afterMove.loaded}/${im.afterMove.total}`, im.afterMove.total === 2 && im.afterMove.loaded === 2],
+  ];
+  for (const [label, ok] of checks10) {
+    console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+    if (!ok) fail++;
+  }
+
+  // ---------- S11：长代码块按需滚动条（与阅读模式同条件） ----------
+  await page.evaluate(() => window.__runCodeScroll());
+  const sc = await page.evaluate(() => window.__RESULT_SCROLL);
+  console.log('\n=== S11：长代码块按需滚动条（与阅读模式一致）===');
+  console.log('  wysiwyg: ' + JSON.stringify(sc.wysiwyg) + '  reading: ' + JSON.stringify(sc.reading));
+  const nsOk = sc.noScroll.length === 2 && sc.noScroll.every((x) => x.ok === true || (x.cls && x.ov !== 'auto' && x.expanded));
+  const checks11 = [
+    [`长代码块（>300px）：阅读模式=${sc.reading[0] && sc.reading[0].ov} / 所见即所得=${sc.wysiwyg[0] && sc.wysiwyg[0].ov}（均应为 auto）`,
+      sc.reading[0] && sc.reading[0].ov === 'auto' && sc.wysiwyg[0] && sc.wysiwyg[0].ov === 'auto'],
+    [`短代码块：两侧均不出现按需滚动条（hidden）`,
+      sc.reading[1] && sc.reading[1].ov === 'hidden' && sc.wysiwyg[1] && sc.wysiwyg[1].ov === 'hidden'],
+    [`codeScroll=false：遮罩挂 code-no-scroll 类且高度自适应无滚动（${sc.noScroll.length} 块）`, nsOk],
+  ];
+  for (const [label, ok] of checks11) {
+    console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+    if (!ok) fail++;
+  }
+
+  // ---------- S12：Mermaid 图表（批量渲染 + 重挂回归） ----------
+  await page.evaluate(() => window.__runMermaid());
+  const mm = await page.evaluate(() => window.__RESULT_MMD);
+  console.log('\n=== S12：Mermaid 图表（遮罩内渲染 vs 阅读模式）===');
+  console.log('  entry: ' + JSON.stringify(mm.entry) + '  reading: ' + JSON.stringify(mm.reading) + '  afterMove: ' + JSON.stringify(mm.afterMove));
+  const checks12 = [
+    [`3 张遮罩图表全部渲染为 SVG（防批量跳过/并发 id 碰撞）: ${mm.entry.svgs}/${mm.entry.containers}`,
+      mm.entry.containers === 3 && mm.entry.svgs === 3],
+    [`遮罩内无 mermaid 源码残留: ${mm.entry.codeLeft}`, mm.entry.codeLeft === 0],
+    [`阅读模式参照物同为 3 张 SVG: ${mm.reading.svgs}`, mm.reading.svgs === 3],
+    [`光标移动后重挂的图表恢复: ${mm.afterMove.svgs}/${mm.afterMove.containers}`,
+      mm.afterMove.containers === 3 && mm.afterMove.svgs === 3],
+  ];
+  for (const [label, ok] of checks12) {
     console.log(`  ${ok ? '✓' : '✗'} ${label}`);
     if (!ok) fail++;
   }

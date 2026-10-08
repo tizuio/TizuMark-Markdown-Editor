@@ -10,7 +10,9 @@
 //    _updateVirtualScrollMetrics / _syncPreviewVirtualScroll / _buildWindowLineTops）
 //    经 this 访问，互相调用也走 this；
 //  - 真·全局（PreviewWindow / UnifiedRenderer / TauriApi / PreviewPost / CodeBlock /
-//    ImageProcessor / hljs）沿用 window 全局，不在此重复声明；
+//    ImageProcessor / RenderPost）沿用 window 全局，不在此重复声明；
+//  - hljs 例外：必须显式 `window.hljs`（裸 hljs 在非浏览器环境 ReferenceError，且参数对象
+//    在 RenderPost stage 的 try/catch 之外求值，包不住）；
 //  - app.js 顶层 const 的预览常量（脚本作用域、跨脚本不可见）在此复制一份，
 //    与 app.js 保持同源同值（如后续调整需同步两侧）。
 //
@@ -189,9 +191,12 @@
           this.app.hideLargeFileNotice();
         }
 
-        this.app.preview.querySelectorAll('details:not([open])').forEach(el => el.open = true);
+        // 后处理走 RenderPost 共享管线（modules/render-post.js）——与所见即所得遮罩
+        // **同 stage 同顺序**，只允许编排时序差异（阅读=整篇单遍；遮罩=单块+DOM 落定后异步补跑）。
+        // 具体契约（幂等/故障隔离/条件唯一来源）见 render-post.js 文件头。
+        RenderPost.normalizeDetails(this.app.preview);
         // 任务列表 checkbox：remark-gfm 默认输出 disabled 不可交互，渲染后移除 disabled 使其可点击
-        this.app.preview.querySelectorAll('input[type="checkbox"][disabled]').forEach(cb => cb.removeAttribute('disabled'));
+        RenderPost.enableCheckboxes(this.app.preview);
 
         try { await this.app.processImages(); } catch (e) { console.warn('[preview] Images error:', e); }
         if (gen !== this.app._renderGeneration) { this.app._resumeScroll(); return; }
@@ -203,33 +208,28 @@
           headingToId: (s) => this.app.headingToId(s),
           mermaidCache: this.app._mermaidCache,
         };
-        try { PreviewPost.processEmojiShortcodes(this.app.preview); } catch (e) { console.warn('[preview] Emoji error:', e); }
-        try { PreviewPost.processMath(this.app.preview); } catch (e) { console.warn('[preview] Math error:', e); }
-        try { PreviewPost.processAbbreviations(this.app.preview, postOpts); } catch (e) { console.warn('[preview] Abbr error:', e); }
+        RenderPost.processEmoji(this.app.preview);
+        RenderPost.processMath(this.app.preview);
+        RenderPost.processAbbreviations(this.app.preview, postOpts);
         try { this.app.processFootnotes(); } catch (e) { console.warn('[preview] Footnotes error:', e); }
-        try { PreviewPost.processHeadings(this.app.preview, postOpts); } catch (e) { console.warn('[preview] Headings error:', e); }
-        try { await PreviewPost.processMermaid(this.app.preview, postOpts); } catch (e) { console.warn('[preview] Mermaid error:', e); }
+        RenderPost.processHeadings(this.app.preview, postOpts);
+        try { await RenderPost.runMermaid(this.app.preview, postOpts); } catch (e) { console.warn('[preview] Mermaid error:', e); }
         if (gen !== this.app._renderGeneration) { this.app._resumeScroll(); return; }
-        try { PreviewPost.addCopyButtons(this.app.preview, postOpts); } catch (e) { console.warn('[preview] Copy btn error:', e); }
+        RenderPost.addCopyButtons(this.app.preview, postOpts);
 
-        // 代码高亮 + 行号：抽到 src/modules/code-block.js（独立模块，便于单独测试）
-        try {
-          CodeBlock.processCodeBlocks(this.app.preview, {
-            hljs,
-            cache: this.app._hljsCache,
-            lineNumbers: this.app.preview.classList.contains('code-line-numbers'),
-          });
-        } catch (e) { console.warn('[preview] Code block error:', e); }
+        // 代码高亮 + 行号（RenderPost 共享 stage，底层 CodeBlock.processCodeBlocks）。
+        // ⚠️ 必须显式 window.hljs：裸 hljs 在非浏览器环境（jsdom）是 ReferenceError，
+        // 且参数对象在 stage 的 try/catch 之外求值——旧 try/catch 包不住（2026-10-11 实测）。
+        RenderPost.processCodeBlocks(this.app.preview, {
+          hljs: (typeof window !== 'undefined' ? window.hljs : undefined),
+          cache: this.app._hljsCache,
+          lineNumbers: this.app.preview.classList.contains('code-line-numbers'),
+        });
 
-        // 代码块按需滚动：CSS 默认 overflow-y:hidden（避免 Windows always-show 滚动条
-        // 轨道在短代码块上也出现），只有内容真的超出 max-height 时才显式设 auto（必须
-        // 显式 'auto'，不能清空让 CSS 接管——CSS 已是 hidden，清空后还是 hidden）。
-        // 代码块按需滚动：仅当设置「代码块滚动条」开启时生效；关闭时由 CSS(.code-no-scroll)撑开高度
-        if (!(this.app.settings && this.app.settings.codeScroll === false)) {
-          this.app.preview.querySelectorAll('.code-scroll').forEach((el) => {
-            el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? 'auto' : 'hidden';
-          });
-        }
+        // 代码块按需滚动：RenderPost 共享 stage（条件唯一来源，与所见即所得同一函数）。
+        // CSS 默认 overflow-y:hidden（避免 Windows always-show 滚动条轨道在短代码块上出现），
+        // 仅真溢出才显式 auto；codeScroll=false 时跳过，由 CSS(.code-no-scroll) 撑开高度。
+        RenderPost.applyCodeScrollOverflow(this.app.preview, { codeScroll: this.app.settings && this.app.settings.codeScroll });
 
         // 等待浏览器完成布局后再测量元素位置
         await new Promise(r => requestAnimationFrame(r));

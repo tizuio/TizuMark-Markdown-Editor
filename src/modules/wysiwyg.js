@@ -433,9 +433,19 @@
           atomic: false,
         });
         this._wysiwygMarks.set(idx, mark);
-        // 异步 pass（图片 / Mermaid / TOC / 代码块滚动条）：节点入 DOM 后才跑，
+        // 异步 pass（图片 / Mermaid / TOC / 代码块滚动条）不得在 markText 返回瞬间跑：
+        // CM5 的 replacedWith 是 collapsed 标记的 widget，markText 返回时显示更新尚未把
+        // widget 插进行 DOM（2026-10-11 harness 实测：自动/显式 operation 两种路径此刻
+        // node.isConnected 均为 false）→ 旧实现在这里同步调 _wysiwygPostProcessAsync，
+        // isConnected 守卫把所有批量挂遮罩的异步 pass 全部静默跳过（TOC/图片/图表缺失根因）。
+        // 改为登记待跑 + 等 DOM 落定后由 flushWysiwygAsyncPasses 统一执行。
         // 就绪后高度变化用「测前测后 + 滚动补偿」保持视口（SVG/图片撑高不得冲走用户正在看的内容）。
-        this._wysiwygPostProcessAsync(node, idx);
+        this._wysiwygNodeGen = this._wysiwygNodeGen || new Map();
+        this._wysiwygMaskGen = (this._wysiwygMaskGen || 0) + 1;
+        this._wysiwygNodeGen.set(node, this._wysiwygMaskGen);
+        this._wysiwygPendingAsync = this._wysiwygPendingAsync || new Set();
+        this._wysiwygPendingAsync.add(node);
+        this._scheduleWysiwygAsyncFlush();
       } catch (_) { /* 区间非法则放弃该块遮罩 */ }
     },
 
@@ -462,12 +472,13 @@
     },
 
     // 遮罩节点补跑预览后处理，保证与阅读模式渲染完全一致。
-    // ⚠️ renderMarkdown 只产出结构 HTML：阅读模式的后处理链（preview-controller.js render()）依次是
-    //    图片(processImages) → emoji → 数学(KaTeX) → 缩写 → 脚注(点击) → 标题锚点 → Mermaid →
-    //    复制按钮 → 代码高亮，遮罩里逐一补跑（同步部分在此，异步部分见 _wysiwygPostProcessAsync），
-    //    顺序与阅读模式一致（复制按钮必须在代码高亮之前，按钮才落在 pre 上）。
+    // ⚠️ renderMarkdown 只产出结构 HTML：后处理走 RenderPost 共享管线（modules/render-post.js）——
+    //    与阅读模式 render() 同 stage 同顺序（复选框 → details → emoji → 数学 → 缩写 →
+    //    标题锚点 → 复制按钮 → 代码高亮；复制按钮必须在代码高亮之前，按钮才落在 pre 上），
+    //    只是容器不同（阅读=整篇 preview，遮罩=单块节点）；异步 stage（图片/mermaid/滚动条）
+    //    在 _wysiwygPostProcessAsync 里 DOM 落定后补跑。
     // 缓存的 b.html 同样是未后处理的结构 HTML（后处理只作用于 DOM），所以每次遮罩都要重跑；
-    // 各 pass 均幂等（KaTeX 渲染过的节点被 walker 跳过，code-scroll 包裹过的块被跳过）。
+    // 各 stage 均幂等（KaTeX 渲染过的节点被 walker 跳过，code-scroll 包裹过的块被跳过）。
     _postProcessWysiwygNode(node) {
       const postOpts = {
         t: (k) => (this.t ? this.t(k) : k),
@@ -477,50 +488,50 @@
         headingToId: (s) => (this.headingToId ? this.headingToId(s) : String(s == null ? '' : s)),
         mermaidCache: this._mermaidCache,
       };
-      // 任务列表复选框：remark-gfm 输出 disabled，与预览一致地在渲染后移除才能点击切换
-      node.querySelectorAll && node.querySelectorAll('input[type="checkbox"][disabled]')
-        .forEach((cb) => cb.removeAttribute('disabled'));
-      // details 展开（阅读模式 render() 同款：折叠块在预览里默认全展开）
-      try {
-        node.querySelectorAll && node.querySelectorAll('details:not([open])')
-          .forEach((el) => { el.open = true; });
-      } catch (_) {}
-      try {
-        if (window.PreviewPost && typeof window.PreviewPost.processEmojiShortcodes === 'function') {
-          window.PreviewPost.processEmojiShortcodes(node);
-        }
-      } catch (_) { /* emoji 失败保持短码原文 */ }
-      try {
-        if (window.PreviewPost && typeof window.PreviewPost.processMath === 'function') {
-          window.PreviewPost.processMath(node);
-        }
-      } catch (_) { /* 公式渲染失败保持原文 */ }
-      try {
-        if (window.PreviewPost && typeof window.PreviewPost.processAbbreviations === 'function') {
-          window.PreviewPost.processAbbreviations(node, postOpts);
-        }
-      } catch (_) { /* 缩写失败保持原文 */ }
-      try {
-        if (window.PreviewPost && typeof window.PreviewPost.processHeadings === 'function') {
-          window.PreviewPost.processHeadings(node, postOpts);
-        }
-      } catch (_) { /* 锚点失败不影响显示 */ }
-      try {
-        if (window.PreviewPost && typeof window.PreviewPost.addCopyButtons === 'function') {
-          window.PreviewPost.addCopyButtons(node, postOpts);
-        }
-      } catch (_) { /* 复制按钮失败不影响显示 */ }
-      try {
-        if (window.CodeBlock && typeof window.CodeBlock.processCodeBlocks === 'function'
-          && typeof window.hljs !== 'undefined') {
-          // 行号开关与阅读模式同源：看 #preview 的 code-line-numbers 类（同一设置写入）
-          window.CodeBlock.processCodeBlocks(node, {
-            hljs: window.hljs,
-            cache: (this._wysiwygHljsCache = this._wysiwygHljsCache || new Map()),
-            lineNumbers: !!(this.preview && this.preview.classList.contains('code-line-numbers')),
-          });
-        }
-      } catch (_) { /* 高亮失败保持原文 */ }
+      // 与阅读模式同 stage（RenderPost 共享管线，故障隔离 + 幂等，见其文件头注释）
+      RenderPost.enableCheckboxes(node);
+      RenderPost.normalizeDetails(node);
+      RenderPost.processEmoji(node);
+      RenderPost.processMath(node);
+      RenderPost.processAbbreviations(node, postOpts);
+      RenderPost.processHeadings(node, postOpts);
+      RenderPost.addCopyButtons(node, postOpts);
+      RenderPost.processCodeBlocks(node, {
+        hljs: (typeof window !== 'undefined' ? window.hljs : undefined),
+        cache: (this._wysiwygHljsCache = this._wysiwygHljsCache || new Map()),
+        // 行号开关与阅读模式同源：看 #preview 的 code-line-numbers 类（同一设置写入）
+        lineNumbers: !!(this.preview && this.preview.classList.contains('code-line-numbers')),
+      });
+    },
+
+    // 异步 pass 调度：maskWysiwygBlock 登记待跑节点后，等「DOM 落定」再统一执行。
+    // setTimeout(0) 保证在触发挂遮罩的 CM operation 结束（显示更新已把 widget 插进行 DOM）
+    // 之后运行；同一 tick 内多次挂遮罩只排一个计时器。
+    _scheduleWysiwygAsyncFlush() {
+      if (this._wysiwygAsyncFlushTimer != null) return;
+      const self = this;
+      this._wysiwygAsyncFlushTimer = setTimeout(() => {
+        self._wysiwygAsyncFlushTimer = null;
+        self.flushWysiwygAsyncPasses();
+      }, 0);
+    },
+
+    // 异步 pass 统一冲刷：只处理「节点已入 DOM」的待跑遮罩。未物化的（虚拟模式下
+    // 视口±预取窗口外的块，CM 尚未把该行渲染进 DOM）留在待跑集里，由下一次冲刷
+    //（滚动触发的 updateWysiwygViewportMasks 收尾）捡回——2026-10-11 探针实测：
+    // 视口外行的 widget 连 cm.refresh() 之后都未入 DOM，只有该行真正物化后才 isConnected。
+    // 各 pass 均幂等（已加载图片走前缀跳过、已换容器的 mermaid 无 code 可查），重复冲刷廉价。
+    flushWysiwygAsyncPasses() {
+      const cm = this.cm;
+      if (!cm || this.viewMode !== 'wysiwyg') return;
+      const pending = this._wysiwygPendingAsync;
+      if (!pending || pending.size === 0) return;
+      const due = [];
+      pending.forEach((node) => { if (node && node.isConnected) due.push(node); });
+      for (const node of due) {
+        pending.delete(node);
+        try { this._wysiwygPostProcessAsync(node); } catch (_) { /* 单块失败不影响他块 */ }
+      }
     },
 
     // 遮罩异步 pass：图片读盘转 base64、Mermaid 渲染、[TOC] 目录、代码块滚动条。
@@ -528,56 +539,43 @@
     _wysiwygPostProcessAsync(node, idx) {
       const cm = this.cm;
       if (!node || !cm || typeof node.isConnected !== 'boolean' || !node.isConnected) return;
-      const gen = (this._wysiwygMaskGen = this._wysiwygMaskGen || 0);
+      // 节点级代数：本节点的 pass 只在「本节点标记被撤」时过期（unmask/clear 时 +1）。
+      // 旧实现用全局 _wysiwygMaskGen，而 setWysiwygActiveBlock 是「先重挂旧活动块、后撤新
+      // 活动块」——撤后全局代数 +1，把刚启动的图片读盘 pass 判成过期（2026-10-11 harness
+      // 实测：光标移动后重挂块的图片恒停在占位/原始路径）。
+      this._wysiwygNodeGen = this._wysiwygNodeGen || new Map();
+      const gen = this._wysiwygNodeGen.get(node) || 1;
       const settled = () => {
-        // 遮罩已重建（gen 变化）或节点已摘除：不再动 DOM
-        if (this._wysiwygMaskGen !== gen || !node.isConnected) return false;
-        return true;
+        // 本遮罩已重建（代数变化）或节点已摘除：不再动 DOM
+        return (this._wysiwygNodeGen.get(node) === gen) && node.isConnected;
       };
-      // 图片：相对路径 → 本地读盘 base64（与阅读模式 processImages 同一纯函数、同一缓存）
-      try {
-        if (typeof ImageProcessor !== 'undefined' && ImageProcessor.processImages
-            && typeof TauriApi !== 'undefined' && node.querySelector('img')) {
-          ImageProcessor.processImages(node, {
-            activeTab: this.activeTab,
-            imageCache: (this._imageBase64Cache = this._imageBase64Cache || new Map()),
-            tauri: TauriApi,
-            getCachedImageURL: (u) => (this.getCachedImageURL ? this.getCachedImageURL(u) : u),
-            getRenderGeneration: () => this._wysiwygMaskGen,
-          }).then(() => { if (settled()) this._wysiwygRefreshAfterMaskChange(); })
-            .catch((e) => console.warn('[wysiwyg] Images error:', e));
-        }
-      } catch (e) { console.warn('[wysiwyg] Images error:', e); }
-      // Mermaid：与阅读模式同一 pass + 同一 mermaidCache（命中缓存时近乎同步）
-      try {
-        if (typeof mermaid !== 'undefined' && window.PreviewPost
-            && typeof window.PreviewPost.processMermaid === 'function'
-            && node.querySelector('code.language-mermaid')) {
-          const postOpts = {
-            t: (k) => (this.t ? this.t(k) : k),
-            isDark: !!this.isDark,
-            escapeHtml: (s) => (this.escapeHtml ? this.escapeHtml(s) : String(s == null ? '' : s)),
-            escapeAttr: (s) => (this.escapeAttr ? this.escapeAttr(s) : String(s == null ? '' : s)),
-            headingToId: (s) => (this.headingToId ? this.headingToId(s) : String(s == null ? '' : s)),
-            mermaidCache: this._mermaidCache,
-          };
-          window.PreviewPost.processMermaid(node, postOpts).then(() => {
-            if (settled()) this._wysiwygRefreshAfterMaskChange();
-          }).catch((e) => console.warn('[wysiwyg] Mermaid error:', e));
-        }
-      } catch (e) { console.warn('[wysiwyg] Mermaid error:', e); }
+      // 图片：相对路径 → 本地读盘 base64（RenderPost 共享 stage；与阅读模式同一纯函数、同一缓存）
+      RenderPost.prepareImages(node, {
+        activeTab: this.activeTab,
+        imageCache: (this._imageBase64Cache = this._imageBase64Cache || new Map()),
+        tauri: (typeof TauriApi !== 'undefined' ? TauriApi : undefined),
+        getCachedImageURL: (u) => (this.getCachedImageURL ? this.getCachedImageURL(u) : u),
+        getRenderGeneration: () => (this._wysiwygNodeGen ? this._wysiwygNodeGen.get(node) || 0 : 0),
+      }).then(() => { if (settled()) this._wysiwygRefreshAfterMaskChange(); })
+        .catch((e) => console.warn('[wysiwyg] Images error:', e));
+      // Mermaid：RenderPost 共享 stage + 同一 mermaidCache（命中缓存时近乎同步；
+      // 串行化/id 唯一化在 processMermaid 内部）
+      RenderPost.runMermaid(node, {
+        t: (k) => (this.t ? this.t(k) : k),
+        isDark: !!this.isDark,
+        escapeHtml: (s) => (this.escapeHtml ? this.escapeHtml(s) : String(s == null ? '' : s)),
+        escapeAttr: (s) => (this.escapeAttr ? this.escapeAttr(s) : String(s == null ? '' : s)),
+        headingToId: (s) => (this.headingToId ? this.headingToId(s) : String(s == null ? '' : s)),
+        mermaidCache: this._mermaidCache,
+      }).then(() => {
+        if (settled()) this._wysiwygRefreshAfterMaskChange();
+      }).catch((e) => console.warn('[wysiwyg] Mermaid error:', e));
       // [TOC]：阅读模式用 Rust generate_toc 生成整篇目录替换 [TOC] 段，遮罩同款
-      try { this._wysiwygReplaceToc(node).then(() => { if (settled()) this._wysiwygRefreshAfterMaskChange(); }); }
-      catch (_) { /* TOC 失败保持 [TOC] 原文 */ }
-      // 代码块滚动条：阅读模式按 codeScroll 设置控制 overflowY（同步做，与阅读模式同款；
-      // 节点此刻已在 DOM 里，scrollHeight 读取会强制同步回流，高度是准的）
-      try {
-        if (this.settings && this.settings.codeScroll === false) {
-          node.querySelectorAll('pre > code > .code-scroll').forEach((cs2) => {
-            cs2.style.overflowY = cs2.scrollHeight > cs2.clientHeight ? 'auto' : 'hidden';
-          });
-        }
-      } catch (_) {}
+      //（整篇级 stage，不经 RenderPost，见其文件头注释）
+      this._wysiwygReplaceToc(node).then(() => { if (settled()) this._wysiwygRefreshAfterMaskChange(); });
+      // 代码块滚动条：RenderPost 共享 stage（条件唯一来源，与阅读模式同一函数）。
+      // 本 pass 由 flush 在 DOM 落定后调用，scrollHeight 读取强制同步回流，高度是准的。
+      RenderPost.applyCodeScrollOverflow(node, { codeScroll: this.settings && this.settings.codeScroll });
     },
 
     // 遮罩内容高度变化（公式/图片/Mermaid/TOC 就绪）后：刷新 CM 测量并补偿滚动，
@@ -601,12 +599,17 @@
       } catch (_) { /* 刷新失败无妨，下次输入会重建遮罩 */ }
     },
 
-    // [TOC] 段替换：阅读模式 render() 的 replace 逻辑同款（正则找 <p>[TOC]</p>，
-    // 换成 toc-wrapper + Rust 生成的目录 HTML）。TOC 依赖整篇内容，按内容缓存 promise，
-    // 遮罩频繁重建不重复 invoke。
+    // [TOC] 段替换：与阅读模式 render() 的替换规则对齐——阅读模式是对整篇 HTML 用正则
+    // 匹配**所有**「内容恰为 [TOC]」的 <p> 并逐个换成 toc-wrapper + Rust 目录 HTML；
+    // 旧实现只取节点内第一个 <p>，当块内另有段落排在 [TOC] 段前时永远匹配不上
+    // （2026-10-11 用户反馈「目录没加载出来」的成因之一）。
+    // TOC 依赖整篇内容，按内容缓存 promise，遮罩频繁重建不重复 invoke；
+    // invoke 失败时清缓存可重试（真实 app 中 Rust 侧同步返回字符串，不会 reject，此为防御）。
     _wysiwygReplaceToc(node) {
-      const p = node && node.querySelector ? node.querySelector('p') : null;
-      if (!p || !/^\[TOC\]$/i.test((p.textContent || '').trim())) return Promise.resolve();
+      if (!node || !node.querySelectorAll) return Promise.resolve();
+      const ps = Array.from(node.querySelectorAll('p'))
+        .filter((p) => /^\[TOC\]$/i.test((p.textContent || '').trim()));
+      if (ps.length === 0) return Promise.resolve();
       if (typeof TauriApi === 'undefined' || typeof TauriApi.generateToc !== 'function') return Promise.resolve();
       const cm = this.cm;
       if (!cm) return Promise.resolve();
@@ -615,13 +618,19 @@
         this._wysiwygToc = { value: content, promise: TauriApi.generateToc({ content }) };
       }
       return this._wysiwygToc.promise.then((tocHtml) => {
-        if (!tocHtml || !node.isConnected) return;
-        const line = p.getAttribute('data-source-line');
-        const wrap = document.createElement('div');
-        wrap.className = 'toc-wrapper';
-        if (line) wrap.setAttribute('data-source-line', line);
-        wrap.innerHTML = tocHtml;
-        p.replaceWith(wrap);
+        if (!tocHtml) return;
+        for (const p of ps) {
+          if (!p.isConnected) continue;
+          const line = p.getAttribute('data-source-line');
+          const wrap = document.createElement('div');
+          wrap.className = 'toc-wrapper';
+          if (line) wrap.setAttribute('data-source-line', line);
+          wrap.innerHTML = tocHtml;
+          p.replaceWith(wrap);
+        }
+      }).catch((e) => {
+        this._wysiwygToc = null; // 失败不缓存：下次挂遮罩按新内容重试，保持 [TOC] 原文
+        console.warn('[wysiwyg] TOC error:', e);
       });
     },
 
@@ -729,7 +738,15 @@
       try { mark.clear(); } catch (_) { /* 已销毁 */ }
       this._wysiwygMarks.delete(idx);
       // 遮罩已换：让旧节点上未完成的异步 pass（图片/Mermaid/TOC）感知过期，停写 DOM
-      this._wysiwygMaskGen = (this._wysiwygMaskGen || 0) + 1;
+      this._dropWysiwygMaskNode(mark.replacedWith);
+    },
+
+    // 作废单个遮罩节点：节点代数 +1（在飞 pass 的代际检查判过期停写）+ 移出待跑冲刷集。
+    // 只影响本节点——绝不牵连其他块（全局代数曾让「撤 A 块」作废「刚挂的 B 块」的 pass）。
+    _dropWysiwygMaskNode(node) {
+      if (!node) return;
+      if (this._wysiwygNodeGen) this._wysiwygNodeGen.set(node, (this._wysiwygNodeGen.get(node) || 0) + 1);
+      if (this._wysiwygPendingAsync) this._wysiwygPendingAsync.delete(node);
     },
 
     // 渲染态点击任务复选框：按 data-source-line 精确回写源码行并翻转 [ ]/[x]。
@@ -938,6 +955,9 @@
         this.updateWysiwygViewportMasks();
       }
       try { cm.refresh(); } catch (_) { /* ignore */ }
+      // refresh 后全量模式所有行已物化（viewportMargin=行数+100）：立刻冲刷异步 pass，
+      // 不等 0-timer——TOC/图片/图表在首帧渲染时即就绪（阅读模式进入后也是首帧就绪）。
+      this.flushWysiwygAsyncPasses();
       this.updateWysiwygBlankLines();
     },
 
@@ -1038,7 +1058,10 @@
       try {
         cm.operation(() => {
           for (const mark of Array.from(this._wysiwygMarks.values())) {
-            if (!keptSet.has(mark)) { try { mark.clear(); } catch (_) { /* 已销毁 */ } }
+            if (!keptSet.has(mark)) {
+              try { mark.clear(); } catch (_) { /* 已销毁 */ }
+              this._dropWysiwygMaskNode(mark.replacedWith);
+            }
           }
           this._wysiwygMarks = nextMarks;
           // 重挂缺口的块（变化/新增/分裂/合并；活动块保持源码态）
@@ -1102,6 +1125,7 @@
           if (!b || !inWindow(b)) {
             try { mark.clear(); } catch (_) { /* 已销毁 */ }
             this._wysiwygMarks.delete(idx);
+            this._dropWysiwygMaskNode(mark.replacedWith);
           }
         }
         // 挂上窗内缺失遮罩（skipped 块在 mask 时按需渲染切片）
@@ -1111,6 +1135,9 @@
           this.maskWysiwygBlock(k);
         }
       });
+      // 显式冲刷异步 pass：operation 已结束、widget 已入 DOM。既覆盖本批新挂的遮罩，
+      // 也捡回此前挂上但行未物化、此刻随视口滚动新物化的待跑节点。
+      this.flushWysiwygAsyncPasses();
 
       if (anchor) {
         try {
@@ -1344,8 +1371,14 @@
       this._wysiwygBlocks = [];
       this._wysiwygActiveIdx = -1;
       this._wysiwygAnchorY = null;
-      // 全量重建：在飞异步 pass 一律过期
-      this._wysiwygMaskGen = (this._wysiwygMaskGen || 0) + 1;
+      // 全量重建：所有旧遮罩节点一并作废——节点代数表/待跑冲刷集整体清空，
+      // 在飞异步 pass 的代际检查随即判过期停写；挂起的冲刷计时器也一并取消
+      this._wysiwygNodeGen = new Map();
+      this._wysiwygPendingAsync = new Set();
+      if (this._wysiwygAsyncFlushTimer != null) {
+        clearTimeout(this._wysiwygAsyncFlushTimer);
+        this._wysiwygAsyncFlushTimer = null;
+      }
       // 编辑器外壳（行号/最大宽度）随模式同步：离开所见即所得时恢复行号、撤掉居中内缩
       this.applyWysiwygEditorChrome();
     },

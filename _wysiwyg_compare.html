@@ -2,6 +2,8 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- 内联 favicon：file:// 页面默认的 /favicon.ico 请求会 404 进 console，被驱动计为页面错误 -->
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="src/lib/codemirror/codemirror.css">
 <link rel="stylesheet" href="src/styles.css">
 <style>
@@ -30,9 +32,11 @@
 <link rel="stylesheet" href="src/lib/katex/katex.min.css">
 <script src="src/lib/katex/katex.min.js"></script>
 <script src="src/lib/katex/auto-render.min.js"></script>
+<script src="src/lib/mermaid/mermaid.min.js"></script>
 <script src="src/modules/preview-post.js"></script>
 <script src="src/modules/code-block.js"></script>
 <script src="src/modules/image-processor.js"></script>
+<script src="src/modules/render-post.js"></script>
 <script src="src/modules/wysiwyg.js"></script>
 <script src="src/modules/empty-hint.js"></script>
 <script>
@@ -106,45 +110,87 @@
     '</details>',
   ].join('\n');
 
-  function makeEditor(doc) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // 与 Rust heading_to_id（src-tauri/src/lib.rs）对齐：字母数字保留（小写），空格/-/_ 折叠为 -
+  const headingToId = (text) => {
+    let id = '';
+    for (const ch of String(text || '')) {
+      if (/[\p{L}\p{N}]/u.test(ch)) id += ch.toLowerCase();
+      else if (ch === ' ' || ch === '-' || ch === '_') id += '-';
+    }
+    return id.replace(/-+/g, '-').replace(/^-|-$/g, '');
+  };
+
+  // ---------- TauriApi mock（对齐真实 app 的 IPC 面） ----------
+  // 真实 app 的 window.TauriApi 由 tauri-api.js COMMANDS 生成；所见即所得/阅读模式的
+  // 异步后处理路径（[TOC]=generate_toc、图片=fetch_image_as_base64）都走它。harness 此前
+  // 没有它 → 这些路径以「Tauri 运行时不可用」被静默跳过、从未被测到（2026-10-11 四缺陷漏网根因之一）。
+  const TINY_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  // 逐行对照 Rust generate_toc：#..######（代码围栏外）→ 嵌套 ul；无标题返回空串
+  function mockGenerateToc(content) {
+    const items = [];
+    let inCode = false;
+    for (const line of String(content || '').split('\n')) {
+      const t = line.trimStart();
+      if (t.startsWith('```')) { inCode = !inCode; continue; }
+      if (inCode) continue;
+      const m = t.match(/^(#{1,6})\s+(.*)$/);
+      if (!m) continue;
+      const text = m[2].trim();
+      items.push({ level: m[1].length, text, id: headingToId(text) });
+    }
+    if (!items.length) return '';
+    let html = '<div class="toc"><div class="toc-title">📑 目录</div><ul class="toc-list">';
+    let prev = 0;
+    for (const it of items) {
+      if (it.level > prev) { for (let k = prev; k < it.level; k++) html += '<ul>'; }
+      else if (it.level < prev) { for (let k = it.level; k < prev; k++) html += '</ul>'; }
+      html += '<li><a href="#' + esc(it.id) + '">' + esc(it.text) + '</a></li>';
+      prev = it.level;
+    }
+    for (let k = 0; k < prev; k++) html += '</ul>';
+    html += '</ul></div>';
+    return html;
+  }
+  window.__mockGenerateToc = mockGenerateToc;
+  window.TauriApi = {
+    generateToc: (args) => Promise.resolve(mockGenerateToc(args && args.content)),
+    fetchImageAsBase64: async () => {
+      await sleep(25); // 模拟 IPC + 读盘延迟，暴露代数/时序竞态
+      return TINY_PNG_B64;
+    },
+    readBundledImageAsBase64: async () => { throw new Error('mock: not a bundled tab'); },
+  };
+
+  function makeEditor(doc, overrides) {
     const host = document.getElementById('editor');
     host.innerHTML = '';
     // lineNumbers: true 与真实 app 一致（app 建 CM 时恒开行号），
     // 进入所见即所得后由 applyWysiwygEditorChrome 关掉——可验证「去行号」行为
     const cm = CodeMirror(host, { value: doc, lineWrapping: true, lineNumbers: true });
     cm.setSize('700px', '600px');
-    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const headingToId = (text) => {
-      let id = '';
-      for (const ch of String(text || '')) {
-        if (/[\p{L}\p{N}]/u.test(ch)) id += ch.toLowerCase();
-        else if (ch === ' ' || ch === '-' || ch === '_') id += '-';
-      }
-      return id.replace(/-+/g, '-').replace(/^-|-$/g, '');
-    };
     // 阅读模式参照物：#preview 的字体/字号/行高是 applySettings 写内联样式的，
     // 这里复刻真实默认值（16px / 1.7），wysiwyg 遮罩必须与之完全一致
     const reading = document.getElementById('reading');
     reading.style.fontSize = '16px';
     reading.style.lineHeight = '1.7';
-    const ed = Object.assign(
-      {
-        cm,
-        settings: { softBreaks: false, tabSize: 4, extendedSyntax: true, codeLineNumbers: false, lineNumbers: true, maxWidth: 0 },
-        t: (k) => k,
-        preview: reading,
-        isDark: false,
-        escapeHtml: esc,
-        escapeAttr: esc,
-        headingToId,
-        _mermaidCache: new Map(),
-        _imageBase64Cache: new Map(),
-        getCachedImageURL: (u) => u,
-        activeTab: null,
-      },
-      window.TMWysiwyg.mixin,
-      window.TMEmptyHint.mixin
-    );
+    const base = {
+      cm,
+      settings: { softBreaks: false, tabSize: 4, extendedSyntax: true, codeLineNumbers: false, lineNumbers: true, maxWidth: 0 },
+      t: (k) => k,
+      preview: reading,
+      isDark: false,
+      escapeHtml: esc,
+      escapeAttr: esc,
+      headingToId,
+      _mermaidCache: new Map(),
+      _imageBase64Cache: new Map(),
+      getCachedImageURL: (u) => u,
+      activeTab: null,
+    };
+    if (overrides) Object.assign(base, overrides);
+    const ed = Object.assign(base, window.TMWysiwyg.mixin, window.TMEmptyHint.mixin);
     ed.viewMode = 'wysiwyg';
     // 模拟 editor-core 的事件接线（真实 app 中 cursorActivity/change 都接到这里）
     cm.on('cursorActivity', () => ed.syncWysiwygActiveBlock());
@@ -364,23 +410,57 @@
   // ---------- 场景 5：整篇视觉比对（截图素材） ----------
   // 用真实文档（如 demo.md 内容）同时渲染「所见即所得（顶部）」与「阅读模式」，
   // 供驱动脚本截图后人工/视觉模型比对。
-  window.__runVisual = function (docText) {
+  window.__runVisual = async function (docText) {
     const doc = docText != null ? docText : DOC;
-    const { cm, ed, host } = makeEditor(doc);
+    // 模拟真实 app「打开本地文档」：activeTab 带 filePath → 相对图片走 TauriApi 读盘
+    //（harness mock），不落到浏览器 fetch 兜底（file:// 下 CORS 报错，真实 app 无此路径）
+    const { cm, ed, host } = makeEditor(doc, { activeTab: { filePath: 'C:/docs/demo.md', isBundled: false } });
     window.__wysiwygLast = { cm, ed, host }; // 供诊断脚本访问实例
     ed.renderWysiwygMasks();
     const reading = document.getElementById('reading');
     try {
       reading.innerHTML = window.UnifiedRenderer.renderMarkdown(doc, ed.settings);
-      // 阅读模式后处理（与 preview-controller.render 同源）：数学 + 代码高亮 + 复制按钮
-      if (window.PreviewPost) {
-        window.PreviewPost.processMath(reading);
-        window.PreviewPost.addCopyButtons(reading, { t: (k) => k });
-      }
-      if (window.CodeBlock && typeof hljs !== 'undefined') {
-        window.CodeBlock.processCodeBlocks(reading, { hljs: window.hljs, cache: new Map(), lineNumbers: false });
+      // 阅读模式后处理：RenderPost 共享管线（与 preview-controller.render 同 stage 同顺序，
+      // 与所见即所得遮罩同一入口——截图对比的是「同一管线在两种编排下的结果」）
+      const rp = window.RenderPost;
+      if (rp) {
+        const opts = { t: (k) => k, isDark: false, escapeHtml: esc, escapeAttr: esc, headingToId };
+        rp.normalizeDetails(reading);
+        rp.enableCheckboxes(reading);
+        rp.prepareImages(reading, {
+          activeTab: ed.activeTab,
+          imageCache: ed._imageBase64Cache,
+          tauri: window.TauriApi,
+          getCachedImageURL: (u) => u,
+          getRenderGeneration: () => 0,
+        }).catch(() => {});
+        rp.processEmoji(reading);
+        rp.processMath(reading);
+        rp.processAbbreviations(reading, opts);
+        rp.processHeadings(reading, opts);
+        rp.runMermaid(reading, Object.assign({ mermaidCache: new Map() }, opts)).catch(() => {});
+        rp.addCopyButtons(reading, opts);
+        rp.processCodeBlocks(reading, { hljs: window.hljs, cache: new Map(), lineNumbers: false });
+        rp.applyCodeScrollOverflow(reading, { codeScroll: true });
       }
     } catch (e) { }
+    // 等两侧 mermaid 全部落定（容器内出现 svg；串行渲染 + demo.md 多图，轮询到 10s 上限）
+    const tEnd = Date.now();
+    while (Date.now() - tEnd < 10000) {
+      let pend = 0;
+      const scan = (root) => {
+        if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('.mermaid-container').forEach((c) => {
+          if (!c.querySelector('svg')) pend++;
+        });
+      };
+      scan(reading);
+      try {
+        ed._wysiwygMarks.forEach((mark) => { if (mark && mark.replacedWith) scan(mark.replacedWith); });
+      } catch (_) {}
+      if (pend === 0) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
     // 滚回顶部，截图取文档首屏
     try { cm.scrollTo(0, 0); reading.scrollTop = 0; } catch (e) { }
     return { blocks: (ed._wysiwygBlocks || []).length };
@@ -632,6 +712,270 @@
       masksConsumed: maskCount === blocks - 1,
     };
     return window.__RESULT7;
+  };
+
+  // ---------- S9：[TOC] 目录（回归：异步 pass 生命周期 + 与阅读模式替换规则一致） ----------
+  // 遮罩内容统一从 mark 模型（mark.replacedWith）收集，与视口物化解耦。
+  function maskFindToc(ed) {
+    let found = null;
+    try {
+      ed._wysiwygMarks.forEach((mark) => {
+        if (!mark || !mark.replacedWith) return;
+        if (!found) found = mark.replacedWith.querySelector('.toc-wrapper');
+      });
+    } catch (_) {}
+    return found;
+  }
+  function maskCountTocLeft(ed) {
+    let n = 0;
+    try {
+      ed._wysiwygMarks.forEach((mark) => {
+        if (!mark || !mark.replacedWith) return;
+        mark.replacedWith.querySelectorAll('p').forEach((p) => {
+          if (/^\[TOC\]$/i.test((p.textContent || '').trim())) n++;
+        });
+      });
+    } catch (_) {}
+    return n;
+  }
+  window.__runToc = async function () {
+    const doc = [
+      '# 总标题',
+      '',
+      '[TOC]',
+      '',
+      '## 章节一',
+      '',
+      '内容一。',
+      '',
+      '### 小节 1.1',
+      '',
+      '小节内容。',
+      '',
+      '## 章节二',
+      '',
+      '内容二。',
+    ].join('\n');
+    const { cm, ed } = makeEditor(doc);
+    // 阅读侧参照物：整篇渲染 + preview-controller 同款替换（<p>[TOC]</p> 正则 + 同一份 toc HTML）
+    const reading = document.getElementById('reading');
+    const tocHtml = window.__mockGenerateToc(doc);
+    let readingHtml = window.UnifiedRenderer.renderMarkdown(doc, ed.settings);
+    readingHtml = readingHtml.replace(/<p[^>]*data-source-line="(\d+)"[^>]*>\[TOC\]<\/p>/gi,
+      '<div class="toc-wrapper" data-source-line="$1">' + tocHtml + '</div>');
+    reading.innerHTML = readingHtml;
+
+    ed.renderWysiwygMasks();
+    await sleep(500); // 等异步 TOC 替换落定
+    const maskTw1 = maskFindToc(ed);
+    const maskToc1 = maskTw1 ? maskTw1.querySelector('.toc') : null;
+    const readingToc = reading.querySelector('.toc-wrapper .toc');
+    const tocEqual = !!(maskToc1 && readingToc && maskToc1.innerHTML === readingToc.innerHTML);
+
+    // 光标移入 [TOC] 块（该块转源码态），再移出（重挂遮罩）→ TOC 必须再次注入且内容不变
+    cm.setCursor({ line: 2, ch: 0 }); // [TOC] 行 → 活动块
+    await sleep(300);
+    const activeIsToc = ed._wysiwygActiveIdx >= 0 &&
+      ed._wysiwygBlocks[ed._wysiwygActiveIdx].start <= 2 && 2 < ed._wysiwygBlocks[ed._wysiwygActiveIdx].end;
+    cm.setCursor({ line: 6, ch: 0 }); // 「内容一。」→ [TOC] 块重挂
+    await sleep(500);
+    const maskTw2 = maskFindToc(ed);
+
+    window.__RESULT_TOC = {
+      hasToc: !!maskTw1,
+      linkCount: maskToc1 ? maskToc1.querySelectorAll('a').length : 0,
+      tocEqual,
+      tocLeft: maskCountTocLeft(ed),
+      activeIsToc,
+      tocAfterRemask: !!maskTw2,
+    };
+    return window.__RESULT_TOC;
+  };
+
+  // ---------- S10：图片（回归：读盘 pass 时机 + 光标移动后重挂不得失效） ----------
+  function maskImgStats(ed) {
+    const TP = (window.ImageProcessor && window.ImageProcessor.TRANSPARENT_PIXEL) || '';
+    let total = 0, loaded = 0, transparent = 0, other = 0;
+    try {
+      ed._wysiwygMarks.forEach((mark) => {
+        if (!mark || !mark.replacedWith) return;
+        mark.replacedWith.querySelectorAll('img').forEach((img) => {
+          total++;
+          const s = img.getAttribute('src') || '';
+          if (TP && s === TP) transparent++;
+          else if (/^data:image\//.test(s)) loaded++;
+          else other++;
+        });
+      });
+    } catch (_) {}
+    return { total, loaded, transparent, other };
+  }
+  window.__runImages = async function () {
+    const doc = [
+      '# 图片测试',
+      '',
+      '段落甲。',
+      '',
+      '![图一](img1.png)',
+      '',
+      '段落乙。',
+      '',
+      '![图二](sub/img2.png)',
+      '',
+      '## 尾部',
+      '',
+      '结尾段落。',
+    ].join('\n');
+    const { cm, ed } = makeEditor(doc, { activeTab: { filePath: 'C:/docs/tizu.md', isBundled: false } });
+    ed.renderWysiwygMasks();
+    await sleep(600); // 图片 IPC 25ms × 2 + 余量
+    const s1 = maskImgStats(ed);
+
+    // 光标移入图一所在块（转源码态）→ 再移出（该块重挂遮罩）→ 图片 pass 必须仍能完成
+    cm.setCursor({ line: 4, ch: 0 });  // ![图一] 行
+    await sleep(300);
+    cm.setCursor({ line: 12, ch: 0 }); // 结尾段落
+    await sleep(600);
+    const s2 = maskImgStats(ed);
+
+    window.__RESULT_IMG = { entry: s1, afterMove: s2 };
+    return window.__RESULT_IMG;
+  };
+
+  // ---------- S11：长代码块按需滚动条（与阅读模式同条件同判据） ----------
+  function collectCodeScroll(root) {
+    const out = [];
+    root.querySelectorAll('.code-scroll').forEach((el) => {
+      out.push({ ov: el.style.overflowY || '', over: el.scrollHeight > el.clientHeight + 1 });
+    });
+    return out;
+  }
+  window.__runCodeScroll = async function () {
+    const longLines = [];
+    for (let i = 0; i < 40; i++) longLines.push('const line' + i + ' = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";');
+    const doc = [
+      '# 代码滚动',
+      '',
+      '```js',
+    ].concat(longLines, [
+      '```',
+      '',
+      '```txt',
+      'short one',
+      'short two',
+      '```',
+      '',
+      '结尾。',
+    ]).join('\n');
+    const { cm, ed } = makeEditor(doc);
+    const reading = document.getElementById('reading');
+    // 阅读侧参照物：渲染 + CodeBlock + 阅读模式同款按需滚动条（preview-controller.js 的 codeScroll !== false 分支）
+    reading.innerHTML = window.UnifiedRenderer.renderMarkdown(doc, ed.settings);
+    if (window.CodeBlock) CodeBlock.processCodeBlocks(reading, { hljs: window.hljs, cache: new Map(), lineNumbers: false });
+    collectCodeScroll(reading).forEach((x) => { /* 测量前先触发样式落定 */ });
+    reading.querySelectorAll('.code-scroll').forEach((el) => {
+      el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? 'auto' : 'hidden';
+    });
+    const r = collectCodeScroll(reading);
+
+    ed.renderWysiwygMasks();
+    await sleep(400); // flush + 布局落定
+    const w = [];
+    ed._wysiwygMarks.forEach((mark) => {
+      if (!mark || !mark.replacedWith) return;
+      collectCodeScroll(mark.replacedWith).forEach((x) => w.push(x));
+    });
+
+    // codeScroll=false：code-no-scroll 类接管（高度自适应、永不滚动）
+    ed.settings.codeScroll = false;
+    reading.classList.add('code-no-scroll');
+    ed.renderWysiwygMasks();
+    await sleep(400);
+    const noScroll = [];
+    ed._wysiwygMarks.forEach((mark) => {
+      if (!mark || !mark.replacedWith) return;
+      mark.replacedWith.querySelectorAll('.code-scroll').forEach((el) => {
+        noScroll.push({
+          cls: mark.replacedWith.classList.contains('code-no-scroll'),
+          ov: el.style.overflowY || '',
+          expanded: el.scrollHeight <= el.clientHeight + 1,
+        });
+      });
+    });
+
+    window.__RESULT_SCROLL = { wysiwyg: w, reading: r, noScroll };
+    return window.__RESULT_SCROLL;
+  };
+
+  // ---------- S12：Mermaid 图表（回归：批量渲染时机 + 并发/重挂） ----------
+  function maskMermaidStats(ed) {
+    let containers = 0, svgs = 0, codeLeft = 0;
+    try {
+      ed._wysiwygMarks.forEach((mark) => {
+        if (!mark || !mark.replacedWith) return;
+        mark.replacedWith.querySelectorAll('.mermaid-container').forEach((c) => {
+          containers++;
+          if (c.querySelector('svg')) svgs++;
+        });
+        codeLeft += mark.replacedWith.querySelectorAll('code.language-mermaid').length;
+      });
+    } catch (_) {}
+    return { containers, svgs, codeLeft };
+  }
+  window.__runMermaid = async function () {
+    const doc = [
+      '# 图表测试',
+      '',
+      '```mermaid',
+      'graph TD',
+      'A[开始] --> B[结束]',
+      '```',
+      '',
+      '## 中段标题',
+      '',
+      '```mermaid',
+      'sequenceDiagram',
+      'Alice->>Bob: 你好',
+      'Bob-->>Alice: 再见',
+      '```',
+      '',
+      '## 第三段',
+      '',
+      '```mermaid',
+      'graph LR',
+      'X --> Y',
+      '```',
+      '',
+      '结尾。',
+    ].join('\n');
+    const { cm, ed } = makeEditor(doc);
+    const reading = document.getElementById('reading');
+    reading.innerHTML = window.UnifiedRenderer.renderMarkdown(doc, ed.settings);
+
+    ed.renderWysiwygMasks();
+    await sleep(3000); // mermaid 渲染为秒级；3 块一次进入
+    const m1 = maskMermaidStats(ed);
+
+    // 阅读侧参照物：同一 processMermaid（独立缓存）
+    let readingSvgs = 0, readingContainers = 0;
+    try {
+      if (window.PreviewPost && typeof window.mermaid !== 'undefined') {
+        await window.PreviewPost.processMermaid(reading, { isDark: false, mermaidCache: new Map() });
+        await sleep(300);
+      }
+      readingSvgs = reading.querySelectorAll('.mermaid-container svg').length;
+      readingContainers = reading.querySelectorAll('.mermaid-container').length;
+    } catch (_) {}
+
+    // 光标移入第一张图所在块（转源码态）→ 再移出（重挂）→ 图必须恢复
+    cm.setCursor({ line: 2, ch: 0 });   // 第一张 mermaid 围栏首行
+    await sleep(300);
+    cm.setCursor({ line: 21, ch: 0 });  // 结尾段落
+    await sleep(2500);
+    const m2 = maskMermaidStats(ed);
+
+    window.__RESULT_MMD = { entry: m1, reading: { svgs: readingSvgs, containers: readingContainers }, afterMove: m2 };
+    return window.__RESULT_MMD;
   };
 })();
 </script>

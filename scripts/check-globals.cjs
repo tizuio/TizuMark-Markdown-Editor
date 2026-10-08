@@ -30,6 +30,7 @@ const KNOWN_GLOBALS = new Set([
   'PreviewWindow',
   'TauriApi',
   'ImageProcessor', // P1-1 新增：processImages 抽离为纯模块
+  'RenderPost', // 2026-10-11 新增：阅读/所见即所得共享后处理管线
   'Select', // 统一自绘下拉框组件（2026-08 引入）
   'FontPicker', // 字体选择器组件（2026-08 引入）
   'FileTypes', // 文件类型分类白名单（文件夹树 / 打开文件路由使用）

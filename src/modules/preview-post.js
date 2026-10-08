@@ -292,6 +292,17 @@ function processHeadings(preview, opts) {
   });
 }
 
+// 容器 id 的模块级序号：mermaid v11 内部为每张图生成 `mermaid-<Date.now()>` 形式的
+// 临时 id（非 deterministic 模式 next=()=>Date.now()），同一毫秒内并发 run() 多张图会
+// 撞上同一个内部 id（D3 selection 互相覆盖 → 部分图渲染不出来，2026-10-11 用户反馈
+// 「图表没加载出来」的成因之一）。容器 id 必须全局唯一且跨调用递增，
+// 不能只用 Date.now() + 块内 index（两个 processMermaid 调用同毫秒时 index 都是 0 起）。
+let mermaidIdSeq = 0;
+// mermaid.run 串行队列：同一时刻只允许一个 run 在跑。并发 run 除内部 id 碰撞外，
+// 还会交错读写 mermaid 单例内部状态（InitIDGenerator 等）导致随机渲染失败；
+// 串行后各调用按序完成，互不干扰。
+let mermaidRunQueue = Promise.resolve();
+
 async function processMermaid(preview, opts) {
   const { isDark, mermaidCache } = opts;
   if (typeof mermaid === 'undefined') return;
@@ -310,7 +321,7 @@ async function processMermaid(preview, opts) {
 
     const container = document.createElement('div');
     container.className = 'mermaid-container';
-    container.id = 'mermaid-' + Date.now() + '-' + index;
+    container.id = 'mermaid-' + Date.now() + '-' + (mermaidIdSeq = (mermaidIdSeq || 0) + 1);
     container.setAttribute('data-code', code);
     if (sourceLine) container.setAttribute('data-source-line', sourceLine);
 
@@ -329,7 +340,7 @@ async function processMermaid(preview, opts) {
   // 只渲染未命中的（命中复用的不再跑 mermaid.run，避免 "already rendered" 报错）
   if (toRender.length === 0) return;
 
-  try {
+  const runStep = async () => {
     mermaid.initialize({
       startOnLoad: false,
       theme: isDark ? 'dark' : 'default',
@@ -337,7 +348,12 @@ async function processMermaid(preview, opts) {
       securityLevel: 'strict',
       fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif',
     });
-    await mermaid.run({ nodes: toRender.map(x => x.container) });
+    try {
+      await mermaid.run({ nodes: toRender.map(x => x.container) });
+    } catch (e) {
+      if (typeof console !== 'undefined') console.error('Mermaid rendering error:', e);
+      return;
+    }
     // 渲染成功后存入缓存（仅缓存含 SVG 的成功结果，错误信息不缓存）
     if (mermaidCache) {
       for (const { container, cacheKey } of toRender) {
@@ -346,9 +362,12 @@ async function processMermaid(preview, opts) {
         }
       }
     }
-  } catch (e) {
-    if (typeof console !== 'undefined') console.error('Mermaid rendering error:', e);
-  }
+  };
+  // 串行执行（原因见文件内 mermaidRunQueue 注释）；队列本身吞掉错误，不让单个
+  // processMermaid 的失败阻塞后续调用
+  const runPromise = mermaidRunQueue.then(runStep, runStep);
+  mermaidRunQueue = runPromise.catch(() => {});
+  await runPromise;
 }
 
 // 取代码块原始文本（不含行号、保留缩进与换行）。

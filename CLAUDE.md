@@ -80,6 +80,7 @@ Skills 位于 `.claude/skills/` 目录，每个 skill 有独立的 `SKILL.md` �
 - **工具链目录从旧电脑整目录搬移**：跑 `scripts\fix-moved-toolchain.ps1` 把 vcvars64 环境变量持久化到用户环境（零下载）；
   若 `~/.cargo/bin` 出现 **0 字节空壳** rustc/cargo、或 `~/.rustup/toolchains/...` 文件数/体积明显偏小（完整工具链应有数百文件、数百 MB），用 `rustup toolchain uninstall/install stable-x86_64-pc-windows-msvc` 重装（仅几百 MB）。
 - **环境验证标准**：hello-world 真实走 `link.exe` 编译链接 + `src-tauri` 下 `cargo check` 通过（`-VerifyOnly` 模式自动完成）。
+- **playwright（无头浏览器对比测试）本机已全局安装**（2026-10-11，`npm i -g playwright`）：浏览器缓存在 `%LOCALAPPDATA%\ms-playwright`（chromium-1217/1234），`scripts/wysiwyg-browser-check.mjs` 自动解析全局包并在版本不匹配时回退缓存可执行文件。**直接运行 `node scripts/wysiwyg-browser-check.mjs`，不要重复 `npm install`**（换电脑且确认缺失时才装）。
 
 ## Release 发布流程
 

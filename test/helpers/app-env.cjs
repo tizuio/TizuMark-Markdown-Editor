@@ -228,7 +228,7 @@ async function buildEnv(options = {}) {
   const CRITICAL_MODULES = new Set([
     'code-block.js', 'preview-post.js', 'word-count.js', 'outline.js',
     'dialogs.js', 'find-replace.js', 'tauri-api.js', 'preview-window.js',
-    'image-processor.js',
+    'image-processor.js', 'render-post.js',
   ]);
 
   const priority = allModuleFiles.filter((f) => PRIORITY_MODULES.includes(f));

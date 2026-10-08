@@ -1,7 +1,7 @@
 # TizuMark 所见即所得（WYSIWYG）模式 — 剩余开发任务
 
 > 用途：本文件记录「所见即所得」模式的**剩余未开发项**，供换设备后继续开发时对照。
-> 状态时间：2026-10-08。已完成的根因修复见 `git log` 与本仓库 `.workbuddy/memory/`。
+> 状态时间：2026-10-11。已完成的根因修复见 `git log`。
 
 ## 1. 这是什么
 
@@ -12,14 +12,15 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
 
 | 文件 | 职责 |
 |---|---|
-| `src/modules/wysiwyg.js` | 核心遮罩模块：块划分、maskWysiwygBlock、点击锚定、滚动锚定、后处理 |
+| `src/modules/wysiwyg.js` | 核心遮罩模块：块划分、maskWysiwygBlock、点击锚定、滚动锚定、异步 pass 调度（flush） |
+| `src/modules/render-post.js` | **渲染后处理共享管线（RenderPost）**：两模式唯一共享后处理入口，2026-10-11 起新增 |
 | `src/modules/empty-hint.js` | 空行占位提示（"输入 / 可插入内容…"） |
 | `src/unified-renderer.js` | `renderMarkdownBlocks` 逐块渲染（与阅读模式同源，remark 切块） |
-| `src/controllers/preview-controller.js:206-222` | 阅读模式的后处理链：processEmoji/Math/Abbre/Headings/Mermaid/Images + CodeBlock |
-| `src/modules/preview-post.js` | Process* 系列预览后处理函数（被 wysiwyg 复用的就是这些） |
+| `src/controllers/preview-controller.js` | 阅读模式 render()：整篇单遍编排 RenderPost 各 stage（含代际检查/滚动恢复） |
+| `src/modules/preview-post.js` | Process* 系列预览后处理函数（RenderPost 各 stage 的底层实现；processMermaid 内含串行化+id 唯一化） |
 | `src/modules/code-block.js` | 代码高亮 + 行号 + 复制按钮 |
-| `scripts/wysiwyg-browser-check.mjs` + `_wysiwyg_compare.html` | 无头浏览器对比测试（真 Chromium，7 场景 45 项） |
-| `test/wysiwyg-blocks.test.cjs` / `test/view-mode-wysiwyg.test.cjs` | jsdom 回归 |
+| `scripts/wysiwyg-browser-check.mjs` + `_wysiwyg_compare.html` | 无头浏览器对比测试（真 Chromium，12 场景 60+ 项；harness 带 TauriApi mock + mermaid） |
+| `test/wysiwyg-blocks.test.cjs` / `test/view-mode-wysiwyg.test.cjs` / `test/wysiwyg-async-pass.test.cjs` | jsdom 回归 |
 
 ## 3. 已完成的里程碑
 
@@ -63,6 +64,24 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
    - **修复**：mousedown 两个分支（表格/普通比例映射）落光标前先 `setWysiwygActiveBlock(wysiwygBlockIndexAt(目标行))` 撤掉目标块标记——目标行先成为真实源码行再落光标，CM5 无从钳制。活动块索引按**目标行**查（增量刷新后闭包 idx 可能已位移）。实测：块中部点击 line 7/8（中部带内，修复前恒 12/4）、底边点击 line 11（块末两行内）。
    - **空行提示本身**：点空行光标落空行 + 显示提示是编辑器标准行为（提示纯显示、不插行），不修改；主修复后点击落准、误点空行概率大降。
    - **回归**：驱动新增**场景 8 点击落点**（真实 `page.mouse.click` 命中测试，每次点击前全新编辑器防污染）：块中部点击落中部带 [start+⌊n/3⌋, end-1-⌊n/3⌋]、点击块已撤遮罩成活动块、底边点击落块末两行。守护：`view-mode-wysiwyg.test.cjs`「点击遮罩块须先撤遮罩再落光标」。
+
+### 2026-10-11 — 四缺陷根因修复 + RenderPost 共享后处理管线（用户真机反馈：目录/图片/长代码滚动/图表）
+
+用户反馈所见即所得下 ① [TOC] 目录没加载 ② 有些图片没加载 ③ 长代码块不能滚动 ④ Mermaid 图表没加载，且要求「渲染逻辑和最终结果应与阅读模式完全一样、可复用」。
+
+**根因（先红后绿，全部经无头 Chromium 实测确认）**：
+
+1. **异步 pass 调用时机（①④② 共性）**：CM5 `markText({replacedWith})` 返回时 widget 节点**尚未接入 DOM**（`isConnected === false`）——`cursorActivity` 在 `setSelection` 的 operation **内部**同步触发（maskWysiwygBlock 的 markText 加入同一 op），挂遮罩当场调异步 pass 时节点没连上，`processImages`/`processMermaid`/`_wysiwygReplaceToc` 全部 early-return。`cm.refresh()` 也救不了：视口外行不物化。修复 = **延迟 flush**：`maskWysiwygBlock` 把节点登记进 `_wysiwygPendingAsync` + `_scheduleWysiwygAsyncFlush()`（setTimeout 0 去重），`flushWysiwygAsyncPasses()` 只对 `isConnected` 节点跑 pass、未落定的留待下次；`renderWysiwygMasks`（`cm.refresh()` 后）与 `updateWysiwygViewportMasks`（operation 后）各显式 flush 一次（全量模式 refresh 物化全文 → 首帧就绪；虚拟模式靠滚动物化 → 滚动落定即补跑）。
+2. **代数粒度（② 图片）**：`getRenderGeneration` 旧用**全局** `_wysiwygMaskGen`——`setWysiwygActiveBlock` 是「先重挂旧活动块、后撤新活动块」，撤后全局代数 +1 把刚启动的图片读盘判成过期。修复 = **节点级代数** `_wysiwygNodeGen`（node→gen Map）：`_dropWysiwygMaskNode`（unmask + 两处 mark.clear）只对**该节点** +1 并移出 pending；`clearWysiwygMasks` 重置全部。
+3. **codeScroll 条件写反 + 选择器错（③）**：阅读模式判据是「设置**开启**（`codeScroll !== false`，默认 true）才设 overflowY」，wysiwyg 手抄成 `=== false`（默认走 else，长代码被 `max-height:300px` 裁死）；且选择器写成 `.code-block-scroll`（真实类是 `.code-scroll`，code-block.js 生成）。
+4. **Mermaid 并发 id 碰撞（④ 叠加）**：mermaid v11 内部 per-diagram id = `mermaid-<Date.now()>`（`next=()=>Date.now()`，不确定），批量挂遮罩同毫秒并发 `run()` → 后渲染的图拿到已被占用的 id 静默跳过。修复（`preview-post.js`，阅读模式同样受益）：容器 id 加模块级自增序列 `mermaidIdSeq` + `mermaidRunQueue` promise 链把 `mermaid.run` 串行化（并发 ≤1）。
+5. **TOC 多段（① 叠加）**：`_wysiwygReplaceToc` 旧只取节点内**第一个** `<p>`，块内 [TOC] 段前有别的段落时永远匹配不上。修复：`querySelectorAll('p')` 过滤「内容恰为 [TOC]」逐个替换（与阅读模式整篇正则替换对齐）；每个 p 替换前查 `isConnected`；invoke 失败清 `_wysiwygToc` 可重试。
+
+**RenderPost 共享管线（用户「完全一样可以复用」的结构性落实）**：新增 `src/modules/render-post.js`（`window.RenderPost`），后处理 stage 收敛为两模式**唯一共享入口**——同步：`normalizeDetails / enableCheckboxes / processEmoji / processMath / processAbbreviations / processHeadings / addCopyButtons / processCodeBlocks`；异步：`prepareImages / runMermaid / applyCodeScrollOverflow`（codeScroll 条件唯一来源）。阅读模式 `preview-controller.render()` 与所见即所得 `_postProcessWysiwygNode` / `_wysiwygPostProcessAsync` 都改为编排这些 stage（阅读=整篇单遍含代际检查，遮罩=单块+DOM 落定后 flush）；[TOC] 因依赖整篇内容（Rust `generate_toc`）仍是两模式各自的整篇级替换。契约：故障隔离 + 幂等 + 不持模式状态。
+
+**验证**：浏览器 12 场景全绿（新增 S9 [TOC] 6 项 / S10 图片重挂回归 / S11 长代码滚动条双模式对照 + codeScroll=false / S12 mermaid 3 图渲染+重挂恢复；harness 加 TauriApi mock + mermaid 依赖 + 场景 5 阅读侧走 RenderPost 全链）；jsdom 新增 `test/wysiwyg-async-pass.test.cjs` 4 用例（TOC 非首段替换、TOC invoke 失败重试、flush 只跑已连接节点 + `_dropWysiwygMaskNode` 代数/pending 语义、mermaid 串行化 + id 唯一）；`view-mode-wysiwyg.test.cjs` / `code-block-scroll.test.cjs` 静态断言更新到 RenderPost 契约。
+
+**CM5 widget 时序探针结论**（探针文件已删，结论入 §5）：`replacedWith` 节点在 `markText` 返回后（自动 op 提交）、显式 `cm.operation` 返回后都**可能未连接**；视口外行 `cm.refresh()` 后仍不连接（滚动物化才连）——**凡依赖节点 DOM 的子 pass 必须等落定**（本仓实现 = pending + flush）。
 
 ## 4. 剩余任务清单（按优先级）
 
@@ -119,27 +138,32 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
    - `setSelection` 默认 `ensureCursorVisible` 会抢先滚动 → 必须 `{scroll:false}`；
    - cursorActivity 在 setSelection 的 operation 内触发，此时滚动被 CM 记 pending 冲掉 → 精确锚定必须在 setSelection 返回后做；
    - `scrollTo` 在 refresh 后 DOM 高度未落定时被 clamp → 用 `scrollIntoView`（margin 语义=行精确落在距视口顶 margin 处）。
-5. **`renderMarkdown` 只产结构 HTML**：KaTeX/highlight/图片/mermaid/emoji/缩写等都是预览端独立 pass，遮罩里不补跑就露源码。现已全接：同步 pass 在 `_postProcessWysiwygNode`（与阅读模式 `render()` 同序），异步 pass（图片/Mermaid/TOC/代码滚动条）在 `_wysiwygPostProcessAsync`，用 `_wysiwygMaskGen` 代数防旧请求写脏重建后的 DOM。
-6. **`data-source-line` 是块切片内相对行号**，不是整篇行号——回写源码须加 `block.start`（复选框回写已处理，其他回写逻辑要照做）。
-7. 遮罩后处理 `b.html` 缓存的是未后处理结构 HTML，每次挂遮罩都要重跑后处理（两个 pass 幂等，可重复）。
-8. **`cm.setOption('viewportMargin', n)` 的选项处理器自带 `cm.refresh()`**（codemirror.js 同步触发）——扩视口必须直接写 `cm.options.viewportMargin`，否则多一次全量重渲染（万行文档 ~1.8s）。
-9. **headless fullPage 截图伪影**：Playwright fullPage（captureBeyondViewport）不绘制原视口（默认 720px）以下 overflow 容器的内容，截图会「下半片空白」但 DOM 正常——整页截图先 `setViewportSize` 到整页高度再普通截图（驱动场景 5 已处理）。
-10. **全量模式增量刷新靠块源文本同一性**：`b.src`（块切片源码 join）是 diff 键——凡是从新源码重渲染了块 html 的地方（`setWysiwygActiveBlock` 旧块回遮罩、任务复选框切换）必须同步 `b.src = this._wysiwygBlockSource(b)`，否则下次增量刷新误判「源未变」保留过期遮罩。
+5. **`renderMarkdown` 只产结构 HTML**：KaTeX/highlight/图片/mermaid/emoji/缩写等都是预览端独立 pass，遮罩里不补跑就露源码。现已全接且**收敛到 `modules/render-post.js`（RenderPost 共享管线）**：阅读模式 `render()` 与遮罩 `_postProcessWysiwygNode`（同步 stage）/ `_wysiwygPostProcessAsync`（异步 stage）编排同一组 stage；新增后处理步骤必须加进 RenderPost 并让两模式都调，**不许再各写一份**（2026-10-11 四缺陷的根因就是两份手抄逻辑漂移）。节点级代数 `_wysiwygNodeGen`（node→gen Map，`_dropWysiwygMaskNode` 时 +1）防旧请求写脏重建后的 DOM；[TOC] 是整篇级例外（Rust `generate_toc`，见 render-post.js 文件头）。
+6. **CM5 `replacedWith` widget 落定时机（2026-10-11 探针实测）**：`markText` 返回后、显式 `cm.operation` 返回后，widget 节点都可能 `isConnected === false`；`cursorActivity` 在 `setSelection` 的 operation **内部**同步触发（maskWysiwygBlock 的 markText 加入同一 op）；视口外行 `cm.refresh()` 后**仍不连接**（只有滚动物化才连）。所以**凡是依赖节点已在 DOM 的子 pass（图片读盘/mermaid/TOC 替换/scrollHeight 测量）不能紧跟 markText 同步调**——本仓模式：登记 `_wysiwygPendingAsync` → 0 计时器 + 显式 flush 点（`renderWysiwygMasks` refresh 后、`updateWysiwygViewportMasks` operation 后）→ `flushWysiwygAsyncPasses` 只跑 `isConnected` 的。pass 必须幂等（重复 flush 安全）。
+7. **`data-source-line` 是块切片内相对行号**，不是整篇行号——回写源码须加 `block.start`（复选框回写已处理，其他回写逻辑要照做）。
+8. 遮罩后处理 `b.html` 缓存的是未后处理结构 HTML，每次挂遮罩都要重跑后处理（RenderPost 各 stage 幂等，可重复）。
+9. **`cm.setOption('viewportMargin', n)` 的选项处理器自带 `cm.refresh()`**（codemirror.js 同步触发）——扩视口必须直接写 `cm.options.viewportMargin`，否则多一次全量重渲染（万行文档 ~1.8s）。
+10. **headless fullPage 截图伪影**：Playwright fullPage（captureBeyondViewport）不绘制原视口（默认 720px）以下 overflow 容器的内容，截图会「下半片空白」但 DOM 正常——整页截图先 `setViewportSize` 到整页高度再普通截图（驱动场景 5 已处理）。
+11. **全量模式增量刷新靠块源文本同一性**：`b.src`（块切片源码 join）是 diff 键——凡是从新源码重渲染了块 html 的地方（`setWysiwygActiveBlock` 旧块回遮罩、任务复选框切换）必须同步 `b.src = this._wysiwygBlockSource(b)`，否则下次增量刷新误判「源未变」保留过期遮罩。
 
 ## 6. 本地验证命令
 
 ```bash
-# 无头浏览器对比（真实 CM5 + 真实渲染管线；playwright 按 PLAYWRIGHT_MODULE 环境变量
-# → 本地依赖 → 用户全局 npm 目录 依次解析，浏览器可执行文件自动扫 %LOCALAPPDATA%\ms-playwright 缓存）
+# 无头浏览器对比（真实 CM5 + 真实渲染管线 + TauriApi mock + mermaid；playwright 已全局安装，
+# 脚本按 PLAYWRIGHT_MODULE → 本地依赖 → 用户全局 npm 目录 解析，版本不匹配回退缓存可执行文件）
 node scripts/wysiwyg-browser-check.mjs
-# 结果：7 场景 45 项全绿（渲染同构、空行提示、点击锚定 0.4px、表格定位、复选框、
+# 结果：12 场景 60+ 项全绿（渲染同构、空行提示、点击锚定 0.4px、表格定位、复选框、
 #       KaTeX/高亮/emoji/缩写/标题锚点/复制按钮/details 对齐、行号隐藏、
 #       字号/行高/字体族/边距/底色与阅读模式一致、>10000 行虚拟遮罩、IME 守卫、
 #       滚动锚定 0px、场景 6 全量模式 3000 行快速滚动首跳 ≤0.3px + refresh 自愈、
-#       场景 7 按钮点击后台预渲染时序、场景 5 输出 demo.md 整篇双栏截图）
+#       场景 7 按钮点击后台预渲染时序、场景 8 点击落点、
+#       S9 [TOC] 目录遮罩/阅读同构 + 重挂注入、S10 图片加载 + 光标移动重挂回归、
+#       S11 长代码块按需滚动条双模式对照 + codeScroll=false 撑开、
+#       S12 Mermaid 遮罩内 3 图渲染 vs 阅读 + 重挂恢复、场景 5 输出 demo.md 整篇双栏截图）
 
-# jsdom 单测
-node --test test/wysiwyg-blocks.test.cjs test/view-mode-wysiwyg.test.cjs
+# jsdom 单测（全套或单文件；run-tests.cjs 按文件起子进程隔离 jsdom）
+node scripts/run-tests.cjs
+node scripts/run-tests.cjs "wysiwyg"   # 例：wysiwyg 相关（blocks/view-mode/async-pass）
 ```
 
 ## 7. 真机验收清单（每改一项逐项看）
@@ -149,8 +173,10 @@ node --test test/wysiwyg-blocks.test.cjs test/view-mode-wysiwyg.test.cjs
 - [ ] 遮罩**无灰色块底**，左右留白与阅读模式一致
 - [ ] 打开含数学公式的 md，遮罩块内公式已渲染（非 `$$...$$` 源码）
 - [ ] 代码块已语法高亮，复制按钮可点
-- [ ] 图片正常显示（本地相对路径）
-- [ ] Mermaid 图表渲染为 SVG，点击可放大
+- [ ] **长代码块出现滚动条可滚**（>300px 裁高；「代码块滚动条」设置关闭时高度撑开无滚动——与阅读模式同判据）
+- [ ] 图片正常显示（本地相对路径；光标移动遮罩重挂后图片仍在）
+- [ ] Mermaid 图表渲染为 SVG，点击可放大（多图批量不互相吞——id 碰撞已修）
+- [ ] [TOC] 段落渲染为目录（含块内 [TOC] 前有其他段落的情况；与阅读模式目录同构）
 - [ ] 点击渲染块内链接/锚点，跳到对应源码行（无大跳动）
 - [ ] 点击渲染块，光标行停在点击位置附近（无大跳动）
 - [ ] 滚动长文档，视口内容不漂移

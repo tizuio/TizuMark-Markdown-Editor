@@ -19,10 +19,12 @@ test('styles.css: .code-scroll 默认 overflow-y: hidden（防短代码显示滚
   assert.ok(/max-height:\s*300px/.test(block[0]), 'max-height: 300px 让较长的代码块（>10 行）就触发滚条，避免临界判断');
 });
 
-test('preview-controller.js: render 后处理 .code-scroll 按 scrollHeight/clientHeight 判溢出', () => {
-  assert.match(pcSrc, /querySelectorAll\(['"]\.code-scroll['"]\)/, '应遍历 .code-scroll');
+test('render 后处理 .code-scroll 按 scrollHeight/clientHeight 判溢出（RenderPost 共享 stage，两模式同一函数）', () => {
+  // 该逻辑收敛在 src/modules/render-post.js 的 applyCodeScrollOverflow（阅读模式 render()
+  // 与所见即所得遮罩异步 pass 共用），静态断言走生产顺序拼接的源码全集
+  assert.match(appSrc, /querySelectorAll\(['"]\.code-scroll['"]\)/, '应遍历 .code-scroll');
   assert.match(
-    pcSrc,
+    appSrc,
     /scrollHeight\s*>\s*el\.clientHeight\s*\+\s*1\s*\?\s*'auto'\s*:\s*'hidden'/,
     '按 scrollHeight/clientHeight+1 判溢出，溢出显式 auto（覆盖 CSS hidden）否则 hidden；注意不能清空 inline 让 CSS 接管（CSS 已是 hidden）',
   );
@@ -52,6 +54,9 @@ test('styles.css: 关闭「代码块滚动条」时 .preview-content.code-no-scr
   assert.ok(/overflow:\s*visible\s*!important/.test(block[0]), '应 overflow: visible 不出现滚动条');
 });
 
-test('preview-controller.js: 设置 codeScroll=false 时跳过 .code-scroll 溢出后处理（改由 CSS 撑开）', () => {
-  assert.match(pcSrc, /codeScroll\s*===\s*false/, '后处理循环应在 settings.codeScroll === false 时跳过，不写 inline overflowY');
+test('设置 codeScroll=false 时跳过 .code-scroll 溢出后处理（改由 CSS 撑开；条件唯一来源在共享管线）', () => {
+  assert.match(appSrc, /codeScroll\s*===\s*false/, '后处理应在 settings.codeScroll === false 时跳过，不写 inline overflowY');
+  // 两模式共用同一条件来源：阅读模式与遮罩都必须调 RenderPost.applyCodeScrollOverflow
+  assert.match(appSrc, /RenderPost\.applyCodeScrollOverflow\(this\.app\.preview/, '阅读模式未走共享滚动条 stage（条件会分叉）');
+  assert.match(appSrc, /RenderPost\.applyCodeScrollOverflow\(node/, '遮罩未走共享滚动条 stage（条件会分叉——曾写反成 === false）');
 });

@@ -9,7 +9,7 @@ const { checkGlobals, analyzeModules, KNOWN_GLOBALS } = require('../scripts/chec
 test('当前所有模块全局导出均在白名单内，无违规', () => {
   const r = checkGlobals(); // 读真实 src/modules/，只读不写
   assert.deepStrictEqual(r.violations, [], 'check-globals 不应有违规：' + r.violations.join('; '));
-  for (const g of ['CodeBlock', 'Dialogs', 'Outline', 'WordCount', 'FindReplace', 'PreviewPost']) {
+  for (const g of ['CodeBlock', 'Dialogs', 'Outline', 'WordCount', 'FindReplace', 'PreviewPost', 'RenderPost']) {
     assert.ok(KNOWN_GLOBALS.has(g), `白名单应包含 ${g}`);
     assert.ok(r.found.includes(g), `应检出全局 window.${g}`);
   }

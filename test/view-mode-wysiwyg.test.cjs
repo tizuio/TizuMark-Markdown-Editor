@@ -360,8 +360,9 @@ test('空行塌缩：updateWysiwygBlankLines 存在且增量挂类，光标所�
   assert.match(blk, /for \(const i of this\._wysiwygBlankLines\) this\._setWysiwygBlankClass\(i, false\);/,
     '清理未撤空行塌缩类（离开模式后空行仍是塌缩态）');
   // 两处调用：全量重建后 + 防抖补齐后
-  assert.match(wsrc, /cm\.refresh\(\); \} catch \(_\) \{ \/\* ignore \*\/ \}\n      this\.updateWysiwygBlankLines\(\);/,
-    '全量重建后未更新空行塌缩');
+  // 全量重建收尾：refresh 后必须先冲刷异步 pass（TOC/图片/图表首帧就绪），再更新空行塌缩
+  assert.match(wsrc, /cm\.refresh\(\); \} catch \(_\) \{ \/\* ignore \*\/ \}\n(?:[^\n]*\n)*?      this\.flushWysiwygAsyncPasses\(\);\n      this\.updateWysiwygBlankLines\(\);/,
+    '全量重建后未冲刷异步 pass / 未更新空行塌缩');
   assert.match(wsrc, /self\.updateWysiwygBlankLines\(\);/, '防抖补齐后未更新空行塌缩');
 });
 
@@ -469,38 +470,53 @@ test('活动块未变时也要消费点击锚点（残留会污染后续光标�
 
 // ---------- 12. 遮罩渲染后处理对齐（真机 demo.md：公式块露 $$ 源码） ----------
 
-test('遮罩须补跑预览后处理（与阅读模式 render() 同序全链）', () => {
+test('遮罩须补跑预览后处理（与阅读模式 render() 同序全链，走 RenderPost 共享管线）', () => {
   const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
   assert.match(wsrc, /_postProcessWysiwygNode\(node\)/, 'maskWysiwygBlock 未调用后处理');
-  // renderMarkdown 只产出结构 HTML，各 pass 都是预览端独立步骤（preview-controller render()），
-  // 遮罩里须逐一补跑（同步 pass 在 _postProcessWysiwygNode，异步 pass 在 _wysiwygPostProcessAsync）
+  // renderMarkdown 只产出结构 HTML，后处理统一走 RenderPost 共享管线（modules/render-post.js）：
+  // 与阅读模式 render() 同 stage 同顺序（同步 stage 在 _postProcessWysiwygNode，
+  // 异步 stage 在 _wysiwygPostProcessAsync 里 DOM 落定后补跑）
   const pIdx = wsrc.indexOf('_postProcessWysiwygNode(node) {');
-  const pblk = wsrc.slice(pIdx, pIdx + 4000);
-  assert.match(pblk, /PreviewPost\.processEmojiShortcodes\(node\)/, '未补跑 emoji 还原（遮罩里露 :rocket: 短码）');
-  assert.match(pblk, /PreviewPost\.processMath\(node\)/, '未补跑公式渲染（遮罩里会露原始 $$ 源码）');
-  assert.match(pblk, /PreviewPost\.processAbbreviations\(node, postOpts\)/, '未补跑缩写还原');
-  assert.match(pblk, /PreviewPost\.processHeadings\(node, postOpts\)/, '未补跑标题锚点 id（#链接跳转失效）');
-  assert.match(pblk, /PreviewPost\.addCopyButtons\(node, postOpts\)/, '未补跑代码块复制按钮');
-  assert.match(pblk, /CodeBlock\.processCodeBlocks\(node/, '未补跑代码高亮（遮罩里代码无高亮）');
+  const pblk = wsrc.slice(pIdx, pIdx + 2500);
+  assert.match(pblk, /RenderPost\.enableCheckboxes\(node\)/, '复选框未解禁（渲染态点不动）');
+  assert.match(pblk, /RenderPost\.processEmoji\(node\)/, '未补跑 emoji 还原（遮罩里露 :rocket: 短码）');
+  assert.match(pblk, /RenderPost\.processMath\(node\)/, '未补跑公式渲染（遮罩里会露原始 $$ 源码）');
+  assert.match(pblk, /RenderPost\.processAbbreviations\(node, postOpts\)/, '未补跑缩写还原');
+  assert.match(pblk, /RenderPost\.processHeadings\(node, postOpts\)/, '未补跑标题锚点 id（#链接跳转失效）');
+  assert.match(pblk, /RenderPost\.addCopyButtons\(node, postOpts\)/, '未补跑代码块复制按钮');
+  assert.match(pblk, /RenderPost\.processCodeBlocks\(node/, '未补跑代码高亮（遮罩里代码无高亮）');
   // 代码行号与阅读模式同源：看 #preview 的 code-line-numbers 类（同一设置写入，
-  // preview-controller:220 同款判据）
+  // preview-controller 同款判据）
   assert.match(pblk, /preview\.classList\.contains\('code-line-numbers'\)/, '代码行号未与阅读模式同源');
-  // remark-gfm 输出 disabled 复选框，渲染后须解禁（否则渲染态点不动）
-  assert.match(pblk, /removeAttribute\('disabled'\)/, '复选框未解禁');
   // 后处理要在 innerHTML 赋值之后、markText 之前对节点执行
   const mIdx = wsrc.indexOf('node.innerHTML = html;');
   const seg = wsrc.slice(mIdx, mIdx + 300);
   assert.match(seg, /_postProcessWysiwygNode\(node\)/, '后处理未紧跟 innerHTML 赋值');
+  // 共享管线本体必须真的调各 pass（两模式共用的渲染逻辑收敛在 render-post.js）
+  const rpIdx = bundle.indexOf('const RenderPost = {');
+  assert.ok(rpIdx > 0, '缺少 RenderPost 共享管线（两模式渲染逻辑必须同一入口）');
+  const rblk = bundle.slice(rpIdx, rpIdx + 9000);
+  assert.match(rblk, /PreviewPost\.processEmojiShortcodes\(container\)/, '共享管线未接 emoji pass');
+  assert.match(rblk, /PreviewPost\.processMath\(container\)/, '共享管线未接公式 pass');
+  assert.match(rblk, /PreviewPost\.processAbbreviations\(container, opts\)/, '共享管线未接缩写 pass');
+  assert.match(rblk, /PreviewPost\.processHeadings\(container, opts\)/, '共享管线未接标题锚点 pass');
+  assert.match(rblk, /PreviewPost\.addCopyButtons\(container, opts\)/, '共享管线未接复制按钮 pass');
+  assert.match(rblk, /CodeBlock\.processCodeBlocks\(container/, '共享管线未接代码高亮 pass');
+  assert.match(rblk, /removeAttribute\('disabled'\)/, '共享管线未解禁复选框');
 });
 
 test('遮罩异步 pass（图片/Mermaid/TOC）与排版同步、行号隐藏、锚点跳转齐备', () => {
   const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
-  // 异步 pass：挂遮罩后触发，代数（_wysiwygMaskGen）防旧请求写脏重建后的 DOM
-  assert.match(wsrc, /_wysiwygPostProcessAsync\(node, idx\)/, 'maskWysiwygBlock 未触发异步 pass');
-  assert.match(wsrc, /ImageProcessor\.processImages\(node/, '未补跑图片本地解析（相对路径图片不显示）');
-  assert.match(wsrc, /processMermaid\(node, postOpts\)/, '未补跑 Mermaid 渲染（遮罩里露源码）');
+  // 异步 pass：挂遮罩后登记，DOM 落定后由 flush 统一执行；节点级代数防旧请求写脏重建后的 DOM
+  assert.match(wsrc, /_wysiwygPostProcessAsync\(node, idx\)/, '缺少异步 pass 方法');
+  assert.match(wsrc, /RenderPost\.prepareImages\(node/, '未补跑图片本地解析（相对路径图片不显示）');
+  assert.match(wsrc, /RenderPost\.runMermaid\(node/, '未补跑 Mermaid 渲染（遮罩里露源码）');
+  assert.match(wsrc, /RenderPost\.applyCodeScrollOverflow\(node/, '未补跑代码块按需滚动条');
   assert.match(wsrc, /_wysiwygReplaceToc\(node\)/, '未补跑 [TOC] 目录替换');
   assert.match(wsrc, /_wysiwygMaskGen = \(this\._wysiwygMaskGen \|\| 0\) \+ 1/, '缺代数递增（遮罩重建后旧异步会写脏 DOM）');
+  // 共享管线必须真的接图片/mermaid pass
+  assert.match(bundle, /ImageProcessor\.processImages\(container/, '共享管线未接图片 pass');
+  assert.match(bundle, /processMermaid\(container, opts\)/, '共享管线未接 mermaid pass');
   // 排版同步：阅读模式的字号/行高/字体是 #preview 的内联样式，遮罩必须复制计算值
   assert.match(wsrc, /_wysiwygMaskTypography\(node\)/, 'maskWysiwygBlock 未同步排版');
   assert.match(wsrc, /getComputedStyle\(this\.preview\)/, '排版同步未读 #preview 计算值');
