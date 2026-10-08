@@ -55,6 +55,44 @@ test('viewmode: toggleViewMode 在 阅读/源码/所见即所得 三模式间循
   } finally { cleanup(w); }
 });
 
+test('viewmode: 全量增量刷新——同一源文本的重复块被删时 srcQueue 取空降级不崩', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    // 两个完全相同的段落 = 同一源文本键的多个块：删掉其中一个后，
+    // 增量刷新的 srcQueue 会提前取空——必须降级为撤遮罩，不能拿
+    // undefined 当新索引崩掉（2026-10-09 真机：重复行文档编辑即崩）。
+    // jsdom 环境无 UnifiedRenderer（挂不了真遮罩），直接构造块表 + 假标记
+    // 验证匹配循环逻辑本身。
+    ed.setViewMode('edit');
+    ed.cm.setValue('# 标题\n\n重复行段落。\n\n重复行段落。\n\n另一段落。\n');
+    ed.viewMode = 'wysiwyg';
+    const mkBlock = (start, end) => {
+      const b = { start, end, html: '<p>x</p>' };
+      b.src = ed._wysiwygBlockSource(b);
+      return b;
+    };
+    ed._wysiwygBlocks = [mkBlock(0, 1), mkBlock(2, 3), mkBlock(4, 5), mkBlock(6, 7)];
+    ed._wysiwygActiveIdx = 0;
+    const cleared = [];
+    const fakeMark = (id) => ({ id, clear() { cleared.push(id); }, replacedWith: null });
+    ed._wysiwygMarks = new Map([[1, fakeMark('m1')], [2, fakeMark('m2')], [3, fakeMark('m3')]]);
+
+    // 删掉第二个重复段落（行 4）→ 直接调增量刷新（不等 250ms 防抖）
+    ed.cm.replaceRange('', { line: 4, ch: 0 }, { line: 4, ch: Infinity });
+    ed._refreshWysiwygFullIncremental(); // 修复前这里抛 TypeError: Cannot set properties of undefined
+
+    assert.strictEqual((ed._wysiwygBlocks || []).length, 3, '删除后应重切为 3 块');
+    // 取空的那个旧标记（m2，第二个重复段落）必须被撤掉
+    assert.deepStrictEqual(cleared, ['m2'], '同一源文本队列取空时该旧遮罩应被撤除，实际: ' + JSON.stringify(cleared));
+    // 遮罩索引必须全部落在新块表内（无悬挂引用）
+    for (const idx of ed._wysiwygMarks.keys()) {
+      assert.ok(idx >= 0 && idx < 3, '遮罩块索引越界（悬挂引用）: ' + idx);
+    }
+    // 源未变的两个块（第一个重复段落 + 另一段落）复用旧标记
+    assert.strictEqual(ed._wysiwygMarks.size, 2, '源未变块应复用旧标记');
+  } finally { cleanup(w); }
+});
+
 test('viewmode: applyViewMode(preview) 加 preview-mode 类并隐藏侧栏', async () => {
   const { w, ed } = await makeEditor();
   try {

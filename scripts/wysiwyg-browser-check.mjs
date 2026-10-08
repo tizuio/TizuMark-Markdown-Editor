@@ -126,12 +126,13 @@ try {
   // ---------- 场景 3：长文档严格点击锚定 ----------
   await page.evaluate(() => window.__runAnchor());
   const a = await page.evaluate(() => window.__RESULT3);
-  console.log('\n=== 场景 3：长文档点击锚定（用户反馈「点击屏幕乱跳」的主场景）===');
+  console.log('\n=== 场景 3：长文档点击锚定（编辑器下移 ' + (a.offset || 0) + 'px 模拟真机工具栏，用户反馈「点击屏幕乱跳/每次点击往下滚」的主场景）===');
   for (const s of a.samples) console.log('  ' + (s ? JSON.stringify(s) : '无可见遮罩（跳过）'));
-  const inView = a.samples.filter(Boolean).every(s => s.top >= 0 && s.top < 600);
+  const off = a.offset || 0;
+  const inView = a.samples.filter(Boolean).every(s => s.top >= off && s.top < off + 600);
   const checks3 = [
     // 硬底线：被点中的源码行必须留在视口内——这才是「不乱跳」；像素级回到点击点只是锦上添花
-    [`每次点击后目标源码行都在视口内（0 ≤ top < 600）: ${inView}`, inView],
+    [`每次点击后目标源码行都在视口内（${off} ≤ top < ${off + 600}）: ${inView}`, inView],
     [`点击锚定精确到亚像素（最大偏差 ${a.maxGap}px，应 < 8）`, a.maxGap < 8],
     [`点击锚点已消费、无残留（残留会污染后续光标移动导致乱跳）: ${a.residualClean}`, a.residualClean],
   ];
@@ -207,6 +208,45 @@ try {
     [`预渲染块表被 50ms 计时器消费（遮罩 ${pf.maskCount}/${pf.blocks}，活动块除外）: ${pf.masksConsumed}`, pf.masksConsumed === true],
   ];
   for (const [label, ok] of checks7) {
+    console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+    if (!ok) fail++;
+  }
+
+  // ---------- 场景 8：点击落点（多行遮罩块点击落在点击比例对应的块内行） ----------
+  // 真实鼠标（page.mouse.click 走真实命中测试）；每次点击前 __clickLandingSetup 建全新编辑器，
+  // 避免活动块切换/异步布局污染坐标。
+  // 回归（2026-10-09 真机反馈「点击成块内容经常新增一行」）：CM5 把落在 replacedWith 标记
+  // 区间内部的 setSelection 位置钳制到标记首/末端——修复前点遮罩块中部，光标恒落到块首/块尾
+  // 行，用户反复点偏、点进块缝空行出现「输入 / 可插入内容…」提示行。修复：先撤遮罩再落光标，
+  // 点中部必须落在块中部。
+  const landings = [];
+  let landGeo = null;
+  for (const where of ['center', 'bottom-2']) {
+    const g = await page.evaluate(() => window.__clickLandingSetup());
+    if (g.error) { landings.push({ where, line: -1, text: '', inBlock: false, active: -2 }); break; }
+    if (g.ok) landGeo = g;
+    const y = where === 'center' ? (g.node.top + g.node.bottom) / 2 : g.node.bottom - 2;
+    await page.mouse.click(g.node.left + 200, y);
+    await new Promise(r => setTimeout(r, 300));
+    landings.push(await page.evaluate((w) => {
+      const cm = window.__landingCM, ed = window.__landingEd;
+      const cur = cm.getCursor().line;
+      return { where: w, line: cur, text: (cm.getLine(cur) || '').slice(0, 12), inBlock: ed.wysiwygBlockIndexAt(cur), active: ed._wysiwygActiveIdx };
+    }, where));
+  }
+  console.log('\n=== 场景 8：点击落点（多行遮罩块点击落在点击行） ===');
+  for (const l of landings) console.log(`  ${l.where}: line ${l.line}（"${l.text}"） inBlock=${l.inBlock} activeIdx=${l.active}`);
+  const L8 = landGeo ? landGeo.list : { start: 0, end: 0, lines: 0, blockIndex: -1 };
+  const midLo8 = L8.start + Math.floor(L8.lines / 3);
+  const midHi8 = L8.start + L8.lines - 1 - Math.floor(L8.lines / 3);
+  const c8 = landings.find(l => l.where === 'center');
+  const b8 = landings.find(l => l.where === 'bottom-2');
+  const checks8 = [
+    [`块中部点击落在中部带 [${midLo8},${midHi8}]（修复前 CM5 钳制到块首/尾行）: line=${c8 && c8.line}`, !!c8 && c8.line >= midLo8 && c8.line <= midHi8],
+    [`点击块已撤遮罩并成为活动块（activeIdx=${c8 && c8.active} === 块=${L8.blockIndex}）`, !!c8 && c8.active === L8.blockIndex],
+    [`块底边点击落在块末两行 [${L8.start + L8.lines - 2},${L8.end - 1}]: line=${b8 && b8.line}`, !!b8 && b8.line >= L8.start + L8.lines - 2 && b8.line <= L8.end - 1],
+  ];
+  for (const [label, ok] of checks8) {
     console.log(`  ${ok ? '✓' : '✗'} ${label}`);
     if (!ok) fail++;
   }

@@ -378,6 +378,12 @@
           const r = mark && mark.find ? mark.find() : null;
           if (!r) return;
 
+          // ⚠️ 定位光标前必须先 setWysiwygActiveBlock 撤掉本块遮罩（2026-10-09 实测）：
+          //    CM5 对落在 replacedWith 标记区间**内部**的 setSelection 位置会钳制到标记
+          //    首/末端——先落光标后撤遮罩（原实现走 cursorActivity 撤遮罩），光标恒落到
+          //    块首/块尾行，点块中间永远点不准；撤掉标记后目标行才是真实源码行。
+          //    活动块索引按「目标行」查（增量刷新后闭包 idx 可能已位移，行→块才是准的）。
+
           // 表格：点击哪一格 → 光标落到那一行的源码（阶段2 计划项「表格渲染态定位」）。
           // 源码行映射：第 0 个 tr 是表头行（= 块首行），其后每个 tbody 行 = 表头分隔行之后顺延。
           const cellEl = ev.target && ev.target.closest ? ev.target.closest('td,th') : null;
@@ -387,6 +393,7 @@
             const rowIdx = trs.indexOf(cellEl.closest('tr'));
             if (rowIdx >= 0) {
               const line = Math.min(r.from.line + rowIdx + (rowIdx > 0 ? 1 : 0), cm.lineCount() - 1);
+              self.setWysiwygActiveBlock(self.wysiwygBlockIndexAt(line));
               self._wysiwygClickAnchor = { y: ev.clientY, line };
               // ⚠️ 必须 scroll:false：CM 的 setSelection 默认会 ensureCursorVisible（codemirror.js:5195），
               //    它会自作主张滚一次，把行顶到视口边缘；而 scrollIntoView 判定「已可见」便不再动作，
@@ -407,6 +414,7 @@
             target = r.from.line + Math.floor(ratio * (r.to.line - r.from.line));
           }
           const line = Math.min(Math.max(target, 0), cm.lineCount() - 1);
+          self.setWysiwygActiveBlock(self.wysiwygBlockIndexAt(line));
           // 点击锚定：撤遮罩后把该源码行放回点击时的屏幕位置，杜绝点击后视口乱跳
           self._wysiwygClickAnchor = { y: ev.clientY, line };
           // 同上：scroll:false，避免 ensureCursorVisible 抢先滚动导致锚定失效
@@ -830,7 +838,13 @@
 
     // 点击锚定的真正执行点：必须由 mousedown handler 在 setSelection 返回之后调用。
     // 此时 CM 的 operation 已结束、DOM 已完成重排，滚动不会被 pending 机制冲掉。
-    // margin 语义经实测标定：目标行**精确落在距视口顶 margin 处**（80→80、337→337 线性）。
+    // ⚠️ 旧实现 scrollIntoView(pos, margin=click.y) 有两处缺陷（2026-10-09 真机「每次点击
+    //    都往下滚一段」）：1) scrollIntoView 的 margin 相对**编辑器视口顶**，click.y 是
+    //    **窗口坐标**——真机编辑器上方有工具栏+标签栏（约 100px+），基准错位使目标行恒落在
+    //    点击点下方「一个工具栏高」处（harness 里编辑器贴窗口顶、基准巧合重合，测不出来）；
+    //    2) margin 带内的行完全不做补偿，撤遮罩后行下移多少就停多少。
+    //    现改「事后测量 + 差值补偿」（与 _restoreWysiwygAnchor 光标锚点同机制）：点击位置
+    //    先换算为编辑器视口内坐标，再把被点源码行顶边精确放回点击处。
     _applyWysiwygClickAnchor() {
       const cm = this.cm;
       const click = this._wysiwygClickAnchor;
@@ -838,11 +852,22 @@
       if (!click || !cm) return;
       try {
         const pos = { line: Math.min(Math.max(click.line, 0), cm.lineCount() - 1), ch: 0 };
-        const vh = (cm.getWrapperElement() || {}).clientHeight || 0;
-        cm.scrollIntoView(pos, vh ? Math.max(8, Math.min(click.y, vh - 24)) : 80);
-        // 兜底：行高超过视口等极端情况下仍在视口外，拉回距顶 80px 至少保证可见
+        const wrapper = cm.getWrapperElement();
+        const vh = wrapper ? wrapper.clientHeight : 0;
+        // click.y 是窗口坐标，换算成相对编辑器视口顶的位置。
+        // ⚠️ 行位置也必须用同一基准：charCoords 的 'window' 坐标减 wrapper 顶。
+        //    不能用 'local'——CM5 的 'local' 是文档内容空间（heightAtLine+padding），
+        //    不是视口相对坐标，差值会是文档级大数被结构守卫误弃。
+        const wrapTop = (wrapper && wrapper.getBoundingClientRect) ? wrapper.getBoundingClientRect().top : 0;
+        const localY = click.y - wrapTop;
         const c = cm.charCoords(pos, 'window');
-        if (c && isFinite(c.top) && (c.top < 0 || (vh && c.top > vh - 20))) cm.scrollIntoView(pos, 80);
+        if (!c || !isFinite(c.top)) return;
+        const delta = c.top - wrapTop - localY; // >0：行顶已下移过点击处
+        if (!delta || !isFinite(delta)) return;
+        // 差值过大说明发生了结构级变化，此时补偿反而更糟，放弃
+        if (vh && Math.abs(delta) > vh) return;
+        const info = cm.getScrollInfo();
+        cm.scrollTo(info.left, info.top + delta);
       } catch (_) { /* 已销毁等，忽略 */ }
     },
 
@@ -991,9 +1016,14 @@
       const nextMarks = new Map(); // 新块索引 → 复用的旧标记
       for (const [oi, mark] of Array.from(this._wysiwygMarks || [])) {
         const ob = oldBlocks[oi];
-        if (!ob || !srcQueue.has(ob.src)) continue;
-        const ni = srcQueue.get(ob.src).shift();
+        // 同一源文本可能对应多个块（重复段落/列表项），队列按文档顺序消费；
+        // 其中一块被删/改写后队列会提前取空——取不到就撤掉该旧遮罩走重挂，
+        // 绝不能拿 undefined 当新索引（2026-10-09 真机：重复行文档编辑即崩）
+        const queue = ob ? srcQueue.get(ob.src) : undefined;
+        if (!ob || !queue || !queue.length) continue;
+        const ni = queue.shift();
         const nb = newBlocks[ni];
+        if (!nb) continue;
         nb.html = (ob.html !== undefined) ? ob.html : nb.html; // 复用缓存 html
         nextMarks.set(ni, mark);
         // 块索引位移：同步遮罩节点上的块号，点击映射才落对块

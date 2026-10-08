@@ -429,6 +429,13 @@
     const { cm, ed, host } = makeEditor(parts.join('\n'));
     ed.renderWysiwygMasks();
 
+    // 真机条件：编辑器不贴窗口顶（上方有工具栏+标签栏，约 100px+）。点击锚定必须把
+    // 窗口坐标 click.y 换算成编辑器视口内坐标，否则每次点击都会往下滚一个「工具栏高」
+    // （2026-10-09 用户反馈「每次点击都往下滚动一段距离」的复现条件）。
+    const OFFSET = 140;
+    const prevPad = document.body.style.paddingTop;
+    document.body.style.paddingTop = OFFSET + 'px';
+
     const samples = [];
     // 在文档中段连点 5 个遮罩，每次都要求「被点中的源码行顶边 ≈ 点击时的屏幕 y」
     for (let k = 0; k < 5; k++) {
@@ -465,7 +472,13 @@
       residual = ed._wysiwygClickAnchor; // 消费后必须为 null
     }
 
-    window.__RESULT3 = { samples, residualClean: residual === null || residual === undefined, maxGap: Math.max(...samples.filter(Boolean).map(s => s.gap)) };
+    document.body.style.paddingTop = prevPad;
+    window.__RESULT3 = {
+      offset: OFFSET,
+      samples,
+      residualClean: residual === null || residual === undefined,
+      maxGap: Math.max(...samples.filter(Boolean).map(s => s.gap)),
+    };
   };
 
   // ---------- 场景 4：虚拟模式滚动锚定 ----------
@@ -544,6 +557,45 @@
     return window.__RESULT6;
   };
 
+  // ---------- 场景 8 准备：点击落点（多行遮罩块点击必须落在点击比例对应的块内行） ----------
+  // 背景（2026-10-09 真机反馈「点击成块内容经常新增一行」）：CM5 会把落在 replacedWith
+  // 标记区间**内部**的 setSelection 位置钳制到标记首/末端。原实现先 setSelection 再靠
+  // cursorActivity 撤遮罩，故点多行块中部光标恒落到块首/块尾行，用户反复点偏、点进块缝
+  // 空行（12px 压缩行）就出现「输入 / 可插入内容…」提示行。修复：先撤遮罩再落光标。
+  // 本函数建最小文档（无异步内容、布局稳定）并返回列表遮罩几何（窗口坐标），
+  // 驱动用 page.mouse.click 走真实命中测试，每次点击前重新调用（全新编辑器，零污染）。
+  window.__clickLandingSetup = async function () {
+    const doc = [
+      '# 标题', '',
+      '段落甲，用于垫高。', '',
+      '- 项目一', '- 项目二', '- 项目三', '- 项目四', '- 项目五',
+      '- 项目六', '- 项目七', '- 项目八', '- 项目九',
+      '',
+      '段落乙。', '',
+      '结尾段。',
+    ].join('\n');
+    const { cm, ed, host } = makeEditor(doc);
+    ed.renderWysiwygMasks();
+    await new Promise(r => setTimeout(r, 400));
+    cm.setCursor(0, 0, { scroll: false }); // 光标远离列表，保持其遮罩态
+    await new Promise(r => setTimeout(r, 200));
+    const node = Array.from(host.querySelectorAll('.wysiwyg-block-mask'))
+      .find(n => n.querySelector('ul') && (n.textContent || '').includes('项目一'));
+    if (!node) return { error: 'no list mask' };
+    const idx = parseInt(node.getAttribute('data-block-index'), 10);
+    const lb = ed._wysiwygBlocks[idx];
+    cm.scrollTo(0, Math.max(0, cm.heightAtLine(lb.start) - 220));
+    await new Promise(r => setTimeout(r, 300));
+    const nr = node.getBoundingClientRect();
+    window.__landingCM = cm;
+    window.__landingEd = ed;
+    return {
+      ok: true,
+      list: { start: lb.start, end: lb.end, lines: lb.end - lb.start, blockIndex: idx },
+      node: { top: nr.top, bottom: nr.bottom, left: nr.left, width: nr.width },
+    };
+  };
+
   // ---------- 场景 7：按钮点击预渲染流程（后台预计算 → 完成后才切视图 → 消费块表） ----------
   // 模拟 theme.js setViewMode 拦截：beginWysiwygPreRender 启动（当前视图保持 edit），
   // 完成回调里 viewMode='wysiwyg' + applyViewMode（内部 clearWysiwygMasks）+ 50ms 计时器
@@ -560,7 +612,13 @@
       setTimeout(() => { if (self.viewMode === 'wysiwyg') self.renderWysiwygMasks(); }, 50);
     };
     const started = ed.beginWysiwygPreRender();
-    await new Promise(r => setTimeout(r, 400)); // 预渲染 50ms + applyViewMode 计时器 50ms + 余量
+    // 等预渲染完成并切视图：高负载机器上 1200 行全块预计算可超 1 秒，
+    // 固定等待必超时（曾误报「块表未被消费」），改轮询（上限 10s）
+    const tEnd = Date.now();
+    while (ed._wysiwygPreRendering && Date.now() - tEnd < 10000) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+    await new Promise(r => setTimeout(r, 300)); // 50ms 遮罩计时器消费 + 布局落定
     const maskCount = ed._wysiwygMarks ? ed._wysiwygMarks.size : 0;
     const blocks = (ed._wysiwygBlocks || []).length;
     window.__RESULT7 = {

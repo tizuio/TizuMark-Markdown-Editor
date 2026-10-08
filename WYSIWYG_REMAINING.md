@@ -51,8 +51,18 @@ TizuMark 是 Tauri v2 桌面 Markdown 编辑器，有三种视图：**阅读（p
   - 批量 DOM（全量挂/撤遮罩、空行挂类、离开清理）一律单 `cm.operation`——万行文档进出不卡数秒。
   - 取消路径：切别的模式 / 切标签（`syncViewModeToTab`）/ 打开文件（clearWysiwygMasks）都调 `_cancelWysiwygPreRender`（代数递增 + 清定时器 + 按钮还原 + 作废已存的切换锚点）。
 - **设计（>10000 行，虚拟模式）**：方向感知增强预取（`WYSIWYG_PREFETCH_MARGIN=200`，向下滚动下方 ×2 / 向上滚动上方 ×2，尾随侧保持 60），用户到达前遮罩已就绪。
-- **验收实测**（无头 Chromium，7 场景 45 项全绿）：3000 行全量重建 ~0.7s、任意位置首跳误差 ≤0.3px、`cm.refresh()` 后 0.41px 自愈；10400 行虚拟模式窗口遮罩 24–27 个；点击锚定 0.41px；滚动锚定漂移 0px。
+- **验收实测**（无头 Chromium，8 场景 48 项全绿，2026-10-09 同日三个修复后）：3000 行全量重建 ~0.7–2.4s（机器负载相关）、任意位置首跳误差 ≤0.3px、`cm.refresh()` 后 0.41px 自愈；10400 行虚拟模式窗口遮罩 24–27 个；点击锚定 0.41px；滚动锚定漂移 0px；点击落点（场景 8）中部点击落中部带、底边点击落块末两行。
 - **回归守卫**：`test/view-mode-wysiwyg.test.cjs` 新增第 14 节 9 用例（上限常量 / cm.options 直写 / setViewMode 拦截与取消 / 预渲染消费时序 / 增量刷新与源文本键 / 方向预取 / 单 operation 批量 / spinner + 三语言 i18n）；`test/view-mode.test.cjs` 三模式循环测试更新为异步预渲染契约（toggle 后预渲染在飞 → 完成后才切模式）。
+
+**2026-10-09 真机反馈三个修复（同日）**：
+
+1. **增量刷新重复源文本崩溃**：`_refreshWysiwygFullIncremental` 以块源文本做同一性匹配，两个块源文本相同（重复段落/列表行）且其一被删/改写时，同源队列提前取空 → `shift()` 得 `undefined` 当新索引 → `Cannot set properties of undefined (setting 'html')`（用户编辑重复行密集的 RELEASE_NOTES.md 即崩）。修复：取空前判队列空 + `!nb` 双守卫，取不到的旧遮罩降级为撤掉重挂。回归用例：`view-mode.test.cjs`「同一源文本的重复块被删时 srcQueue 取空降级不崩」。
+2. **每次点击往下滚一段**：点击锚定 `_applyWysiwygClickAnchor` 旧实现 `scrollIntoView(pos, margin=click.y)`——`click.y` 是**窗口坐标**而 `scrollIntoView` 的 margin 相对**编辑器视口顶**，真机编辑器上方有工具栏+标签栏（约 100px+），基准错位使目标行恒落在点击点下方「一个工具栏高」处；且 margin 带内的行完全不补偿。harness 里编辑器贴窗口顶、基准巧合重合，所以历次 0.41px 校准都测不出。修复：改「事后测量 + 差值补偿」（与 `_restoreWysiwygAnchor` 光标锚点同机制）——点击位置先减 `wrapper.getBoundingClientRect().top` 换算为视口内坐标，行顶用 `charCoords(pos,'window').top - wrapTop` 测（⚠️ 不能用 'local'——CM5 的 'local' 是文档内容空间 `heightAtLine+padding`，不是视口相对坐标），`cm.scrollTo(info.left, info.top + delta)` 精确放回点击处（结构级变化守卫：|delta| > vh 放弃）。场景 3 现下移编辑器 140px 模拟真机工具栏（旧实现此条件下量出 ≈140px 偏差，修复后 0.91px），回归可测。
+3. **点击成块内容光标落错行（「经常出现新增一行」）**：用户截图所见即所得下列表遮罩 + 下方空行出现「输入 / 可插入内容…」提示。排查结论（无头 Chromium 真实鼠标审计，`_wysiwyg_compare.html` `__clickLandingSetup` + 驱动场景 8）：
+   - **根因（主）**：CM5 会把落在 `replacedWith` 标记区间**内部**的 `setSelection` 位置**钳制到标记首/末端**（实测：9 行列表块 [4,12]，setSelection(7) 光标到 12、setSelection(11) 也到 12、setSelection(6,ch0) 到 4）。原实现先 `setSelection(点击比例行)` 再靠 setSelection 操作内的 cursorActivity 撤遮罩——位置被钳制时标记还在，光标恒落到块首/块尾行；用户点不准反复点，点进块与块之间 12px 压缩空行，光标落空行 → 空行提示（纯 CSS 显示，不插入内容）显现，观感即「新增一行」。
+   - **修复**：mousedown 两个分支（表格/普通比例映射）落光标前先 `setWysiwygActiveBlock(wysiwygBlockIndexAt(目标行))` 撤掉目标块标记——目标行先成为真实源码行再落光标，CM5 无从钳制。活动块索引按**目标行**查（增量刷新后闭包 idx 可能已位移）。实测：块中部点击 line 7/8（中部带内，修复前恒 12/4）、底边点击 line 11（块末两行内）。
+   - **空行提示本身**：点空行光标落空行 + 显示提示是编辑器标准行为（提示纯显示、不插行），不修改；主修复后点击落准、误点空行概率大降。
+   - **回归**：驱动新增**场景 8 点击落点**（真实 `page.mouse.click` 命中测试，每次点击前全新编辑器防污染）：块中部点击落中部带 [start+⌊n/3⌋, end-1-⌊n/3⌋]、点击块已撤遮罩成活动块、底边点击落块末两行。守护：`view-mode-wysiwyg.test.cjs`「点击遮罩块须先撤遮罩再落光标」。
 
 ## 4. 剩余任务清单（按优先级）
 

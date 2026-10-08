@@ -433,11 +433,29 @@ test('锚定须在 setSelection 返回后执行（operation 内滚动会被 pend
   const rblk = wsrc.slice(rIdx, rIdx + 700);
   assert.match(rblk, /if \(this\._wysiwygClickAnchor\) \{ this\._wysiwygAnchorY = null; return; \}/,
     '_restoreWysiwygAnchor 仍在 operation 内滚动（会被 CM pending 机制冲掉）');
-  // 锚定用 scrollIntoView（走 CM 内部行模型），不用 scrollTo（DOM 未更新会被 clamp）
+  // 锚定用「事后测量 + 差值补偿」：点击位置必须换算为编辑器视口内坐标（旧实现拿窗口坐标
+  // click.y 直接当 scrollIntoView 的 margin，真机编辑器上方的工具栏导致基准错位，每次点击
+  // 往下滚一个工具栏高，2026-10-09 用户反馈），再 scrollTo 补偿差值把行顶放回点击处
   const aIdx = wsrc.indexOf('_applyWysiwygClickAnchor() {');
-  const ablk = wsrc.slice(aIdx, aIdx + 900);
-  assert.match(ablk, /cm\.scrollIntoView\(pos,/, '锚定未用 scrollIntoView');
-  assert.ok(!/cm\.scrollTo\(/.test(ablk), '锚定不应使用 scrollTo（refresh 后 DOM 高度未落定会被 clamp）');
+  const ablk = wsrc.slice(aIdx, aIdx + 1600);
+  assert.match(ablk, /getBoundingClientRect\(\)\.top/, '点击锚点未换算为编辑器视口坐标（真机有工具栏，窗口坐标基准错位）');
+  assert.match(ablk, /cm\.scrollTo\(info\.left, info\.top \+ delta\);/, '点击锚定未做差值补偿（行顶回不到精确点击处）');
+  assert.match(ablk, /Math\.abs\(delta\) > vh/, '点击锚定缺少结构级变化守卫（差值过大应放弃补偿）');
+  assert.ok(!/cm\.scrollIntoView\(pos,/.test(ablk), '点击锚定仍在用 scrollIntoView margin 机制（margin 带内不补偿 + 坐标基准错位）');
+});
+
+test('点击遮罩块须先撤遮罩再落光标（CM5 会钳制标记区间内的 setSelection 位置）', () => {
+  const wsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'wysiwyg.js'), 'utf8');
+  const md = mousedownBlock(wsrc);
+  // CM5 对落在 replacedWith 标记区间**内部**的 setSelection 位置会钳制到标记首/末端
+  // （2026-10-09 实测：点多行块中部，光标恒落到块尾/块首行，用户反复点偏）。
+  // 落光标前必须先 setWysiwygActiveBlock 撤掉本块标记，让目标行成为真实源码行；
+  // 活动块索引按「目标行」查（增量刷新后闭包 idx 可能已位移，行→块才是准的）。
+  const hits = md.match(/setWysiwygActiveBlock\(self\.wysiwygBlockIndexAt\(/g) || [];
+  assert.ok(hits.length >= 2, `表格/普通两个点击分支都须先撤目标块遮罩，实得 ${hits.length}`);
+  const firstAct = md.search(/setWysiwygActiveBlock\(self\.wysiwygBlockIndexAt\(/);
+  const firstSel = md.search(/cm\.setSelection\(/);
+  assert.ok(firstAct >= 0 && firstSel > firstAct, '撤遮罩发生在 setSelection 之后（标记未清时落光标必被 CM5 钳制）');
 });
 
 test('活动块未变时也要消费点击锚点（残留会污染后续光标移动）', () => {
