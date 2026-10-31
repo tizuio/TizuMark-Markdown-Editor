@@ -238,12 +238,30 @@ function looksLikeMath(inner) {
   return false;
 }
 
-// LaTeX 定界符 \(...\) / \[...\] 的保守判定：inner 须具备 LaTeX 数学特征才当公式。
-// 只认「反斜杠命令（\frac/\alpha/\pi...）」与上标（^）；
-// 刻意不含运算符/花括号/下划线（旧版无条件拦截曾把文献引用 \[J/OL\] 误判为块级公式，
-// v1.2.2 因此移除；下划线常见于文件名/标识符如 my_paper_v2，作特征会误判，下标请用 $a_i$）。
+// LaTeX 定界符判定。行内与块级刻意采用**不同**策略，因为两者的冲突面不同：
+//
+//  - 块级 \[...\]：保守。只认「反斜杠命令（\frac/\alpha/\pi...）」与上标（^）。
+//    旧版无条件拦截曾把文献引用 \[J/OL\]、\[1\] 误判为块级公式（v1.2.2 因此收紧）；
+//    下划线/方括号都不能作特征——文件名 my_paper_v2 之类会误判。
+//  - 行内 \(...\)：宽松。\(...\) 是 KaTeX 生态的标准行内定界符，作者写出即显式声明为公式。
+//    漏判代价（公式退化成字面括号，如 (S_{k,t} = 1.0)）远高于误判，且实测真实文档中
+//    30% 的行内公式因「无命令无上标」被漏判。故默认按公式处理，只在两种明确不是数学时
+//    回退：inner 含中文（夹注，如 \(见附录\)）、含连续英文单词（散文，如 \(hello world\)）。
 function looksLikeLatexMath(inner) {
   return /\\[a-zA-Z]+|\^/.test(inner);
+}
+
+// 行内 \(...\) 专用判定：默认是公式，仅排除「明显不是数学」的情形。
+// 判定顺序有意如此——先认反斜杠命令：\text{max value}、\mathrm{drift} 这类命令里的
+// 自然语言是公式内容的一部分，不能被后面的散文规则误杀。
+// 注意不要复用块级的 looksLikeLatexMath——那会让 (k)、(T_S)、(F=5) 这类合法公式退化。
+function looksLikeInlineLatexMath(inner) {
+  const t = inner.trim();
+  if (!t) return false;                                                   // \(\)
+  if (/\\[a-zA-Z]+/.test(t)) return true;                                 // 显式 LaTeX 命令 → 公式
+  if (/[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/.test(t)) return false;  // 中文/全角标点 → 夹注
+  if (/[A-Za-z]{2,}[ \t]+[A-Za-z]{2,}/.test(t)) return false;             // 连续英文单词 → 散文
+  return true;
 }
 
 function guardMathBlocks(content) {
@@ -355,10 +373,9 @@ function guardMathBlocks(content) {
       continue;
     }
 
-    // LaTeX 定界符 \(...\) / \[...\]：保守恢复（v1.2.0 曾无条件支持，v1.2.2 因与 CommonMark
-    // 转义冲突——文献引用 \[J/OL\] 被误判为公式——而移除）。现仅当「同段闭合 + inner 具备
-    // LaTeX 数学特征（looksLikeLatexMath）」才归一化为 $/$$ 交给 KaTeX；否则原样输出，
-    // 交由 CommonMark 转义渲染为字面 ( ) [ ]。数学也可直接用 $ / $$（GitHub 同款语义）。
+    // LaTeX 定界符 \(...\) / \[...\]：行内宽松、块级保守（判定差异见 looksLikeInlineLatexMath
+    // 上方注释）。块级 v1.2.0 曾无条件支持，v1.2.2 因与 CommonMark 转义冲突——文献引用
+    // \[J/OL\] 被误判为公式——而收紧。数学也可直接用 $ / $$（GitHub 同款语义）。
     else if (!inBacktick && content[i] === '\\' && content[i + 1] === '(') {
       // 行内 LaTeX：\( ... \) — 仅限单行，遇换行未闭合即回退字面量（与行内 $...$ 一致）。
       const start = i;
@@ -373,7 +390,7 @@ function guardMathBlocks(content) {
         }
         j++;
       }
-      if (inner !== null && looksLikeLatexMath(inner)) {
+      if (inner !== null && looksLikeInlineLatexMath(inner)) {
         const idx = placeholders.length;
         placeholders.push({ text: '$' + inner + '$', display: false });
         result += '<!--MATHBLOCK_' + idx + '-->';
