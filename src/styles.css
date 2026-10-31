@@ -1902,6 +1902,48 @@ body.is-resizing .side-btn {
 
 .resizer:hover { background-color: var(--accent-color); }
 
+/* 分屏方向切换按钮（拖拽条中央）：仅编辑分屏（双栏均可见）态显示，单栏/折叠态隐藏 */
+.split-orientation-btn {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  z-index: 6;
+}
+.split-orientation-btn svg { width: 12px; height: 12px; }
+.split-orientation-btn:hover { color: var(--accent-color); border-color: var(--accent-color); }
+.editor-container:not(.preview-mode):not(.wysiwyg-mode):not(.text-only):not(.editor-collapsed):not(.preview-collapsed) #btn-split-orientation {
+  display: flex;
+}
+/* 上下分屏：仅编辑器+预览双栏区（.editor-row）纵向排列，左侧文件/大纲侧栏不受影响 */
+.editor-row.split-vertical { flex-direction: column; }
+.editor-row.split-vertical #resizer { width: auto; height: 6px; cursor: row-resize; }
+.editor-row.split-vertical #btn-split-orientation { transform: translate(-50%, -50%) rotate(90deg); }
+/* 纵向分屏：pane 在 column 容器交叉轴（宽度）需显式撑满，避免被内容宽度压窄导致错位 */
+.editor-row.split-vertical .editor-pane,
+.editor-row.split-vertical .preview-pane { width: 100%; }
+/* 纵向拖拽时的全局光标与禁用过渡（与侧栏 is-resizing-row 体系一致） */
+body.is-resizing-row,
+body.is-resizing-row * { cursor: row-resize !important; user-select: none !important; }
+body.is-resizing-row .editor-pane,
+body.is-resizing-row .preview-pane,
+body.is-resizing-row .outline-sidebar { transition: none !important; }
+/* 上下分屏 + 折叠：折叠面板在纵向下应收缩高度（原宽度规则在 column 下无效） */
+.editor-container.editor-collapsed .editor-row.split-vertical .editor-pane { flex: 0; min-height: 0; height: 0; }
+.editor-container.preview-collapsed .editor-row.split-vertical .preview-pane { flex: 0; min-height: 0; height: 0; }
+
 .outline-resizer {
   width: 4px;
   flex-shrink: 0;

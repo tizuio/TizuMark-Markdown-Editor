@@ -465,7 +465,11 @@
             </div>
             <div id="editor-wrapper"></div>
           </div>
-          <div class="resizer" id="resizer"></div>
+          <div class="resizer" id="resizer" title="拖动调整分屏比例，双击切换左右/上下分屏">
+            <button id="btn-split-orientation" class="split-orientation-btn" type="button" title="切换分屏方向" aria-label="切换分屏方向">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 8h8v8H8z"/></svg>
+            </button>
+          </div>
           <div class="preview-pane" id="preview-pane">
             <div id="preview-wrapper">
               <div id="preview" class="preview-content"></div>
@@ -1381,6 +1385,8 @@
     <div class="context-menu-separator"></div>
     <div class="context-menu-item" data-action="tab-copy-path"><span>复制文件路径</span></div>
     <div class="context-menu-item" data-action="tab-open-containing"><span>打开所在目录</span></div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item" data-action="tab-rename"><span>重命名</span></div>
   </div>
 
   <!-- 文件树右键菜单：action 用 file- 前缀避免与编辑器菜单的 cut/copy/paste 冲突（合并自 PR #36） -->

@@ -260,6 +260,8 @@ class MarkdownEditor {
     window.addEventListener('resize', () => {
       this.updateMaximizeIcon();
       this.updateSideButtons();
+      // 纵向分屏用像素高度，窗口缩放时按新容器高度重算（横向用 flex 比例，重算幂等）
+      this.applyPreviewPaneWidth();
     });
 
     // 应用退出时全量 revoke Blob URL，避免 WebView 存活期内泄漏（LRU 兜底外的一刀切）
@@ -362,6 +364,7 @@ class MarkdownEditor {
       case 'tab-close-all': this.closeAllTabs(); break;
       case 'tab-copy-path': this.copyTabPath(this._contextTabIndex); break;
       case 'tab-open-containing': this.openTabContainingFolder(this._contextTabIndex); break;
+      case 'tab-rename': this.renameTabByIndex(this._contextTabIndex); break;
 
       case 'folder-open-containing': this.openContainingFolder(this._folderCtxPath, this._folderCtxIsDir); break;
       case 'folder-copy-path': this.copyPath(this._folderCtxPath); break;

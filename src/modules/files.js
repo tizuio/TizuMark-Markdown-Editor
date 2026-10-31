@@ -692,6 +692,52 @@
           this.showToast(this.t('fileRenameFailed') + ': ' + e, 'danger');
         }
       },
+      // 标签页右键「重命名」：已保存文件则重命名磁盘 + 同步 tab；未保存标签仅改显示名。
+      // 与 fileTreeRename 共享 showPromptDialog / validateFileName / baseName / parentPath /
+      // joinPath / pathExists / TauriApi.renamePath，不重复造轮子（2026-10-31 新增）。
+      async renameTabByIndex(index) {
+        if (typeof index !== 'number' || index < 0 || index >= this.tabs.length) return;
+        const tab = this.tabs[index];
+        if (!tab) return;
+        const oldName = tab.filePath ? this.baseName(tab.filePath) : tab.name;
+        let newName = await this.showPromptDialog({
+          title: this.t('fileRename'),
+          message: this.t('renamePrompt'),
+          value: oldName,
+          selectBase: true
+        });
+        if (newName === null) return;
+        if (!tab.filePath) {
+          // 未保存（新建）标签：仅改显示名，不动磁盘
+          newName = newName.trim();
+          if (!newName) return;
+          tab.name = newName;
+          this.updateTabBar();
+          return;
+        }
+        // 已保存文件：用户漏输扩展名且原名有扩展名（非隐藏文件，点号在 >0 位置）时自动补回
+        if (!newName.includes('.') && oldName.includes('.') && oldName.lastIndexOf('.') > 0) {
+          newName += oldName.slice(oldName.lastIndexOf('.'));
+        }
+        const err = this.validateFileName(newName);
+        if (err) { this.showToast(err, 'danger'); return; }
+        if (newName === oldName) return;
+        const parent = this.parentPath(tab.filePath);
+        const newPath = this.joinPath(parent, newName);
+        if (await this.pathExists(newPath)) { this.showToast(this.t('nameExists'), 'danger'); return; }
+        try {
+          await TauriApi.renamePath({ from: tab.filePath, to: newPath });
+          tab.filePath = newPath;
+          tab.name = newName;
+          this.updateTabBar();
+          this.saveSession();
+          this.renderFolderTree();
+          await this.refreshFileMeta(tab);
+          this.setStatus(this.t('fileRename') + ': ' + oldName + ' → ' + newName);
+        } catch (e) {
+          this.showToast(this.t('fileRenameFailed') + ': ' + e, 'danger');
+        }
+      },
       async fileTreeDelete() {
         const ctx = this._fileTreeCtx;
         if (!ctx) return;

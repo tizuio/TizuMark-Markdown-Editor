@@ -802,68 +802,186 @@
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const outlineSidebar = document.getElementById('outline-sidebar');
+        // 分屏方向只作用于「编辑器+预览」双栏区（.editor-row），左侧文件/大纲侧栏是 container 的
+        // 另一个子元素，与分屏方向无关
+        const splitRow = document.querySelector('.editor-row') || container;
         let isResizing = false;
         let startX = 0;
+        let startY = 0;
         let startEditorWidth = 0;
-  
+        let startEditorHeight = 0;
+        let vertical = false;
+
+        const isVertical = () => splitRow.classList.contains('split-vertical');
+
         const onMouseMove = (e) => {
           if (!isResizing) return;
-          const delta = e.clientX - startX;
-          const newEditorWidth = startEditorWidth + delta;
-          const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
-          const resizerWidth = resizer.offsetWidth;
-          const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
-          const editorPercent = (newEditorWidth / totalContentWidth) * 100;
-          if (editorPercent > 20 && editorPercent < 80) {
-            const editorRatio = editorPercent / 100;
-            const previewRatio = 1 - editorRatio;
-            editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
-            previewPane.style.flex = previewRatio.toFixed(4) + ' 0 0px';
-            editorPane.style.width = '';
-            previewPane.style.width = '';
-            this._editorPercent = editorPercent;
-            this.cm.refresh();
-            this.updateSideButtons();
+          if (vertical) {
+            const delta = e.clientY - startY;
+            const newEditorHeight = startEditorHeight + delta;
+            const resizerH = resizer.offsetHeight;
+            const totalContentH = splitRow.offsetHeight - resizerH;
+            const editorPercent = (newEditorHeight / totalContentH) * 100;
+            if (editorPercent > 20 && editorPercent < 80) {
+              const editorRatio = editorPercent / 100;
+              const previewRatio = 1 - editorRatio;
+              // 纵向分屏用像素高度（flex-grow 在 column 容器里分不出高度，会白屏）
+              editorPane.style.flex = '0 0 auto';
+              previewPane.style.flex = '0 0 auto';
+              editorPane.style.height = newEditorHeight + 'px';
+              previewPane.style.height = (totalContentH - newEditorHeight) + 'px';
+              this._editorPercent = editorPercent;
+              this.cm.refresh();
+              this.updateSideButtons();
+            }
+          } else {
+            const delta = e.clientX - startX;
+            const newEditorWidth = startEditorWidth + delta;
+            const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
+            const resizerWidth = resizer.offsetWidth;
+            const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
+            const editorPercent = (newEditorWidth / totalContentWidth) * 100;
+            if (editorPercent > 20 && editorPercent < 80) {
+              const editorRatio = editorPercent / 100;
+              const previewRatio = 1 - editorRatio;
+              editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
+              previewPane.style.flex = previewRatio.toFixed(4) + ' 0 0px';
+              editorPane.style.width = '';
+              previewPane.style.width = '';
+              this._editorPercent = editorPercent;
+              this.cm.refresh();
+              this.updateSideButtons();
+            }
           }
         };
-  
+
         const onMouseUp = () => {
           if (!isResizing) return;
           isResizing = false;
-          document.body.classList.remove('is-resizing');
-          // 保存预览区宽度到设置（合并自 PR #36）
-          const pw = previewPane.getBoundingClientRect().width;
-          this.settings.previewPaneWidth = Math.round(pw);
+          document.body.classList.remove('is-resizing', 'is-resizing-row');
+          const ph = vertical ? previewPane.getBoundingClientRect().height : previewPane.getBoundingClientRect().width;
+          if (vertical) {
+            // 纵向：持久化编辑器高度占比（与窗口宽度无关，跨窗体缩放稳定）
+            const total = splitRow.offsetHeight - resizer.offsetHeight;
+            this.settings.editorSplitRatioV = Math.min(0.8, Math.max(0.2, (total - ph) / total));
+          } else {
+            // 横向：持久化预览区宽度（合并自 PR #36）
+            this.settings.previewPaneWidth = Math.round(ph);
+          }
           this.saveSettings();
-          document.documentElement.style.setProperty('--preview-pane-width', Math.round(pw) + 'px');
+          if (vertical) {
+            document.documentElement.style.setProperty('--preview-pane-height', Math.round(ph) + 'px');
+          } else {
+            document.documentElement.style.setProperty('--preview-pane-width', Math.round(ph) + 'px');
+          }
         };
-  
+
         resizer.addEventListener('mousedown', (e) => {
+          // 按钮区域不触发拖拽（点击由其自身处理器接管方向切换）
+          if (e.target.closest('#btn-split-orientation')) return;
           e.preventDefault();
           isResizing = true;
-          startX = e.clientX;
-          startEditorWidth = editorPane.getBoundingClientRect().width;
-          document.body.classList.add('is-resizing');
+          vertical = isVertical();
+          if (vertical) {
+            startY = e.clientY;
+            startEditorHeight = editorPane.getBoundingClientRect().height;
+            document.body.classList.add('is-resizing-row');
+          } else {
+            startX = e.clientX;
+            startEditorWidth = editorPane.getBoundingClientRect().width;
+            document.body.classList.add('is-resizing');
+          }
         });
-  
+
+        // 双击拖拽条（非按钮区）切换左右/上下分屏
+        resizer.addEventListener('dblclick', (e) => {
+          if (e.target.closest('#btn-split-orientation')) return;
+          this.toggleSplitOrientation();
+        });
+
+        const btn = document.getElementById('btn-split-orientation');
+        if (btn) {
+          // 按钮上的 mousedown 不进入拖拽流程，仅触发点击切换
+          btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+          btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleSplitOrientation(); });
+        }
+
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
       },
-      // 应用已保存的预览区宽度（合并自 PR #36）：分屏模式下按 settings.previewPaneWidth 还原布局。
-      // 纯预览/编辑器折叠/预览折叠由 CSS 类控制，禁止用用户分屏宽度覆盖，否则占不满且留空白。
+      // 切换分屏方向：左右 ↔ 上下。仅「编辑分屏（双栏均可见）」态允许。
+      // 不写死 class，统一交给 applyPreviewPaneWidth 按 settings.splitOrientation 还原，保证状态单一来源。
+      toggleSplitOrientation() {
+        const container = document.querySelector('.editor-container');
+        if (!container) return;
+        // 单栏 / 折叠态无分屏可言
+        if (container.classList.contains('preview-mode')
+            || container.classList.contains('wysiwyg-mode')
+            || container.classList.contains('text-only')
+            || container.classList.contains('editor-collapsed')
+            || container.classList.contains('preview-collapsed')) return;
+
+        const nowVertical = this.settings.splitOrientation !== 'vertical'; // 翻转
+        this.settings.splitOrientation = nowVertical ? 'vertical' : 'horizontal';
+
+        const editorPane = document.getElementById('editor-pane');
+        const previewPane = document.getElementById('preview-pane');
+        // 清掉内联 flex，交给 applyPreviewPaneWidth 按新方向重算
+        if (editorPane) { editorPane.style.flex = ''; editorPane.style.width = ''; editorPane.style.height = ''; }
+        if (previewPane) { previewPane.style.flex = ''; previewPane.style.width = ''; previewPane.style.height = ''; }
+
+        this.applyPreviewPaneWidth();
+        if (this.cm) this.cm.refresh();
+        this.updateSideButtons();
+        this.saveSettings();
+      },
+      // 应用分屏比例（合并自 PR #36，并扩展支持上下分屏）：
+      // - 单栏/折叠态（preview-mode / editor-collapsed / preview-collapsed / wysiwyg-mode / text-only）
+      //   由 CSS 接管，禁止用分屏比例覆盖，否则占不满或留空白。
+      // - 先从 settings.splitOrientation 还原容器方向（保证任意调用时机都一致）。
+      // - split-vertical：按 settings.editorSplitRatioV 还原上下高度比例。
+      // - 默认（左右分屏）：按 settings.previewPaneWidth 还原左右宽度比例。
       applyPreviewPaneWidth() {
         const container = document.querySelector('.editor-container');
         if (!container) return;
+        const splitRow = document.querySelector('.editor-row') || container;
+        // 由 settings 单一来源还原方向（不依赖调用顺序）；方向类作用于双栏区（.editor-row），
+        // 不牵连左侧文件/大纲侧栏
+        if (this.settings.splitOrientation === 'vertical') splitRow.classList.add('split-vertical');
+        else splitRow.classList.remove('split-vertical');
         if (container.classList.contains('preview-mode')
             || container.classList.contains('editor-collapsed')
-            || container.classList.contains('preview-collapsed')) return;
-        const pw = this.settings.previewPaneWidth;
-        if (!pw) return;
+            || container.classList.contains('preview-collapsed')
+            || container.classList.contains('wysiwyg-mode')
+            || container.classList.contains('text-only')) return;
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         if (!editorPane || !previewPane) return;
         const outlineSidebar = document.getElementById('outline-sidebar');
         const resizer = document.getElementById('resizer');
+
+        if (splitRow.classList.contains('split-vertical')) {
+          const resizerH = resizer ? resizer.offsetHeight : 6;
+          const total = splitRow.offsetHeight - resizerH;
+          if (total <= 0) return;
+          const editorRatio = Math.min(0.8, Math.max(0.2, this.settings.editorSplitRatioV ?? 0.5));
+          const editorH = Math.round(total * editorRatio);
+          // 纵向分屏下 flex-grow 在 column 容器里无法分配高度（与 pane 的 contain: layout / will-change: flex 组合相关，
+          // 浏览器实测 pane 高度恒为 0 导致白屏），故改用像素高度；窗口 resize 时由 applyPreviewPaneWidth 重新计算。
+          editorPane.style.flex = '0 0 auto';
+          previewPane.style.flex = '0 0 auto';
+          editorPane.style.height = editorH + 'px';
+          previewPane.style.height = (total - editorH) + 'px';
+          editorPane.style.width = '';
+          previewPane.style.width = '';
+          this._editorPercent = editorRatio * 100;
+          const ph = total - editorH;
+          document.documentElement.style.setProperty('--preview-pane-height', ph + 'px');
+          return;
+        }
+
+        const pw = this.settings.previewPaneWidth;
+        if (!pw) return;
         const outlineWidth = outlineSidebar && outlineSidebar.classList.contains('hidden') ? 0 : (outlineSidebar ? outlineSidebar.offsetWidth : 0);
         const resizerWidth = resizer ? resizer.offsetWidth : 6;
         const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;

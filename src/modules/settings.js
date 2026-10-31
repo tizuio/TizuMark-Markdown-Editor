@@ -52,6 +52,10 @@
           fileSortOrder: 'asc',
           // 预览区分屏宽度（合并自 PR #36）：拖拽 resizer 后持久化，下次启动按此还原。
           previewPaneWidth: 360,
+          // 分屏方向：'horizontal' = 左右分屏，'vertical' = 上下分屏。
+          splitOrientation: 'horizontal',
+          // 上下分屏时编辑器所占高度比例（0~1），拖拽后持久化，跨视图切换/重启保留。
+          editorSplitRatioV: 0.5,
           codeFont: '', // 预览代码块（行内代码 + 围栏代码块）字体，存自定义字体 id，空=跟随等宽默认
           // 框架界面字号（侧栏/工具栏/弹窗/菜单/标签/状态栏等 chrome），范围 11–18px，默认 13px
           uiFontSize: 13,
