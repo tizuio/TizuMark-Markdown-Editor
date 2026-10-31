@@ -1,4 +1,4 @@
-# TizuMark Windows Code Signing Script
+﻿# TizuMark Windows Code Signing Script
 # 用法: .\scripts\sign.ps1 <要签名的文件路径>
 # Tauri 构建时会自动调用此脚本，传入二进制文件路径
 #

@@ -167,7 +167,7 @@
 
 - Node.js ≥ 22
 - Rust stable（MSVC 目标）
-- VS C++ Build Tools 2022（最小组件即可，无需完整 VS IDE）
+- VS C++ 生成工具：已装 VS 2022 / VS 2026（含 Insiders）或 Build Tools 的任一实例即直接复用，**无需为项目另装**；一个都没有时脚本才装 Build Tools 最小集
 - WebView2 Runtime（Win10/11 一般自带）
 
 ```powershell
@@ -176,7 +176,7 @@ git clone https://github.com/tizuio/TizuMark-Markdown-Editor.git
 git clone https://gitee.com/tizu/TizuMark-Markdown-Editor.git
 cd TizuMark-Markdown-Editor
 
-# 一键初始化环境（VS BuildTools 最小 + Rust + Node）
+# 一键初始化环境（复用已有 VS 的 MSVC，缺则装 Build Tools 最小集 + Rust + Node）
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1
 # 重开终端后验证：
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1 -VerifyOnly

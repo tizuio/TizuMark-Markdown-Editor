@@ -9,14 +9,19 @@
 |------|---------|------|--------|
 | Node.js | ≥ 22（CI 用 22，实测 24 可用） | 前端构建（esbuild）、npm 依赖 | ✅ |
 | Rust (rustup) | stable，**默认 MSVC 目标** | 编译 Tauri 后端（`src-tauri/`） | ✅ |
-| **VS C++ Build Tools** | 2022，**最小组件**即可 | 提供 MSVC 链接器 `link.exe` + Windows SDK | ✅ |
+| **VS C++ 生成工具** | 任意一个带 MSVC C++ 生成工具的 VS 实例：2022 BuildTools / VS 2022 / VS 2026（含 Insiders）。**已有则直接复用**，无需另装 | 提供 MSVC 链接器 `link.exe` + Windows SDK | ✅ |
 | WebView2 Runtime | Evergreen | 运行时渲染 | Win10/11 一般自带，缺失再装 |
 
 **为什么必须要 C++ Build Tools？** Tauri v2 在 Windows 上编译走 Rust 的 MSVC 目标：
 任何 MSVC 目标的 Rust 程序都需要 MSVC 的 `link.exe` + Windows SDK 完成链接；
 Tauri 还要额外链接 WebView2 静态加载器（`webview2-com-sys` 自带的
 `WebView2LoaderStatic.lib`）。这是 Rust/Tauri 的平台级要求，不是本项目的选择。
-但注意：**只装命令行 Build Tools 的最小组件就够，不需要完整 VS IDE**。
+但注意：**只要有任意一个带 MSVC C++ 生成工具的 VS 实例就够**（2022 BuildTools、
+VS 2022 社区版、VS 2026 Insiders 都行），不需要为项目再单独装一套。
+
+> 脚本用 `vswhere.exe -all -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
+> 探测实例，因此 **Insiders/Preview 版本也能识别**，不写死 `...\2022\BuildTools` 路径
+> （VS 2026 装在 `C:\Program Files\Microsoft Visual Studio\18\Insiders`，与 2022 完全不同根目录）。
 
 ## 路径 A：全新电脑（推荐，脚本一键）
 
@@ -33,8 +38,9 @@ npm run dev
 `setup-dev.ps1` 做的全部事情（可跳过脚本手动执行）：
 
 ```powershell
-# 1) VS 2022 BuildTools 最小组件（MSVC v143 x64/x86 + 一个 Win11 SDK）
-#    磁盘占用约 2GB；不要加 --includeRecommended（会多装 3GB+ 用不到的 MFC/ATL/CMake/测试工具）
+# 1) MSVC 工具链：已装 VS 2022/2026（BuildTools 或 IDE）且带 C++ 生成工具 → 直接复用
+#    仅当 vswhere 一个实例都探测不到时，才装 VS 2022 BuildTools 最小组件（磁盘约 2GB）
+#    不要加 --includeRecommended（会多装 3GB+ 用不到的 MFC/ATL/CMake/测试工具）
 winget install -e --id Microsoft.VisualStudio.2022.BuildTools `
   --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
 
@@ -86,6 +92,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1 -VerifyOnly
 首次 `cargo check` 冷启动约 2~20 分钟（取决于机器）；若旧电脑复制了
 `src-tauri/target/` 且 rustc 版本一致，缓存可复用，仅需 1~2 分钟。
 `target/` 是纯构建缓存，可随时 `cargo clean` 删除（几 GB）。
+
+## 常见报错
+
+**跑脚本时蹦出一堆语法错误，且报错信息里中文全是乱码**，例如
+「数组索引表达式丢失或无效」「表达式或语句中包含意外的标记」「缺少右 `}`」：
+
+这不是脚本逻辑问题，是**编码问题**。Windows PowerShell 5.1（`powershell.exe`）
+读取**无 BOM** 的 `.ps1` 时按系统 ANSI 代码页解码（简中 = GBK），UTF-8 的中文
+变成乱码；更糟的是全角括号 `（`（字节 `EF BC 88`）在 GBK 下会把紧随其后的
+引号 `'` 当作双字节字符的尾字节吞掉，字符串因此失去闭合，解析器随即连锁报错。
+
+`scripts/*.ps1` 全部以 **UTF-8 with BOM** 保存即不会触发。若自己新增或改写
+PowerShell 脚本，务必带 BOM（VS Code 右下角编码 → `Save with Encoding` →
+`UTF-8 with BOM`）；或者改用 PowerShell 7（`pwsh`）执行。
 
 ## 日常开发命令
 
