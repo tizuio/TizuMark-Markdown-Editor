@@ -1,6 +1,7 @@
 // 编辑模式分屏方向（左右 ↔ 上下）切换：
 // - 双击拖拽条 / 点击拖拽条中央按钮 → 切换 splitOrientation 并切 split-vertical 类
-// - 上下分屏按比例 settings.editorSplitRatioV 还原高度；左右分屏按 settings.previewPaneWidth 还原宽度
+// - 上下分屏按比例 settings.editorSplitRatioV 还原高度；左右分屏按 settings.editorSplitRatioH 还原宽度
+//   （比例制：窗口缩放/重启后分屏比例不变；旧 px 值 previewPaneWidth 惰性迁移）
 // - 单栏/折叠态（preview-mode / wysiwyg-mode / text-only / editor-collapsed / preview-collapsed）
 //   不得清除 split-vertical（否则下次回分屏方向丢失）
 // - 切换视图模式后 applyViewMode 应保留已选方向（不回退到左右）
@@ -80,12 +81,31 @@ test('applyPreviewPaneWidth: splitOrientation=horizontal 时移除 split-vertica
     outline.classList.add('hidden');
     setDim(container, 600, 1000); setDim(resizer, 6, 4); setDim(outline, 0, 0);
     ed.settings.splitOrientation = 'horizontal';
-    ed.settings.previewPaneWidth = 400;
+    ed.settings.editorSplitRatioH = 0.6;
     splitRow.classList.add('split-vertical'); // 先处于纵向
     ed.applyPreviewPaneWidth();
     assert.ok(!splitRow.classList.contains('split-vertical'), 'horizontal 应移除 split-vertical');
-    assert.ok(editorPane.style.flex && editorPane.style.flex.includes('0 0px'), '编辑器宽度比例应被设置');
-    assert.ok(previewPane.style.flex && previewPane.style.flex.includes('0 0px'), '预览宽度比例应被设置');
+    assert.strictEqual(editorPane.style.flex, '0.6000 0 0px', '编辑器宽度比例应=0.6（比例制）');
+    assert.strictEqual(previewPane.style.flex, '0.4000 0 0px', '预览宽度比例应=0.4（比例制）');
+  });
+});
+
+test('applyPreviewPaneWidth: 旧 px 值惰性迁移为比例（回归）', async () => {
+  await withEditor({}, async (w, ed) => {
+    const container = w.document.querySelector('.editor-container');
+    const resizer = w.document.getElementById('resizer');
+    const outline = w.document.getElementById('outline-sidebar');
+    enterEditSplit(w);
+    outline.classList.add('hidden');
+    setDim(container, 600, 1000); setDim(resizer, 6, 4); setDim(outline, 0, 0);
+    // 模拟旧版 settings：只有 px 宽，无比例
+    ed.settings.editorSplitRatioH = null;
+    // totalContentWidth = 1000 - 0(outline) - 4(resizer) = 996 → 迁移 ratio = (996-400)/996
+    ed.settings.previewPaneWidth = 400;
+    ed.applyPreviewPaneWidth();
+    assert.ok(Math.abs(ed.settings.editorSplitRatioH - 596 / 996) < 1e-6, '应由 px 宽迁移出比例 (996-400)/996');
+    const editorPane = w.document.getElementById('editor-pane');
+    assert.strictEqual(editorPane.style.flex, (596 / 996).toFixed(4) + ' 0 0px', '迁移后按比例还原');
   });
 });
 

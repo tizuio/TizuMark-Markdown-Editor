@@ -1982,6 +1982,17 @@ body.is-resizing-row .outline-sidebar { transition: none !important; }
   transition: max-width 0.2s ease;
 }
 
+/* 顶部内容对齐（2026-10-31 用户反馈「编辑和预览顶部内容对齐，现在有点偏差」）：
+   编辑模式分屏时编辑器首行盒顶 = 容器顶 + 30px（vendored CM lines padding 4px +
+   CodeMirror 结构内距），而预览 = padding-top 16px + 首元素 margin-top（p 默认 16px /
+   标题 24px）→ 首行比编辑器低 10~18px 且随首元素类型漂移。
+   统一口径：预览 padding-top 30px + 首元素 margin-top 清零 → 两种分屏方向下两边首行齐平。
+   ⚠️ 作用域必须带 :not(preview-mode/wysiwyg-mode)：阅读模式与所见即所得有各自的
+   padding:32px 口径；且 .preview-content 类被 WYSIWYG 块遮罩复用（见 .CodeMirror
+   .wysiwyg-block-mask.preview-content），不能裸改基类。 */
+.editor-container:not(.preview-mode):not(.wysiwyg-mode) .preview-pane .preview-content { padding-top: 30px; }
+.editor-container:not(.preview-mode):not(.wysiwyg-mode) .preview-pane .preview-content > :first-child { margin-top: 0; }
+
 /* 预览强调层次：加粗/strong/b 与各级标题始终比正文基础字重更强，且与设置值动态联动，
    避免「基础很细时加粗突然 700 特别粗」的突兀对比（--preview-bold-weight 由 app.js 计算写入） */
 .preview-content strong,

@@ -260,8 +260,9 @@ class MarkdownEditor {
     window.addEventListener('resize', () => {
       this.updateMaximizeIcon();
       this.updateSideButtons();
-      // 纵向分屏用像素高度，窗口缩放时按新容器高度重算（横向用 flex 比例，重算幂等）
-      this.applyPreviewPaneWidth();
+      // 仅纵向分屏需要重算（像素高度依赖窗口高度）；横向用 flex 比例自动跟随窗口缩放，
+      // 重算反而会在窗口变小时把预览固定成大 px 宽、编辑器(basis 0)挤成 0 宽 → 分栏消失
+      if (this.settings.splitOrientation === 'vertical') this.applyPreviewPaneWidth();
     });
 
     // 应用退出时全量 revoke Blob URL，避免 WebView 存活期内泄漏（LRU 兜底外的一刀切）

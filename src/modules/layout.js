@@ -861,19 +861,16 @@
           document.body.classList.remove('is-resizing', 'is-resizing-row');
           const ph = vertical ? previewPane.getBoundingClientRect().height : previewPane.getBoundingClientRect().width;
           if (vertical) {
-            // 纵向：持久化编辑器高度占比（与窗口宽度无关，跨窗体缩放稳定）
+            // 纵向：持久化编辑器高度占比（比例制，窗口缩放比例不变）
             const total = splitRow.offsetHeight - resizer.offsetHeight;
             this.settings.editorSplitRatioV = Math.min(0.8, Math.max(0.2, (total - ph) / total));
           } else {
-            // 横向：持久化预览区宽度（合并自 PR #36）
-            this.settings.previewPaneWidth = Math.round(ph);
+            // 横向：持久化编辑器宽度占比（比例制，与纵向对称；窗口缩放/重启后比例不变）
+            const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
+            const total = container.offsetWidth - outlineWidth - resizer.offsetWidth;
+            this.settings.editorSplitRatioH = Math.min(0.8, Math.max(0.2, (total - ph) / total));
           }
           this.saveSettings();
-          if (vertical) {
-            document.documentElement.style.setProperty('--preview-pane-height', Math.round(ph) + 'px');
-          } else {
-            document.documentElement.style.setProperty('--preview-pane-width', Math.round(ph) + 'px');
-          }
         };
 
         resizer.addEventListener('mousedown', (e) => {
@@ -940,7 +937,7 @@
       //   由 CSS 接管，禁止用分屏比例覆盖，否则占不满或留空白。
       // - 先从 settings.splitOrientation 还原容器方向（保证任意调用时机都一致）。
       // - split-vertical：按 settings.editorSplitRatioV 还原上下高度比例。
-      // - 默认（左右分屏）：按 settings.previewPaneWidth 还原左右宽度比例。
+      // - 默认（左右分屏）：按 settings.editorSplitRatioH 还原左右宽度比例（旧 px 值惰性迁移）。
       applyPreviewPaneWidth() {
         const container = document.querySelector('.editor-container');
         if (!container) return;
@@ -975,31 +972,27 @@
           editorPane.style.width = '';
           previewPane.style.width = '';
           this._editorPercent = editorRatio * 100;
-          const ph = total - editorH;
-          document.documentElement.style.setProperty('--preview-pane-height', ph + 'px');
           return;
         }
 
-        const pw = this.settings.previewPaneWidth;
-        if (!pw) return;
         const outlineWidth = outlineSidebar && outlineSidebar.classList.contains('hidden') ? 0 : (outlineSidebar ? outlineSidebar.offsetWidth : 0);
         const resizerWidth = resizer ? resizer.offsetWidth : 6;
         const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
-        if (totalContentWidth <= 0) return;
-        const editorWidth = totalContentWidth - pw;
-        const editorRatio = (editorWidth / totalContentWidth);
-        if (editorRatio > 0.1 && editorRatio < 0.9) {
-          editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
-          previewPane.style.flex = (1 - editorRatio).toFixed(4) + ' 0 0px';
-          this._editorPercent = editorRatio * 100;
-        } else {
-          // 比例超出范围时，直接用预设宽度设置预览区
-          previewPane.style.flex = '0 0 auto';
-          previewPane.style.width = pw + 'px';
-          editorPane.style.flex = '1 1 0px';
-          this._editorPercent = ((totalContentWidth - pw) / totalContentWidth) * 100;
+        // 横向：按比例 settings.editorSplitRatioH 还原宽度（比例制，窗口缩放/重启后比例不变）。
+        // 旧版本仅存 px 宽（previewPaneWidth），首次在此按当前窗口惰性换算成比例（不立即落盘，
+        // 交给后续任意 saveSettings；未落盘前每次启动重算，行为稳定）。
+        if (this.settings.editorSplitRatioH == null) {
+          const pw = this.settings.previewPaneWidth;
+          const migrated = (pw && totalContentWidth > 0) ? (totalContentWidth - pw) / totalContentWidth : 0.65;
+          this.settings.editorSplitRatioH = Math.min(0.8, Math.max(0.2, migrated));
         }
-        document.documentElement.style.setProperty('--preview-pane-width', pw + 'px');
+        if (totalContentWidth <= 0) return;
+        const editorRatio = Math.min(0.8, Math.max(0.2, this.settings.editorSplitRatioH));
+        editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
+        previewPane.style.flex = (1 - editorRatio).toFixed(4) + ' 0 0px';
+        editorPane.style.width = '';
+        previewPane.style.width = '';
+        this._editorPercent = editorRatio * 100;
       },
     // 大纲层级过滤下拉（自绘 Select）
     initOutlineFilter() {

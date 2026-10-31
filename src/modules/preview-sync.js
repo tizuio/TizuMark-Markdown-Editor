@@ -135,17 +135,43 @@
         for (const el of allElements) {
           // 跳过脚注区域内的元素（source line 在文档中部但渲染在预览最底部）
           if (el.closest('.footnotes')) continue;
-  
+
           const sourceLine = parseInt(el.dataset.sourceLine, 10);
           if (isNaN(sourceLine)) continue;
           if (seenLines.has(sourceLine)) continue;
           seenLines.add(sourceLine);
-  
+
           const editorTop = this.cm.heightAtLine(Math.max(0, sourceLine - 1), 'local');
           const previewTop = this._getOffsetTop(el);
           if (typeof editorTop !== 'number' || typeof previewTop !== 'number') continue;
-  
+
           anchors.push({ line: sourceLine, editorTop, previewTop });
+        }
+
+        // 代码块内部逐行锚点（2026-10-31）：CODE 元素只带围栏起始行一个 data-source-line，
+        // 块内 15~N 行无锚点 → 线性插值把块尾的段间距（标题 margin 等）摊进块内，
+        // 实测段中部偏差 4~5 行（用户截图：代码块内部对不齐）。利用现成 .code-line 行结构，
+        // 每块仅 2 次 rect 测量（块顶 + 行高），按 uniform 行高推算每行 previewTop，性能安全。
+        for (const el of allElements) {
+          if (el.tagName !== 'CODE') continue;
+          const fenceLine = parseInt(el.dataset.sourceLine, 10);
+          if (isNaN(fenceLine)) continue;
+          const rows = el.querySelectorAll('.code-line');
+          if (rows.length < 2) continue;
+          const pvRect = this.preview.getBoundingClientRect();
+          const codeRect = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          const padTop = parseFloat(cs.paddingTop) || 0;
+          const rowH = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+          if (!(rowH > 0)) continue;
+          const baseTop = codeRect.top - pvRect.top + this.preview.scrollTop + padTop;
+          for (let i = 0; i < rows.length; i++) {
+            const sourceLine = fenceLine + 1 + i; // 开围栏行占 1 行，首个代码行 = fenceLine+1
+            if (sourceLine < 1 || sourceLine > this.cm.lineCount()) continue;
+            if (seenLines.has(sourceLine)) continue;
+            seenLines.add(sourceLine);
+            anchors.push({ line: sourceLine, editorTop: this.cm.heightAtLine(sourceLine - 1, 'local'), previewTop: baseTop + i * rowH });
+          }
         }
   
         if (anchors.length < 2) {
@@ -268,15 +294,16 @@
         if (deduped[deduped.length - 1].line < totalLines - 1) deduped.push({ line: totalLines - 1, fraction: 1 });
         this._linePositions = deduped;
       },
-      // demo 的 getHeightToTop：计算元素到容器顶部的距离（offsetTop 遍历 offsetParent）
+      // 计算元素在预览滚动内容坐标系里的顶部位置（2026-10-31 重写为 rect 相对测量）。
+      // ⚠️ 旧实现走 offsetParent 链累加 offsetTop：.preview-content 无 position，元素的
+      // offsetParent 会越过 this.preview 直达 #preview-wrapper(position:relative) 乃至 body，
+      // `while (parent !== this.preview)` 永不命中 → 结果恒多出一个「pane 在窗口里的顶部
+      // 偏移」（横向 +88px ≈ 4 行 / 纵向 +486px ≈ 22 行）→ 滚动同步预览恒超前，
+      // 且分屏方向不同偏差量不同（用户实测：左右差一点、上下差很多）。文档顶部因
+      // scrollTop=0 特判恰好看不出来，故长期未暴露。
+      // rect 相对测量与滚动位置、嵌套定位方式无关，一并覆盖横向/纵向/单栏。
       _getOffsetTop(el) {
-        let top = el.offsetTop;
-        let parent = el.offsetParent;
-        while (parent && parent !== this.preview) {
-          top += parent.offsetTop;
-          parent = parent.offsetParent;
-        }
-        return top;
+        return el.getBoundingClientRect().top - this.preview.getBoundingClientRect().top + this.preview.scrollTop;
       },
       // demo 风格：节流函数（首次立即执行，后续在 delay 内只保存最后一次调用）
       _throttleScroll(fn, delay) {

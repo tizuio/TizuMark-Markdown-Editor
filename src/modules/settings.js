@@ -50,8 +50,11 @@
           previewFont: '',
           fileSortKey: 'name',
           fileSortOrder: 'asc',
-          // 预览区分屏宽度（合并自 PR #36）：拖拽 resizer 后持久化，下次启动按此还原。
+          // 预览区分屏宽度（合并自 PR #36，已废弃为迁移源）：新逻辑用比例 editorSplitRatioH，
+          // 旧 settings 里的 px 值在首次 applyPreviewPaneWidth 时惰性换算成比例。
           previewPaneWidth: 360,
+          // 左右分屏编辑器宽度占比（比例制）：窗口缩放/重启后按比例还原，不随窗口大小漂移
+          editorSplitRatioH: 0.65,
           // 分屏方向：'horizontal' = 左右分屏，'vertical' = 上下分屏。
           splitOrientation: 'horizontal',
           // 上下分屏时编辑器所占高度比例（0~1），拖拽后持久化，跨视图切换/重启保留。
