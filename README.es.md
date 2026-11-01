@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.4-blue" alt="Versión">
+  <img src="https://img.shields.io/badge/Version-1.2.5-blue" alt="Versión">
   <img src="https://img.shields.io/badge/Windows-7%2B-brightgreen" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-Planificado-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/Linux-Planificado-lightgrey" alt="Linux">
@@ -43,7 +43,7 @@ No faltan editores de Markdown en el mundo. Sin embargo, la mayoría cae en uno 
 | Desafío habitual | Modo tradicional | ✨ TizuMark |
 |---|---|---|
 | 🐢 **Demasiado pesado** | Cientos de MB en RAM, gigabytes de instalación, inicio lento | **Motor en Rust. Instalador de ~7MB, <50MB RAM, arranca en un segundo** |
-| 👯 **Vistas divididas incómodas** | Código a un lado, renderizado al otro: deslizar y forzar la vista | **Vista previa en tiempo real WYSIWYG, desplazamiento sincronizado automáticamente** |
+| 👯 **Vistas divididas incómodas** | Código a un lado, renderizado al otro: deslizar y forzar la vista | **Tres modos (lectura, código, vista previa en vivo), división horizontal/vertical + desplazamiento sincronizado, y WYSIWYG al estilo Typora** |
 | 🌀 **Documentos largos** | Desplazamiento infinito, difícil encontrar una sección | **Esquema de títulos generado automáticamente, un clic para saltar a cualquier capítulo** |
 | 🧩 **Matemáticas y diagramas** | Instalar LaTeX, cambiar de herramienta, exportar y pegar | **KaTeX y Mermaid integrados: fórmulas y gráficos se generan desde el propio código** |
 
@@ -52,17 +52,18 @@ No faltan editores de Markdown en el mundo. Sin embargo, la mayoría cae en uno 
 ## Características principales
 
 - ⚡ **Extremadamente rápido y liviano**: Construido sobre **Rust + Tauri v2** (WebView nativo), instalador de ~**7MB**, consumo de **<50MB** de RAM, inicio en menos de un segundo (hasta un 80% menos memoria que aplicaciones basadas en Electron).
-- 👁️ **Vista previa en tiempo real**: Escribe a la izquierda y observa el resultado a la derecha. Desplazamiento bidireccional sincronizado sin tener que alternar ventanas.
+- 👁️ **Vista previa en tiempo real (WYSIWYG)**: Escribe directamente sobre el texto ya formateado, como en Typora: el contenido permanece renderizado y solo el bloque bajo el cursor muestra su código fuente. Edita celdas de tabla in situ, marca casillas de tareas y visualiza el resaltado de sintaxis en bloques de código: el estado de edición coincide píxel a píxel con el renderizado.
+- 🪟 **División horizontal / vertical**: En el modo de código, cambia la orientación con un clic (doble clic en el separador o botón). La proporción se arrastra libremente y se recuerda; cada panel puede plegarse en un asa semicircular anclada al borde para centrarte solo en el código o solo en el resultado.
 - 🧠 **Vista inteligente según el tipo de archivo**: Markdown divide automáticamente edición y vista previa; texto plano y código abren en editor puro; imágenes abren en vista de solo lectura.
 - 🧭 **Esquema de navegación inteligente**: Analiza la jerarquía de títulos (H1–H6), permitiendo navegar con un solo clic.
 - 📐 **Matemáticas KaTeX integradas**: Fórmulas en línea y en bloque, matrices, sistemas de ecuaciones; compatible con `$…$` / `$$…$$` y los delimitadores LaTeX `\(…\)` / `\[…\]`: artículos, apuntes y fórmulas científicas resueltas con facilidad.
 - 📊 **Diagramas Mermaid nativos**: Diagramas de flujo, diagramas de secuencia, gráficos de estado y Gantt generados a partir de bloques de texto, con motor de diseño automático ELK.
 - 🗂️ **Gestión de carpetas y proyectos**: Abre cualquier directorio con `Archivo → Abrir carpeta`; navega por el árbol de archivos con monitoreo automático de cambios en disco.
 - 🖼️ **Gestión avanzada de imágenes**: Pega imágenes directamente desde el portapapeles con deduplicación por hash MD5 y selector de almacenamiento (carpeta `assets/` o Base64 incrustado).
-- 📑 **Edición multipestaña y restauración de sesión**: Múltiples pestañas con arrastrar para reordenar, advertencia de cambios sin guardar y restauración completa al reiniciar.
+- 📑 **Edición multipestaña y restauración de sesión**: Múltiples pestañas con arrastrar para reordenar, renombrar con clic derecho, advertencia de cambios sin guardar y restauración completa al reiniciar.
 - 🎨 **Personalización completa**: Modos claro y oscuro, 5 esquemas de color elegantes (Predeterminado, Atardecer, Bosque, Nord, Crepúsculo), fuentes personalizadas y ajuste fino de márgenes y tamaños.
 - ⌨️ **Atajos de teclado personalizables**: Esquemas integrados listos para usar (Predeterminado, VSCode, Typora, Sublime Text) o configuración personalizada tecla por tecla.
-- 📤 **Exportación versátil**: Exporta a HTML independiente con estilos completos, imagen PNG en alta definición, PDF vectorial y documentos nativos de Microsoft Word (.docx).
+- 📤 **Exportación versátil**: Exporta a HTML independiente con estilos completos, imagen PNG en alta definición, PDF (exportación directa con alternativa de impresión) y documentos nativos de Microsoft Word (.docx).
 - 🌐 **Internacionalización completa**: Soporte nativo para **Español**, **English** y **简体中文**.
 
 ---

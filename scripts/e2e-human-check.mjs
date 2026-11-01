@@ -288,7 +288,7 @@ const tauriMockScript = `
   window.__TAURI__ = {
     core: { invoke: invoke, Channel: Channel },
     event: { listen: async () => (async () => {}), emit: async () => {}, unlisten: async () => {} },
-    app: { getVersion: async () => '1.2.4' },
+    app: { getVersion: async () => '1.2.5' },
     path: { resourceDir: async () => '' },
     shell: { open: async () => { throw new Error('no shell in E2E'); } },
     window: {
