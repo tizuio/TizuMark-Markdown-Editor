@@ -190,33 +190,35 @@ test('_syncFoldButtons: 横向折叠态图标/title/side-active 状态机', asyn
     ed.settings.splitOrientation = 'horizontal';
 
     ed._syncFoldButtons();
-    assert.strictEqual(foldEditor.innerHTML, '\u25C0', '横向未折叠：编辑钮 ◀（收起向左）');
-    assert.strictEqual(foldPreview.innerHTML, '\u25B6', '横向未折叠：预览钮 ▶（收起向右）');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-left', '横向未折叠：编辑钮 chevron-left');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-right', '横向未折叠：预览钮 chevron-right');
+    assert.ok(foldEditor.querySelector('svg'), '图标应为内联 SVG');
     assert.ok(!foldEditor.classList.contains('side-active'), '未折叠无激活态');
 
     ed.toggleCollapse('editor');
     assert.ok(container.classList.contains('editor-collapsed'), '应折叠编辑器');
-    assert.strictEqual(foldEditor.innerHTML, '\u25B6', '横向编辑器折叠：恢复钮 ▶（向右展开）');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-right', '横向编辑器折叠：恢复图标 chevron-right');
     assert.strictEqual(foldEditor.title, ed.t('restoreEditor'), 'title 应切为「恢复编辑器」');
     assert.ok(foldEditor.classList.contains('side-active'), '折叠态编辑钮应 accent 常亮');
     assert.ok(!foldPreview.classList.contains('side-active'), '预览钮不应被牵连激活');
-    assert.strictEqual(foldPreview.innerHTML, '\u25B6', '未折叠侧预览钮图标不变');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-right', '未折叠侧预览钮图标不变');
 
     ed.toggleCollapse('editor');
-    assert.strictEqual(foldEditor.innerHTML, '\u25C0', '展开后应恢复 ◀');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-left', '展开后应恢复折叠图标');
 
     ed.toggleCollapse('preview');
-    assert.strictEqual(foldPreview.innerHTML, '\u25C0', '横向预览折叠：恢复钮 ◀（向左展开）');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-left', '横向预览折叠：恢复图标 chevron-left');
     assert.strictEqual(foldPreview.title, ed.t('restorePreview'), 'title 应切为「恢复预览」');
     assert.ok(foldPreview.classList.contains('side-active'), '折叠态预览钮应 accent 常亮');
   });
 });
 
-test('_syncFoldButtons: 纵向折叠态图标转竖向 + toggleSplitOrientation 联动', async () => {
+test('_syncFoldButtons: 纵向折叠态图标转 chevron-up/down + toggleSplitOrientation 联动', async () => {
   await withEditor({}, async (w, ed) => {
     const container = w.document.querySelector('.editor-container');
     const foldEditor = w.document.getElementById('btn-fold-editor');
     const foldPreview = w.document.getElementById('btn-fold-preview');
+    const orientation = w.document.getElementById('btn-split-orientation');
     const splitRow = getSplitRow(w);
     enterEditSplit(w);
     ed.viewMode = 'edit';
@@ -224,15 +226,16 @@ test('_syncFoldButtons: 纵向折叠态图标转竖向 + toggleSplitOrientation 
     ed.settings.splitOrientation = 'vertical';
 
     ed._syncFoldButtons();
-    assert.strictEqual(foldEditor.innerHTML, '\u25B2', '纵向未折叠：编辑钮 ▲（收起向上）');
-    assert.strictEqual(foldPreview.innerHTML, '\u25BC', '纵向未折叠：预览钮 ▼（收起向下）');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-up', '纵向未折叠：编辑钮 chevron-up');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-down', '纵向未折叠：预览钮 chevron-down');
+    assert.strictEqual(orientation.dataset.icon, 'rows-2', '纵向方向钮应显示 rows-2');
 
     ed.toggleCollapse('editor');
-    assert.strictEqual(foldEditor.innerHTML, '\u25BC', '纵向编辑器折叠：恢复钮 ▼（向下展开）');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-down', '纵向编辑器折叠：恢复图标 chevron-down');
     ed.toggleCollapse('editor');
 
     ed.toggleCollapse('preview');
-    assert.strictEqual(foldPreview.innerHTML, '\u25B2', '纵向预览折叠：恢复钮 ▲（向上展开）');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-up', '纵向预览折叠：恢复图标 chevron-up');
     assert.ok(foldPreview.classList.contains('side-active'), '折叠态预览钮应 accent 常亮');
     ed.toggleCollapse('preview');
 
@@ -241,8 +244,11 @@ test('_syncFoldButtons: 纵向折叠态图标转竖向 + toggleSplitOrientation 
     splitRow.classList.remove('split-vertical');
     ed.toggleSplitOrientation();
     assert.ok(splitRow.classList.contains('split-vertical'), '应切到纵向');
-    assert.strictEqual(foldEditor.innerHTML, '\u25B2', '切纵向后编辑钮应为 ▲');
-    assert.strictEqual(foldPreview.innerHTML, '\u25BC', '切纵向后预览钮应为 ▼');
+    assert.strictEqual(foldEditor.dataset.icon, 'chevron-up', '切纵向后编辑钮应为 chevron-up');
+    assert.strictEqual(foldPreview.dataset.icon, 'chevron-down', '切纵向后预览钮应为 chevron-down');
+    // 切回横向：方向钮应显示 columns-2
+    ed.toggleSplitOrientation();
+    assert.strictEqual(orientation.dataset.icon, 'columns-2', '横向方向钮应显示 columns-2');
   });
 });
 

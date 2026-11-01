@@ -4,6 +4,20 @@
 (function () {
   'use strict';
 
+  // 分屏控制钮的 Lucide 图标（path 数据取自 lucide-static v0.469.0，ISC 许可）：
+  // chevron-left/right/up/down = 折叠（箭头指向被收起侧），折叠态反向（= 恢复方向）；
+  // columns-2 / rows-2 = 当前分屏方向状态（左右/上下），点击后由 toggleSplitOrientation 翻转。
+  const SPLIT_LUCIDE_ICONS = {
+    'chevron-left': '<path d="m15 18-6-6 6-6"/>',
+    'chevron-right': '<path d="m9 18 6-6-6-6"/>',
+    'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+    'columns-2': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>',
+    'rows-2': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/>',
+  };
+  const splitLucideSvg = (name) =>
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (SPLIT_LUCIDE_ICONS[name] || '') + '</svg>';
+
   const mixin = {
       // 同步托盘显隐状态到 Rust 后端
       async applyWindowBehavior() {
@@ -546,29 +560,36 @@
           this._viewModeRestoreTimer = null;
         }, 50);
       },
-      // 分屏折叠钮（拖拽条内 #btn-fold-editor / #btn-fold-preview）图标/文案状态机：
-      // 按「分屏方向 × 折叠态」同步——横向 ◀/▶、纵向 ▲/▼，折叠态反向并改 title 为「恢复」。
-      // 可见性（显隐/停靠）由 CSS 按容器状态类接管，这里只负责 innerHTML/title/side-active。
+      // 分屏控制钮（拖拽条内 #btn-fold-editor / #btn-split-orientation / #btn-fold-preview）状态机：
+      // 按「分屏方向 × 折叠态」同步 Lucide 图标（chevron-*、columns-2/rows-2）与 title。
+      // 可见性（显隐/停靠）由 CSS 按容器状态类接管，这里只负责图标/文案/side-active。
       _syncFoldButtons() {
         const container = document.querySelector('.editor-container');
         const btnFoldEditor = document.getElementById('btn-fold-editor');
         const btnFoldPreview = document.getElementById('btn-fold-preview');
+        const btnOrientation = document.getElementById('btn-split-orientation');
         if (!container || !btnFoldEditor || !btnFoldPreview) return;
         const splitRow = document.querySelector('.editor-row');
         const vertical = !!(splitRow && splitRow.classList.contains('split-vertical'));
         const editorCollapsed = container.classList.contains('editor-collapsed');
         const previewCollapsed = container.classList.contains('preview-collapsed');
-        // 箭头指向「收起方向」：横向编辑器 ◀ / 预览 ▶；纵向编辑器 ▲ / 预览 ▼；折叠态反向（= 恢复方向）
-        const iconEditor = editorCollapsed ? (vertical ? '&#9660;' : '&#9654;') : (vertical ? '&#9650;' : '&#9664;');
-        const iconPreview = previewCollapsed ? (vertical ? '&#9650;' : '&#9664;') : (vertical ? '&#9660;' : '&#9654;');
         const titleEditor = editorCollapsed ? this.t('restoreEditor') : this.t('collapseEditor');
         const titlePreview = previewCollapsed ? this.t('restorePreview') : this.t('collapsePreview');
-        if (btnFoldEditor.innerHTML !== iconEditor) btnFoldEditor.innerHTML = iconEditor;
-        if (btnFoldPreview.innerHTML !== iconPreview) btnFoldPreview.innerHTML = iconPreview;
+        this._setSplitBtnIcon(btnFoldEditor, editorCollapsed ? (vertical ? 'chevron-down' : 'chevron-right') : (vertical ? 'chevron-up' : 'chevron-left'));
+        this._setSplitBtnIcon(btnFoldPreview, previewCollapsed ? (vertical ? 'chevron-up' : 'chevron-left') : (vertical ? 'chevron-down' : 'chevron-right'));
+        if (btnOrientation) this._setSplitBtnIcon(btnOrientation, vertical ? 'rows-2' : 'columns-2');
         btnFoldEditor.title = titleEditor;
+        btnFoldEditor.setAttribute('aria-label', titleEditor);
         btnFoldPreview.title = titlePreview;
+        btnFoldPreview.setAttribute('aria-label', titlePreview);
         btnFoldEditor.classList.toggle('side-active', editorCollapsed);
         btnFoldPreview.classList.toggle('side-active', previewCollapsed);
+      },
+      // 按名渲染 Lucide 图标；dataset 去重，避免 resize 等高频路径反复 innerHTML 重排
+      _setSplitBtnIcon(btn, name) {
+        if (btn.dataset.icon === name) return;
+        btn.dataset.icon = name;
+        btn.innerHTML = splitLucideSvg(name);
       },
       toggleCollapse(pane) {
         const container = document.querySelector('.editor-container');

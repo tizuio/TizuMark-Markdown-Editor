@@ -1903,6 +1903,8 @@ body.is-resizing .split-fold-btn {
 .resizer:hover { background-color: var(--accent-color); }
 
 /* 分屏拖拽条中央控制钮：折叠编辑器 / 切换方向 / 折叠预览（横向分屏竖排、上下分屏横排）。
+   圆形 22px、Lucide 线性图标（13px），与停靠态折叠钮共用同一套令牌
+   （bg-primary 底 + border 描边 + hover accent 填充），保证两态视觉一致。
    可见性由容器状态类驱动：阅读/实预/明文隐藏；折叠态下未折叠侧折叠钮与方向钮隐藏，
    被折叠侧折叠钮转为贴边停靠常驻（见下方「折叠态停靠」段）。 */
 .split-fold-btn,
@@ -1912,8 +1914,8 @@ body.is-resizing .split-fold-btn {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   align-items: center;
   justify-content: center;
@@ -1925,15 +1927,18 @@ body.is-resizing .split-fold-btn {
   box-shadow: var(--shadow-sm);
   z-index: 6;
   line-height: 1;
-  font-size: calc(var(--ui-font-size) * 0.6923);
 }
-.split-orientation-btn svg { width: 12px; height: 12px; }
-.split-fold-btn:hover, .split-orientation-btn:hover { color: var(--accent-color); border-color: var(--accent-color); }
+.split-fold-btn svg,
+.split-orientation-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+.split-fold-btn:hover, .split-orientation-btn:hover {
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+  border-color: var(--accent-color);
+}
 /* 组内位置（横向分屏竖排）：编辑钮在上、方向钮居中、预览钮在下 */
 #btn-fold-editor { transform: translate(-50%, calc(-50% - 28px)); }
 #btn-fold-preview { transform: translate(-50%, calc(-50% + 28px)); }
-/* 上下分屏（横排）：编辑钮在左、预览钮在右，方向钮沿用 rotate(90deg) */
-.editor-row.split-vertical #btn-split-orientation { transform: translate(-50%, -50%) rotate(90deg); }
+/* 上下分屏（横排）：编辑钮在左、预览钮在右；方向图标随状态机换 rows-2/columns-2，无需旋转 */
 .editor-row.split-vertical #btn-fold-editor { transform: translate(calc(-50% - 28px), -50%); }
 .editor-row.split-vertical #btn-fold-preview { transform: translate(calc(-50% + 28px), -50%); }
 /* 仅编辑分屏（双栏均可见）态显示方向钮；被折叠侧折叠钮在折叠态转为停靠恢复钮仍显示 */
@@ -5008,29 +5013,35 @@ body.wysiwyg-table-dragging * { cursor: grabbing !important; user-select: none !
 .editor-container.preview-collapsed .preview-pane { flex: 0; min-width: 0; width: 0; overflow: hidden; }
 .editor-container.preview-collapsed .editor-pane { flex: 1; }
 
-/* 停靠形态（横向）：编辑器折叠 → 左缘竖条（▶ 恢复）；预览折叠 → 右缘竖条（◀ 恢复）。
-   与侧栏吸附把手（.sidebar-float-btn 16×50）同形制，构成整齐边缘控制列。 */
+/* 停靠形态（横向）：编辑器折叠 → 左缘半圆把手（chevron-right，箭头指向展开方向）；
+   预览折叠 → 右缘半圆把手。用百分制椭圆角（外缘横向 50%+50%、纵向 100%）
+   让弧线铺满整条外缘、中点无缝相接成标准半圆（固定 px 半径会被高度钳制
+   在中点留 4px 直线段 → 穹顶中央发平）。深 14 × 长 28（长 = 2×深，标准半圆）。 */
 .editor-container.editor-collapsed #btn-fold-editor {
   left: 0; top: 50%; transform: translateY(-50%);
-  width: 16px; height: 50px;
-  border-radius: 0 4px 4px 0; border-left: none;
+  width: 14px; height: 28px;
+  /* 竖条：横向半径按宽度（100%=14px 外凸深度）、纵向按高度（各 50%） */
+  border-radius: 0 100% 100% 0 / 0 50% 50% 0; border-left: none;
 }
 .editor-container.preview-collapsed #btn-fold-preview {
   left: auto; right: 0; top: 50%; transform: translateY(-50%);
-  width: 16px; height: 50px;
-  border-radius: 4px 0 0 4px; border-right: none;
+  width: 14px; height: 28px;
+  border-radius: 100% 0 0 100% / 50% 0 0 50%; border-right: none;
 }
-/* 停靠形态（纵向）：编辑器折叠 → 顶缘横条（▼）；预览折叠 → 底缘横条（▲） */
+/* 停靠形态（纵向）：编辑器折叠 → 顶缘半圆把手；预览折叠 → 底缘半圆把手 */
 .editor-container.editor-collapsed .editor-row.split-vertical #btn-fold-editor {
   left: 50%; top: 0; transform: translateX(-50%);
-  width: 50px; height: 16px;
-  border-radius: 0 0 4px 4px; border-top: none;
+  width: 28px; height: 14px;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%; border-top: none;
 }
 .editor-container.preview-collapsed .editor-row.split-vertical #btn-fold-preview {
   left: 50%; right: auto; top: auto; bottom: 0; transform: translateX(-50%);
-  width: 50px; height: 16px;
-  border-radius: 4px 4px 0 0; border-bottom: none;
+  width: 28px; height: 14px;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0; border-bottom: none;
 }
+/* 半圆把手内图标随形缩小（13px 会顶到 14px 外凸边缘） */
+.editor-container.editor-collapsed #btn-fold-editor svg,
+.editor-container.preview-collapsed #btn-fold-preview svg { width: 12px; height: 12px; }
 /* 折叠激活态：accent 常亮（沿用旧侧缘按钮 side-active 语义） */
 .split-fold-btn.side-active {
   background-color: var(--accent-color);

@@ -467,12 +467,11 @@
           </div>
           <div class="resizer" id="resizer" title="拖动调整分屏比例，双击切换左右/上下分屏">
             <!-- 分屏中央控制钮：折叠编辑 / 切方向 / 折叠预览（横向分屏竖排、上下分屏横排；
-                 折叠态下对应折叠钮脱离组贴边停靠常驻，见 styles.css .split-fold-btn） -->
-            <button id="btn-fold-editor" class="split-fold-btn" type="button" title="折叠编辑器" aria-label="折叠编辑器">&#9664;</button>
-            <button id="btn-split-orientation" class="split-orientation-btn" type="button" title="切换分屏方向" aria-label="切换分屏方向">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 8h8v8H8z"/></svg>
-            </button>
-            <button id="btn-fold-preview" class="split-fold-btn" type="button" title="折叠预览" aria-label="折叠预览">&#9654;</button>
+                 图标为 Lucide（lucide-static v0.469.0，ISC），折叠态由 _syncFoldButtons 换
+                 panel-*-open 并贴边停靠，见 styles.css .split-fold-btn 停靠段） -->
+            <button id="btn-fold-editor" class="split-fold-btn" type="button" title="折叠编辑器" aria-label="折叠编辑器" data-icon="chevron-left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button id="btn-split-orientation" class="split-orientation-btn" type="button" title="切换分屏方向" aria-label="切换分屏方向" data-icon="columns-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg></button>
+            <button id="btn-fold-preview" class="split-fold-btn" type="button" title="折叠预览" aria-label="折叠预览" data-icon="chevron-right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
           </div>
           <div class="preview-pane" id="preview-pane">
             <div id="preview-wrapper">
