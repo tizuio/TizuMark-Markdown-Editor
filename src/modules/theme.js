@@ -89,6 +89,9 @@
         if (typeof mermaid === 'undefined') return;
         // 主题切换：旧主题的 SVG 缓存失效，清空后让下次 updatePreview / 本函数按新主题重渲染
         this._mermaidCache.clear();
+        // WYSIWYG 块最终 HTML 缓存同步失效（代码高亮类名/mermaid 占位随主题变化；
+        // 指纹含 isDark 会在下次进入时兜底清，这里主动清让本次重渲即时生效）
+        if (this._wysiwygFinalHtmlCache) this._wysiwygFinalHtmlCache.clear();
         const gen = ++this._mermaidGeneration;
 
         // 所见即所得：图表挂在 CM 的块遮罩 widget 里（**不在** #preview），旧实现只重建

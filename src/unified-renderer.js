@@ -1771,6 +1771,44 @@ function normalizeListIndentation(content, tabSize) {
   return { text: out.join('\n'), lineMap };
 }
 
+// unified processor 实例复用（2026-11-01 性能）：renderMarkdown 被 renderMarkdownBlocks
+// 逐块调用（N 块 = N 次），旧实现每次重建整条 remark→rehype→sanitize 管线（N 次插件注册）。
+// processor 无跨调用状态（processSync 幂等），按 softBreaks 键复用单例即可。
+let _unifiedProcCache = null;
+let _unifiedProcKey = '';
+function getUnifiedProcessor(softBreaks) {
+  const key = softBreaks ? 'soft' : 'hard';
+  if (_unifiedProcCache && _unifiedProcKey === key) return _unifiedProcCache;
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkGfm, { singleTilde: false })
+    .use(remarkSourceLine);
+  if (softBreaks) {
+    // 软换行开启：所有换行（单 \n 与硬换行）统一渲染为 <br>
+    processor.use(remarkBreaks);
+    processor.use(remarkSoftBreaks);
+  } else {
+    // 软换行关闭：仅硬换行（两空格 / 反斜杠）渲染为 <br>，单 \n 保持默认软换行（不生成 br）
+    processor.use(remarkHardBreaksOnly);
+  }
+  processor
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeCleanOfficeNamespaces);
+  // 若 rehype-sanitize 可用，用扩展 schema：保留 img 的 width/height/srcset（让「指定显示尺寸」生效），
+  // 并允许 file: scheme（demo.md 声明支持 file:// 写法）。缺失时跳过，由下方 sanitizeHTML 兜底净化。
+  if (rehypeSanitize && rehypeSanitize.defaultSchema) {
+    processor.use(rehypeSanitize, buildSanitizeSchema());
+  }
+  processor.use(rehypeHeadingIds);
+  processor.use(rehypeInlineBacktickMath);
+  processor.use(rehypeInlineDollarBacktickMath);
+  processor.use(rehypeStringify, { allowDangerousHtml: true });
+  _unifiedProcCache = processor;
+  _unifiedProcKey = key;
+  return processor;
+}
+
 function renderMarkdown(content, options) {
   const opts = options || {};
   const softBreaks = opts.softBreaks === true;
@@ -1825,35 +1863,10 @@ function renderMarkdown(content, options) {
   const wikiImgResult = guardWikilinkImages(processed);
   processed = wikiImgResult.content;
 
-  // 5. Unified pipeline
+  // 5. Unified pipeline（processor 复用单例，见 getUnifiedProcessor 注释）
   let html;
   try {
-    const processor = unified()
-      .use(remarkParse)
-      .use(remarkGfm, { singleTilde: false })
-      .use(remarkSourceLine);
-    if (softBreaks) {
-      // 软换行开启：所有换行（单 \n 与硬换行）统一渲染为 <br>
-      processor.use(remarkBreaks);
-      processor.use(remarkSoftBreaks);
-    } else {
-      // 软换行关闭：仅硬换行（两空格 / 反斜杠）渲染为 <br>，单 \n 保持默认软换行（不生成 br）
-      processor.use(remarkHardBreaksOnly);
-    }
-    processor
-      .use(remarkRehype, { allowDangerousHtml: true })
-      .use(rehypeRaw)
-      .use(rehypeCleanOfficeNamespaces);
-    // 若 rehype-sanitize 可用，用扩展 schema：保留 img 的 width/height/srcset（让「指定显示尺寸」生效），
-    // 并允许 file: scheme（demo.md 声明支持 file:// 写法）。缺失时跳过，由下方 sanitizeHTML 兜底净化。
-    if (rehypeSanitize && rehypeSanitize.defaultSchema) {
-      processor.use(rehypeSanitize, buildSanitizeSchema());
-    }
-    processor.use(rehypeHeadingIds);
-    processor.use(rehypeInlineBacktickMath);
-    processor.use(rehypeInlineDollarBacktickMath);
-    processor.use(rehypeStringify, { allowDangerousHtml: true });
-    html = processor.processSync(processed).toString();
+    html = getUnifiedProcessor(softBreaks).processSync(processed).toString();
   } catch (e) {
     // Fallback: return raw content wrapped in <pre>
     console.error('Unified rendering error:', e);
@@ -1992,7 +2005,11 @@ function renderMarkdownBlocks(content, options) {
     return null;
   }
   const children = (tree && tree.children) || [];
-  const skipHtml = !!(options && options.maxBlocks && children.length > options.maxBlocks);
+  // skipped 判定：调用方显式 skipHtml（wysiwyg 增量刷新只切边界，2026-11-01 修复——
+  // 旧实现只看 maxBlocks，options.skipHtml 从未被消费，parseOnly 路径实际每次全量渲染）
+  // 或块数超 maxBlocks（大文档虚拟模式）。
+  const skipHtml = !!(options && (options.skipHtml ||
+    (options.maxBlocks && children.length > options.maxBlocks)));
   // 先只收块范围（不渲染 html）：公式行段合并之后 slice 才最终确定
   const blocks = [];
   for (const node of children) {
@@ -2086,34 +2103,45 @@ function renderMarkdownBlocks(content, options) {
       k--;
     }
   }
-  // 范围稳定后统一渲染（跳过空块）
+  // 范围稳定后统一渲染（跳过空块）。htmlCache（2026-11-01 性能）：块最终 HTML 缓存
+  //（wysiwyg 侧跨进入复用，键 = 块源文本 slice），命中跳过整条 renderMarkdown 管线
+  // 并给块打 finalHtml 标记（调用方据此跳过同步后处理）。
+  const htmlCache = (options && options.htmlCache instanceof Map) ? options.htmlCache : null;
   const out = [];
   for (const b of blocks) {
     const slice = lines.slice(b.start, b.end).join('\n');
     if (!slice.trim()) continue;
     let html = '';
     let renderFailed = false;
+    let fromCache = false;
     if (!b.skipped) {
-      try {
-        html = renderMarkdown(slice, options) || '';
-      } catch (e) {
-        console.error('renderMarkdownBlocks: 块渲染失败，该块保持源码态:', e);
-        html = '';
-        renderFailed = true;
-      }
-      // 渲染为空的「按设计不可见」块：链接引用定义 / 孤闭合标签行 → 输出零高度占位
-      // （遮罩盖行，与阅读模式可见性一致）。只在源文判定为纯此类行时替换，
-      // 渲染失败（同样为空）仍保持源码态可见。
-      if (html === '' && slice.trim() && !renderFailed &&
-          (isOnlyLinkRefDefs(slice) || isOnlyStrayClosingTags(slice))) {
-        html = '<div class="wysiwyg-block-hidden"></div>';
+      const cached = htmlCache ? htmlCache.get(slice) : undefined;
+      if (typeof cached === 'string' && cached) {
+        html = cached;
+        fromCache = true;
+      } else {
+        try {
+          html = renderMarkdown(slice, options) || '';
+        } catch (e) {
+          console.error('renderMarkdownBlocks: 块渲染失败，该块保持源码态:', e);
+          html = '';
+          renderFailed = true;
+        }
+        // 渲染为空的「按设计不可见」块：链接引用定义 / 孤闭合标签行 → 输出零高度占位
+        // （遮罩盖行，与阅读模式可见性一致）。只在源文判定为纯此类行时替换，
+        // 渲染失败（同样为空）仍保持源码态可见。
+        if (html === '' && slice.trim() && !renderFailed &&
+            (isOnlyLinkRefDefs(slice) || isOnlyStrayClosingTags(slice))) {
+          html = '<div class="wysiwyg-block-hidden"></div>';
+        }
       }
     }
     // listItem/listItemPos 是逐项列表块的标签（遮罩片段底距 / 活动块 edge-bottom 判定用），
     // 必须随块传出——此处重建对象时漏掉会让下游拿到 undefined（2026-10-21 单测实测）。
+    // finalHtml：html 来自最终缓存（同步后处理已含），调用方挂遮罩时据此跳过后处理。
     out.push(b.listItem
-      ? { start: b.start, end: b.end, html, skipped: b.skipped, listItem: true, listItemPos: b.listItemPos }
-      : { start: b.start, end: b.end, html, skipped: b.skipped });
+      ? { start: b.start, end: b.end, html, skipped: b.skipped, listItem: true, listItemPos: b.listItemPos, finalHtml: fromCache }
+      : { start: b.start, end: b.end, html, skipped: b.skipped, finalHtml: fromCache });
   }
   return out;
 }
