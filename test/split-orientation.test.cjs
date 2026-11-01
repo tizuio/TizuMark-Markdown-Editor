@@ -175,3 +175,112 @@ test('initResizer 接线：双击拖拽条切换方向、点击按钮切换方�
     assert.notStrictEqual(ed.settings.splitOrientation, mid, '点击按钮应切换方向');
   });
 });
+
+// ===== 分屏折叠钮（拖拽条内）：折叠入口收进拖拽条 + 折叠态贴边停靠常驻 =====
+
+test('_syncFoldButtons: 横向折叠态图标/title/side-active 状态机', async () => {
+  await withEditor({}, async (w, ed) => {
+    const container = w.document.querySelector('.editor-container');
+    const foldEditor = w.document.getElementById('btn-fold-editor');
+    const foldPreview = w.document.getElementById('btn-fold-preview');
+    const splitRow = getSplitRow(w);
+    enterEditSplit(w);
+    ed.viewMode = 'edit';
+    splitRow.classList.remove('split-vertical');
+    ed.settings.splitOrientation = 'horizontal';
+
+    ed._syncFoldButtons();
+    assert.strictEqual(foldEditor.innerHTML, '\u25C0', '横向未折叠：编辑钮 ◀（收起向左）');
+    assert.strictEqual(foldPreview.innerHTML, '\u25B6', '横向未折叠：预览钮 ▶（收起向右）');
+    assert.ok(!foldEditor.classList.contains('side-active'), '未折叠无激活态');
+
+    ed.toggleCollapse('editor');
+    assert.ok(container.classList.contains('editor-collapsed'), '应折叠编辑器');
+    assert.strictEqual(foldEditor.innerHTML, '\u25B6', '横向编辑器折叠：恢复钮 ▶（向右展开）');
+    assert.strictEqual(foldEditor.title, ed.t('restoreEditor'), 'title 应切为「恢复编辑器」');
+    assert.ok(foldEditor.classList.contains('side-active'), '折叠态编辑钮应 accent 常亮');
+    assert.ok(!foldPreview.classList.contains('side-active'), '预览钮不应被牵连激活');
+    assert.strictEqual(foldPreview.innerHTML, '\u25B6', '未折叠侧预览钮图标不变');
+
+    ed.toggleCollapse('editor');
+    assert.strictEqual(foldEditor.innerHTML, '\u25C0', '展开后应恢复 ◀');
+
+    ed.toggleCollapse('preview');
+    assert.strictEqual(foldPreview.innerHTML, '\u25C0', '横向预览折叠：恢复钮 ◀（向左展开）');
+    assert.strictEqual(foldPreview.title, ed.t('restorePreview'), 'title 应切为「恢复预览」');
+    assert.ok(foldPreview.classList.contains('side-active'), '折叠态预览钮应 accent 常亮');
+  });
+});
+
+test('_syncFoldButtons: 纵向折叠态图标转竖向 + toggleSplitOrientation 联动', async () => {
+  await withEditor({}, async (w, ed) => {
+    const container = w.document.querySelector('.editor-container');
+    const foldEditor = w.document.getElementById('btn-fold-editor');
+    const foldPreview = w.document.getElementById('btn-fold-preview');
+    const splitRow = getSplitRow(w);
+    enterEditSplit(w);
+    ed.viewMode = 'edit';
+    splitRow.classList.add('split-vertical');
+    ed.settings.splitOrientation = 'vertical';
+
+    ed._syncFoldButtons();
+    assert.strictEqual(foldEditor.innerHTML, '\u25B2', '纵向未折叠：编辑钮 ▲（收起向上）');
+    assert.strictEqual(foldPreview.innerHTML, '\u25BC', '纵向未折叠：预览钮 ▼（收起向下）');
+
+    ed.toggleCollapse('editor');
+    assert.strictEqual(foldEditor.innerHTML, '\u25BC', '纵向编辑器折叠：恢复钮 ▼（向下展开）');
+    ed.toggleCollapse('editor');
+
+    ed.toggleCollapse('preview');
+    assert.strictEqual(foldPreview.innerHTML, '\u25B2', '纵向预览折叠：恢复钮 ▲（向上展开）');
+    assert.ok(foldPreview.classList.contains('side-active'), '折叠态预览钮应 accent 常亮');
+    ed.toggleCollapse('preview');
+
+    // 方向切换（经 toggleSplitOrientation → updateSideButtons → _syncFoldButtons）图标应跟着转
+    ed.settings.splitOrientation = 'horizontal';
+    splitRow.classList.remove('split-vertical');
+    ed.toggleSplitOrientation();
+    assert.ok(splitRow.classList.contains('split-vertical'), '应切到纵向');
+    assert.strictEqual(foldEditor.innerHTML, '\u25B2', '切纵向后编辑钮应为 ▲');
+    assert.strictEqual(foldPreview.innerHTML, '\u25BC', '切纵向后预览钮应为 ▼');
+  });
+});
+
+test('折叠钮接线：点击拖拽条内折叠钮触发 toggleCollapse', async () => {
+  await withEditor({}, async (w, ed) => {
+    const container = w.document.querySelector('.editor-container');
+    const foldEditor = w.document.getElementById('btn-fold-editor');
+    const foldPreview = w.document.getElementById('btn-fold-preview');
+    enterEditSplit(w);
+    ed.viewMode = 'edit';
+    assert.ok(foldEditor && foldPreview, '应存在分屏折叠钮');
+
+    foldEditor.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    assert.ok(container.classList.contains('editor-collapsed'), '点击编辑折叠钮应折叠编辑器');
+    foldEditor.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    assert.ok(!container.classList.contains('editor-collapsed'), '再点应展开');
+
+    foldPreview.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    assert.ok(container.classList.contains('preview-collapsed'), '点击预览折叠钮应折叠预览');
+  });
+});
+
+test('CSS 静态断言：折叠态拖拽条保留定位锚 + 四向停靠选择器齐备', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
+  // 折叠态 resizer 不再 display:none（恢复钮要贴边常驻），改为宽/高归零保留定位锚
+  assert.ok(!/\.editor-container\.editor-collapsed \.resizer \{ display: none/.test(css),
+    '折叠态 resizer 不应再 display:none（恢复钮需贴边常驻）');
+  assert.ok(css.includes('.editor-container.editor-collapsed .resizer'), '折叠态 resizer 定位锚规则应存在');
+  // 四向停靠
+  assert.ok(css.includes('.editor-container.editor-collapsed #btn-fold-editor'), '横向编辑折叠停靠（左缘）');
+  assert.ok(css.includes('.editor-container.preview-collapsed #btn-fold-preview'), '横向预览折叠停靠（右缘）');
+  assert.ok(css.includes('.editor-container.editor-collapsed .editor-row.split-vertical #btn-fold-editor'), '纵向编辑折叠停靠（顶缘）');
+  assert.ok(css.includes('.editor-container.preview-collapsed .editor-row.split-vertical #btn-fold-preview'), '纵向预览折叠停靠（底缘）');
+  // 可见性选择器：单栏守卫排除 preview-mode/wysiwyg-mode/text-only + 对侧折叠排除
+  assert.ok(css.includes(':not(.preview-collapsed) #btn-fold-editor'), '编辑折叠钮可见性应排除预览折叠态');
+  assert.ok(css.includes(':not(.editor-collapsed) #btn-fold-preview'), '预览折叠钮可见性应排除编辑折叠态');
+  // 旧入口应已移除
+  assert.ok(!css.includes('.side-btn'), '旧 .side-btn 簇应已删除');
+});

@@ -13,20 +13,17 @@
       },
       updateSideButtons() {
         const outlineSidebar = document.getElementById('outline-sidebar');
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
-        const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
-        sideLeft.style.left = outlineWidth + 'px';
-        sideRight.style.left = '';
-        // 侧边栏吸附把手：与 ◀ 把手同锚（左缘贴分隔线向右伸），关闭后两侧手同落左缘、本把手 accent 常亮。
+        // 侧边栏吸附把手：贴左缘分隔线（与停靠态折叠钮同形制 16×50），关闭后落左缘、accent 常亮。
         // 注意 jsdom 无布局，可见性必须按 classList 判定（offsetWidth 恒 0）。
         const floatBtn = document.getElementById('sidebar-float-btn');
         if (floatBtn) {
           const visible = !outlineSidebar.classList.contains('hidden');
           floatBtn.classList.toggle('sidebar-open', visible);
-          floatBtn.style.left = visible ? outlineWidth + 'px' : '';
+          floatBtn.style.left = visible ? outlineSidebar.offsetWidth + 'px' : '';
           floatBtn.setAttribute('aria-pressed', String(visible));
         }
+        // 分屏折叠钮（拖拽条内）图标/文案随「分屏方向 × 折叠态」同步
+        if (this._syncFoldButtons) this._syncFoldButtons();
       },
         toggleSidebar() {
           const sidebar = document.getElementById('outline-sidebar');
@@ -874,8 +871,8 @@
         };
 
         resizer.addEventListener('mousedown', (e) => {
-          // 按钮区域不触发拖拽（点击由其自身处理器接管方向切换）
-          if (e.target.closest('#btn-split-orientation')) return;
+          // 按钮区域不触发拖拽（点击由其自身处理器接管：方向切换 / 折叠编辑 / 折叠预览）
+          if (e.target.closest('#btn-split-orientation, #btn-fold-editor, #btn-fold-preview')) return;
           e.preventDefault();
           isResizing = true;
           vertical = isVertical();
@@ -892,7 +889,7 @@
 
         // 双击拖拽条（非按钮区）切换左右/上下分屏
         resizer.addEventListener('dblclick', (e) => {
-          if (e.target.closest('#btn-split-orientation')) return;
+          if (e.target.closest('#btn-split-orientation, #btn-fold-editor, #btn-fold-preview')) return;
           this.toggleSplitOrientation();
         });
 
@@ -1028,8 +1025,19 @@
       const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
       if (btnWysiwyg) btnWysiwyg.addEventListener('click', () => this.setViewMode('wysiwyg'));
       this.initViewModeTooltips();
-      document.getElementById('btn-side-left').addEventListener('click', () => this.toggleCollapse('editor'));
-      document.getElementById('btn-side-right').addEventListener('click', () => this.toggleCollapse('preview'));
+      // 分屏折叠钮（拖拽条内）：折叠编辑器 / 折叠预览。
+      // mousedown/dblclick 阻断冒泡，避免误触拖拽与双击切方向；图标/文案由 _syncFoldButtons 统一同步。
+      const foldEditorBtn = document.getElementById('btn-fold-editor');
+      const foldPreviewBtn = document.getElementById('btn-fold-preview');
+      for (const b of [foldEditorBtn, foldPreviewBtn]) {
+        if (!b) continue;
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+        b.addEventListener('dblclick', (e) => { e.stopPropagation(); });
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleCollapse(b === foldEditorBtn ? 'editor' : 'preview');
+        });
+      }
       document.getElementById('large-file-banner-close').addEventListener('click', () => {
         this.hideLargeFileNotice();
         this._largeFileNoticeDismissed = true;

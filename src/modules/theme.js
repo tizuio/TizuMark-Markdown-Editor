@@ -444,8 +444,6 @@
         const btnPreview = document.getElementById('btn-view-preview');
         const btnEdit = document.getElementById('btn-view-edit');
         const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
 
         editorPane.style.flex = '';
         editorPane.style.width = '';
@@ -479,21 +477,16 @@
         btnEdit.style.display = '';
         if (btnWysiwyg) btnWysiwyg.style.display = '';
   
-        // 侧边收缩/展开按钮（#btn-side-left / #btn-side-right）默认隐藏，仅 Markdown 显示。
-        sideLeft.classList.add('side-hidden', 'side-active');
-        sideRight.classList.add('side-hidden', 'side-active');
-  
         if (activeTabKind === 'text') {
-          // 非 Markdown 明文：编辑器占满整行，无预览栏、无收缩/展开按钮，只支持编辑
+          // 非 Markdown 明文：编辑器占满整行，无预览栏、无分屏控制钮，只支持编辑
           container.classList.add('text-only');
-        } else if (activeTabKind === 'markdown' && this.viewMode === 'edit') {
-          // 仅 Markdown 在编辑模式下保留侧边收缩/展开按钮（折叠编辑器或预览）；预览模式一律不显示
-          sideLeft.classList.remove('side-hidden', 'side-active');
-          sideRight.classList.remove('side-hidden', 'side-active');
-          sideLeft.innerHTML = '&#9664;';
-          sideLeft.title = this.t('collapseEditor');
-          sideRight.innerHTML = '&#9654;';
-          sideRight.title = this.t('collapsePreview');
+        }
+
+        // 分屏折叠钮（拖拽条内 #btn-fold-editor / #btn-fold-preview）：
+        // 可见性/停靠由容器状态类驱动 CSS，这里只按「方向 × 折叠态」同步图标与文案。
+        // 仅 Markdown 编辑/实预模式有分屏钮；阅读模式与明文/图片由 CSS 守卫隐藏。
+        if (activeTabKind === 'markdown' || this.viewMode === 'edit') {
+          this._syncFoldButtons();
         }
         // 图片：预览显示图片，但同样不需要侧边收缩/展开按钮（图片不可编辑），保持隐藏
   
@@ -553,6 +546,30 @@
           this._viewModeRestoreTimer = null;
         }, 50);
       },
+      // 分屏折叠钮（拖拽条内 #btn-fold-editor / #btn-fold-preview）图标/文案状态机：
+      // 按「分屏方向 × 折叠态」同步——横向 ◀/▶、纵向 ▲/▼，折叠态反向并改 title 为「恢复」。
+      // 可见性（显隐/停靠）由 CSS 按容器状态类接管，这里只负责 innerHTML/title/side-active。
+      _syncFoldButtons() {
+        const container = document.querySelector('.editor-container');
+        const btnFoldEditor = document.getElementById('btn-fold-editor');
+        const btnFoldPreview = document.getElementById('btn-fold-preview');
+        if (!container || !btnFoldEditor || !btnFoldPreview) return;
+        const splitRow = document.querySelector('.editor-row');
+        const vertical = !!(splitRow && splitRow.classList.contains('split-vertical'));
+        const editorCollapsed = container.classList.contains('editor-collapsed');
+        const previewCollapsed = container.classList.contains('preview-collapsed');
+        // 箭头指向「收起方向」：横向编辑器 ◀ / 预览 ▶；纵向编辑器 ▲ / 预览 ▼；折叠态反向（= 恢复方向）
+        const iconEditor = editorCollapsed ? (vertical ? '&#9660;' : '&#9654;') : (vertical ? '&#9650;' : '&#9664;');
+        const iconPreview = previewCollapsed ? (vertical ? '&#9650;' : '&#9664;') : (vertical ? '&#9660;' : '&#9654;');
+        const titleEditor = editorCollapsed ? this.t('restoreEditor') : this.t('collapseEditor');
+        const titlePreview = previewCollapsed ? this.t('restorePreview') : this.t('collapsePreview');
+        if (btnFoldEditor.innerHTML !== iconEditor) btnFoldEditor.innerHTML = iconEditor;
+        if (btnFoldPreview.innerHTML !== iconPreview) btnFoldPreview.innerHTML = iconPreview;
+        btnFoldEditor.title = titleEditor;
+        btnFoldPreview.title = titlePreview;
+        btnFoldEditor.classList.toggle('side-active', editorCollapsed);
+        btnFoldPreview.classList.toggle('side-active', previewCollapsed);
+      },
       toggleCollapse(pane) {
         const container = document.querySelector('.editor-container');
         if (this.viewMode === 'preview') {
@@ -563,35 +580,32 @@
         this._canScroll.editor = false;
         this._canScroll.preview = false;
   
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const previewScrollTop = this.preview.scrollTop;
   
         editorPane.style.flex = '';
         editorPane.style.width = '';
+        editorPane.style.height = '';
         previewPane.style.flex = '';
         previewPane.style.width = '';
+        previewPane.style.height = '';
   
         if (pane === 'editor') {
           container.classList.toggle('editor-collapsed');
-          const isCollapsed = container.classList.contains('editor-collapsed');
-          sideLeft.innerHTML = isCollapsed ? '&#9654;' : '&#9664;';
-          sideLeft.title = isCollapsed ? this.t('restoreEditor') : this.t('collapseEditor');
-          sideLeft.classList.toggle('side-active', isCollapsed);
         } else {
           container.classList.toggle('preview-collapsed');
-          const isCollapsed = container.classList.contains('preview-collapsed');
-          sideRight.innerHTML = isCollapsed ? '&#9664;' : '&#9654;';
-          sideRight.title = isCollapsed ? this.t('restorePreview') : this.t('collapsePreview');
-          sideRight.classList.toggle('side-active', isCollapsed);
         }
+        // 图标/title/激活态统一由状态机按「方向 × 折叠态」同步（方向类在 splitRow 上）
+        this._syncFoldButtons();
   
         let restored = false;
         const doRefresh = () => {
           if (restored) return;
           restored = true;
+          // 展开时内联 flex/宽高已被清空，按 settings 比例重算（纵向像素高度必须重给，否则双栏塌 0）；
+          // 折叠态下该函数内部守卫直接返回，无副作用
+          this.applyPreviewPaneWidth();
           this.cm.refresh();
           this.preview.scrollTop = previewScrollTop;
           this.updateSideButtons();

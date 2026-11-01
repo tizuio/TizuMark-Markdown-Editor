@@ -1788,7 +1788,7 @@ body.is-resizing * {
 body.is-resizing .editor-pane,
 body.is-resizing .preview-pane,
 body.is-resizing .outline-sidebar,
-body.is-resizing .side-btn {
+body.is-resizing .split-fold-btn {
   transition: none !important;
 }
 
@@ -1902,7 +1902,10 @@ body.is-resizing .side-btn {
 
 .resizer:hover { background-color: var(--accent-color); }
 
-/* 分屏方向切换按钮（拖拽条中央）：仅编辑分屏（双栏均可见）态显示，单栏/折叠态隐藏 */
+/* 分屏拖拽条中央控制钮：折叠编辑器 / 切换方向 / 折叠预览（横向分屏竖排、上下分屏横排）。
+   可见性由容器状态类驱动：阅读/实预/明文隐藏；折叠态下未折叠侧折叠钮与方向钮隐藏，
+   被折叠侧折叠钮转为贴边停靠常驻（见下方「折叠态停靠」段）。 */
+.split-fold-btn,
 .split-orientation-btn {
   display: none;
   position: absolute;
@@ -1921,16 +1924,31 @@ body.is-resizing .side-btn {
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   z-index: 6;
+  line-height: 1;
+  font-size: calc(var(--ui-font-size) * 0.6923);
 }
 .split-orientation-btn svg { width: 12px; height: 12px; }
-.split-orientation-btn:hover { color: var(--accent-color); border-color: var(--accent-color); }
+.split-fold-btn:hover, .split-orientation-btn:hover { color: var(--accent-color); border-color: var(--accent-color); }
+/* 组内位置（横向分屏竖排）：编辑钮在上、方向钮居中、预览钮在下 */
+#btn-fold-editor { transform: translate(-50%, calc(-50% - 28px)); }
+#btn-fold-preview { transform: translate(-50%, calc(-50% + 28px)); }
+/* 上下分屏（横排）：编辑钮在左、预览钮在右，方向钮沿用 rotate(90deg) */
+.editor-row.split-vertical #btn-split-orientation { transform: translate(-50%, -50%) rotate(90deg); }
+.editor-row.split-vertical #btn-fold-editor { transform: translate(calc(-50% - 28px), -50%); }
+.editor-row.split-vertical #btn-fold-preview { transform: translate(calc(-50% + 28px), -50%); }
+/* 仅编辑分屏（双栏均可见）态显示方向钮；被折叠侧折叠钮在折叠态转为停靠恢复钮仍显示 */
 .editor-container:not(.preview-mode):not(.wysiwyg-mode):not(.text-only):not(.editor-collapsed):not(.preview-collapsed) #btn-split-orientation {
+  display: flex;
+}
+.editor-container:not(.preview-mode):not(.wysiwyg-mode):not(.text-only):not(.preview-collapsed) #btn-fold-editor {
+  display: flex;
+}
+.editor-container:not(.preview-mode):not(.wysiwyg-mode):not(.text-only):not(.editor-collapsed) #btn-fold-preview {
   display: flex;
 }
 /* 上下分屏：仅编辑器+预览双栏区（.editor-row）纵向排列，左侧文件/大纲侧栏不受影响 */
 .editor-row.split-vertical { flex-direction: column; }
 .editor-row.split-vertical #resizer { width: auto; height: 6px; cursor: row-resize; }
-.editor-row.split-vertical #btn-split-orientation { transform: translate(-50%, -50%) rotate(90deg); }
 /* 纵向分屏：pane 在 column 容器交叉轴（宽度）需显式撑满，避免被内容宽度压窄导致错位 */
 .editor-row.split-vertical .editor-pane,
 .editor-row.split-vertical .preview-pane { width: 100%; }
@@ -4974,60 +4992,58 @@ body.wysiwyg-table-dragging * { cursor: grabbing !important; user-select: none !
   line-height: 0;
 }
 
-.editor-container.editor-collapsed .resizer { display: none; }
+/* 折叠态：拖拽条宽/高归零但保留定位锚（不再 display:none），被折叠侧的折叠钮
+   脱离组、贴边停靠常驻作为恢复入口（accent 高亮见 .split-fold-btn.side-active）。 */
+.editor-container.editor-collapsed .resizer,
+.editor-container.preview-collapsed .resizer {
+  width: 0; min-width: 0; overflow: visible; background: transparent; cursor: default;
+}
+.editor-container.editor-collapsed .editor-row.split-vertical #resizer,
+.editor-container.preview-collapsed .editor-row.split-vertical #resizer {
+  width: auto; height: 0; min-height: 0;
+}
 .editor-container.editor-collapsed .editor-pane { flex: 0; min-width: 0; width: 0; overflow: hidden; }
 .editor-container.editor-collapsed .preview-pane { flex: 1; }
 
-.editor-container.preview-collapsed .resizer { display: none; }
 .editor-container.preview-collapsed .preview-pane { flex: 0; min-width: 0; width: 0; overflow: hidden; }
 .editor-container.preview-collapsed .editor-pane { flex: 1; }
 
-/* 非 Markdown 明文：编辑器占满整行，无预览栏、无侧边收缩/展开按钮，只支持编辑 */
+/* 停靠形态（横向）：编辑器折叠 → 左缘竖条（▶ 恢复）；预览折叠 → 右缘竖条（◀ 恢复）。
+   与侧栏吸附把手（.sidebar-float-btn 16×50）同形制，构成整齐边缘控制列。 */
+.editor-container.editor-collapsed #btn-fold-editor {
+  left: 0; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 50px;
+  border-radius: 0 4px 4px 0; border-left: none;
+}
+.editor-container.preview-collapsed #btn-fold-preview {
+  left: auto; right: 0; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 50px;
+  border-radius: 4px 0 0 4px; border-right: none;
+}
+/* 停靠形态（纵向）：编辑器折叠 → 顶缘横条（▼）；预览折叠 → 底缘横条（▲） */
+.editor-container.editor-collapsed .editor-row.split-vertical #btn-fold-editor {
+  left: 50%; top: 0; transform: translateX(-50%);
+  width: 50px; height: 16px;
+  border-radius: 0 0 4px 4px; border-top: none;
+}
+.editor-container.preview-collapsed .editor-row.split-vertical #btn-fold-preview {
+  left: 50%; right: auto; top: auto; bottom: 0; transform: translateX(-50%);
+  width: 50px; height: 16px;
+  border-radius: 4px 4px 0 0; border-bottom: none;
+}
+/* 折叠激活态：accent 常亮（沿用旧侧缘按钮 side-active 语义） */
+.split-fold-btn.side-active {
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+  border-color: var(--accent-color);
+}
+
+/* 非 Markdown 明文：编辑器占满整行，无预览栏、无分屏控制钮，只支持编辑 */
 .editor-container.text-only .resizer { display: none; }
 .editor-container.text-only .preview-pane { display: none; }
 .editor-container.text-only .editor-pane { flex: 1; width: 100%; }
 
-.side-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 10;
-  width: 16px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: calc(var(--ui-font-size) * 0.7692);
-  transition: background-color 0.2s, color 0.2s, opacity 0.3s ease, left 0.3s ease;
-}
-
-.side-btn:hover {
-  background-color: var(--accent-color);
-  color: var(--accent-text);
-}
-
-#btn-side-left {
-  left: 0;
-  border-radius: 0 4px 4px 0;
-  border-left: none;
-}
-
-#btn-side-right {
-  right: 0;
-  border-radius: 4px 0 0 4px;
-  border-right: none;
-}
-
-.side-btn.side-active {
-  background-color: var(--accent-color);
-  color: var(--accent-text);
-}
-
-/* 侧边栏吸附把手：与既有「◀ 折叠编辑器」把手（.side-btn 16×50、左缘贴线向右伸、圆角朝右）
+/* 侧边栏吸附把手：与停靠态折叠钮（16×50、左缘贴线向右伸、圆角朝右）
    完全同款同锚，垂直方向在其上方 6px 处成组（top = 50% - 25px - 6px - 50px），构成整齐边缘控制列。
    关闭后两侧手都落到左缘（left:0），把手转 accent 常亮作为显眼入口。 */
 .sidebar-float-btn {
@@ -5060,16 +5076,11 @@ body.wysiwyg-table-dragging * { cursor: grabbing !important; user-select: none !
   color: var(--accent-text);
 }
 
-/* 关闭态：与 ◀ 把手一样吸附左缘，但 accent 常亮 → 显眼的“打开侧边栏”入口 */
+/* 关闭态：与停靠态折叠钮一样吸附左缘，但 accent 常亮 → 显眼的“打开侧边栏”入口 */
 .sidebar-float-btn:not(.sidebar-open) {
   left: 0 !important;
   background-color: var(--accent-color);
   color: var(--accent-text);
-}
-
-.side-btn.side-hidden {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* Outline Sidebar */
@@ -8277,7 +8288,7 @@ select option {
   body { height: auto !important; overflow: visible !important; background: white !important; }
 
   header, .toolbar, .editor-pane, .resizer, .outline-sidebar, .outline-resizer,
-  .side-btn, .scroll-top-btn, .toast, footer, .statusbar,
+  .split-fold-btn, .split-orientation-btn, .scroll-top-btn, .toast, footer, .statusbar,
   #update-status, .dropdown-menu, .dropdown-backdrop, #toast-container,
   #find-panel, #preview-find-panel { display: none !important; }
 

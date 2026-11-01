@@ -93,7 +93,7 @@ test('viewmode: 全量增量刷新——同一源文本的重复块被删时 src
   } finally { cleanup(w); }
 });
 
-test('viewmode: applyViewMode(preview) 加 preview-mode 类并隐藏侧栏', async () => {
+test('viewmode: applyViewMode(preview) 加 preview-mode 类并同步折叠钮状态', async () => {
   const { w, ed } = await makeEditor();
   try {
     ed.setViewMode('edit');
@@ -101,8 +101,13 @@ test('viewmode: applyViewMode(preview) 加 preview-mode 类并隐藏侧栏', asy
     ed.applyViewMode();
     const container = w.document.querySelector('.editor-container');
     assert.ok(container.classList.contains('preview-mode'));
-    const sideLeft = w.document.getElementById('btn-side-left');
-    if (sideLeft) assert.ok(sideLeft.classList.contains('side-hidden'), 'preview 模式应隐藏侧栏按钮');
+    const foldEditor = w.document.getElementById('btn-fold-editor');
+    const foldPreview = w.document.getElementById('btn-fold-preview');
+    assert.ok(foldEditor && foldPreview, '应存在分屏折叠钮（拖拽条内）');
+    // 旧 side-btn 的 side-hidden 显隐已改由 CSS 状态类接管；jsdom 无布局，
+    // 这里断言 JS 侧状态机：无折叠态时 side-active 不应残留
+    assert.ok(!foldEditor.classList.contains('side-active'), 'preview 模式下编辑折叠钮不应保持激活态');
+    assert.ok(!foldPreview.classList.contains('side-active'), 'preview 模式下预览折叠钮不应保持激活态');
   } finally { cleanup(w); }
 });
 
