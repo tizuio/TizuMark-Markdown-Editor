@@ -238,12 +238,30 @@ function looksLikeMath(inner) {
   return false;
 }
 
-// LaTeX 定界符 \(...\) / \[...\] 的保守判定：inner 须具备 LaTeX 数学特征才当公式。
-// 只认「反斜杠命令（\frac/\alpha/\pi...）」与上标（^）；
-// 刻意不含运算符/花括号/下划线（旧版无条件拦截曾把文献引用 \[J/OL\] 误判为块级公式，
-// v1.2.2 因此移除；下划线常见于文件名/标识符如 my_paper_v2，作特征会误判，下标请用 $a_i$）。
+// LaTeX 定界符判定。行内与块级刻意采用**不同**策略，因为两者的冲突面不同：
+//
+//  - 块级 \[...\]：保守。只认「反斜杠命令（\frac/\alpha/\pi...）」与上标（^）。
+//    旧版无条件拦截曾把文献引用 \[J/OL\]、\[1\] 误判为块级公式（v1.2.2 因此收紧）；
+//    下划线/方括号都不能作特征——文件名 my_paper_v2 之类会误判。
+//  - 行内 \(...\)：宽松。\(...\) 是 KaTeX 生态的标准行内定界符，作者写出即显式声明为公式。
+//    漏判代价（公式退化成字面括号，如 (S_{k,t} = 1.0)）远高于误判，且实测真实文档中
+//    30% 的行内公式因「无命令无上标」被漏判。故默认按公式处理，只在两种明确不是数学时
+//    回退：inner 含中文（夹注，如 \(见附录\)）、含连续英文单词（散文，如 \(hello world\)）。
 function looksLikeLatexMath(inner) {
   return /\\[a-zA-Z]+|\^/.test(inner);
+}
+
+// 行内 \(...\) 专用判定：默认是公式，仅排除「明显不是数学」的情形。
+// 判定顺序有意如此——先认反斜杠命令：\text{max value}、\mathrm{drift} 这类命令里的
+// 自然语言是公式内容的一部分，不能被后面的散文规则误杀。
+// 注意不要复用块级的 looksLikeLatexMath——那会让 (k)、(T_S)、(F=5) 这类合法公式退化。
+function looksLikeInlineLatexMath(inner) {
+  const t = inner.trim();
+  if (!t) return false;                                                   // \(\)
+  if (/\\[a-zA-Z]+/.test(t)) return true;                                 // 显式 LaTeX 命令 → 公式
+  if (/[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/.test(t)) return false;  // 中文/全角标点 → 夹注
+  if (/[A-Za-z]{2,}[ \t]+[A-Za-z]{2,}/.test(t)) return false;             // 连续英文单词 → 散文
+  return true;
 }
 
 function guardMathBlocks(content) {
@@ -355,10 +373,9 @@ function guardMathBlocks(content) {
       continue;
     }
 
-    // LaTeX 定界符 \(...\) / \[...\]：保守恢复（v1.2.0 曾无条件支持，v1.2.2 因与 CommonMark
-    // 转义冲突——文献引用 \[J/OL\] 被误判为公式——而移除）。现仅当「同段闭合 + inner 具备
-    // LaTeX 数学特征（looksLikeLatexMath）」才归一化为 $/$$ 交给 KaTeX；否则原样输出，
-    // 交由 CommonMark 转义渲染为字面 ( ) [ ]。数学也可直接用 $ / $$（GitHub 同款语义）。
+    // LaTeX 定界符 \(...\) / \[...\]：行内宽松、块级保守（判定差异见 looksLikeInlineLatexMath
+    // 上方注释）。块级 v1.2.0 曾无条件支持，v1.2.2 因与 CommonMark 转义冲突——文献引用
+    // \[J/OL\] 被误判为公式——而收紧。数学也可直接用 $ / $$（GitHub 同款语义）。
     else if (!inBacktick && content[i] === '\\' && content[i + 1] === '(') {
       // 行内 LaTeX：\( ... \) — 仅限单行，遇换行未闭合即回退字面量（与行内 $...$ 一致）。
       const start = i;
@@ -373,7 +390,7 @@ function guardMathBlocks(content) {
         }
         j++;
       }
-      if (inner !== null && looksLikeLatexMath(inner)) {
+      if (inner !== null && looksLikeInlineLatexMath(inner)) {
         const idx = placeholders.length;
         placeholders.push({ text: '$' + inner + '$', display: false });
         result += '<!--MATHBLOCK_' + idx + '-->';
@@ -1754,6 +1771,44 @@ function normalizeListIndentation(content, tabSize) {
   return { text: out.join('\n'), lineMap };
 }
 
+// unified processor 实例复用（2026-11-01 性能）：renderMarkdown 被 renderMarkdownBlocks
+// 逐块调用（N 块 = N 次），旧实现每次重建整条 remark→rehype→sanitize 管线（N 次插件注册）。
+// processor 无跨调用状态（processSync 幂等），按 softBreaks 键复用单例即可。
+let _unifiedProcCache = null;
+let _unifiedProcKey = '';
+function getUnifiedProcessor(softBreaks) {
+  const key = softBreaks ? 'soft' : 'hard';
+  if (_unifiedProcCache && _unifiedProcKey === key) return _unifiedProcCache;
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkGfm, { singleTilde: false })
+    .use(remarkSourceLine);
+  if (softBreaks) {
+    // 软换行开启：所有换行（单 \n 与硬换行）统一渲染为 <br>
+    processor.use(remarkBreaks);
+    processor.use(remarkSoftBreaks);
+  } else {
+    // 软换行关闭：仅硬换行（两空格 / 反斜杠）渲染为 <br>，单 \n 保持默认软换行（不生成 br）
+    processor.use(remarkHardBreaksOnly);
+  }
+  processor
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeCleanOfficeNamespaces);
+  // 若 rehype-sanitize 可用，用扩展 schema：保留 img 的 width/height/srcset（让「指定显示尺寸」生效），
+  // 并允许 file: scheme（demo.md 声明支持 file:// 写法）。缺失时跳过，由下方 sanitizeHTML 兜底净化。
+  if (rehypeSanitize && rehypeSanitize.defaultSchema) {
+    processor.use(rehypeSanitize, buildSanitizeSchema());
+  }
+  processor.use(rehypeHeadingIds);
+  processor.use(rehypeInlineBacktickMath);
+  processor.use(rehypeInlineDollarBacktickMath);
+  processor.use(rehypeStringify, { allowDangerousHtml: true });
+  _unifiedProcCache = processor;
+  _unifiedProcKey = key;
+  return processor;
+}
+
 function renderMarkdown(content, options) {
   const opts = options || {};
   const softBreaks = opts.softBreaks === true;
@@ -1808,35 +1863,10 @@ function renderMarkdown(content, options) {
   const wikiImgResult = guardWikilinkImages(processed);
   processed = wikiImgResult.content;
 
-  // 5. Unified pipeline
+  // 5. Unified pipeline（processor 复用单例，见 getUnifiedProcessor 注释）
   let html;
   try {
-    const processor = unified()
-      .use(remarkParse)
-      .use(remarkGfm, { singleTilde: false })
-      .use(remarkSourceLine);
-    if (softBreaks) {
-      // 软换行开启：所有换行（单 \n 与硬换行）统一渲染为 <br>
-      processor.use(remarkBreaks);
-      processor.use(remarkSoftBreaks);
-    } else {
-      // 软换行关闭：仅硬换行（两空格 / 反斜杠）渲染为 <br>，单 \n 保持默认软换行（不生成 br）
-      processor.use(remarkHardBreaksOnly);
-    }
-    processor
-      .use(remarkRehype, { allowDangerousHtml: true })
-      .use(rehypeRaw)
-      .use(rehypeCleanOfficeNamespaces);
-    // 若 rehype-sanitize 可用，用扩展 schema：保留 img 的 width/height/srcset（让「指定显示尺寸」生效），
-    // 并允许 file: scheme（demo.md 声明支持 file:// 写法）。缺失时跳过，由下方 sanitizeHTML 兜底净化。
-    if (rehypeSanitize && rehypeSanitize.defaultSchema) {
-      processor.use(rehypeSanitize, buildSanitizeSchema());
-    }
-    processor.use(rehypeHeadingIds);
-    processor.use(rehypeInlineBacktickMath);
-    processor.use(rehypeInlineDollarBacktickMath);
-    processor.use(rehypeStringify, { allowDangerousHtml: true });
-    html = processor.processSync(processed).toString();
+    html = getUnifiedProcessor(softBreaks).processSync(processed).toString();
   } catch (e) {
     // Fallback: return raw content wrapped in <pre>
     console.error('Unified rendering error:', e);
@@ -1975,7 +2005,11 @@ function renderMarkdownBlocks(content, options) {
     return null;
   }
   const children = (tree && tree.children) || [];
-  const skipHtml = !!(options && options.maxBlocks && children.length > options.maxBlocks);
+  // skipped 判定：调用方显式 skipHtml（wysiwyg 增量刷新只切边界，2026-11-01 修复——
+  // 旧实现只看 maxBlocks，options.skipHtml 从未被消费，parseOnly 路径实际每次全量渲染）
+  // 或块数超 maxBlocks（大文档虚拟模式）。
+  const skipHtml = !!(options && (options.skipHtml ||
+    (options.maxBlocks && children.length > options.maxBlocks)));
   // 先只收块范围（不渲染 html）：公式行段合并之后 slice 才最终确定
   const blocks = [];
   for (const node of children) {
@@ -2069,34 +2103,45 @@ function renderMarkdownBlocks(content, options) {
       k--;
     }
   }
-  // 范围稳定后统一渲染（跳过空块）
+  // 范围稳定后统一渲染（跳过空块）。htmlCache（2026-11-01 性能）：块最终 HTML 缓存
+  //（wysiwyg 侧跨进入复用，键 = 块源文本 slice），命中跳过整条 renderMarkdown 管线
+  // 并给块打 finalHtml 标记（调用方据此跳过同步后处理）。
+  const htmlCache = (options && options.htmlCache instanceof Map) ? options.htmlCache : null;
   const out = [];
   for (const b of blocks) {
     const slice = lines.slice(b.start, b.end).join('\n');
     if (!slice.trim()) continue;
     let html = '';
     let renderFailed = false;
+    let fromCache = false;
     if (!b.skipped) {
-      try {
-        html = renderMarkdown(slice, options) || '';
-      } catch (e) {
-        console.error('renderMarkdownBlocks: 块渲染失败，该块保持源码态:', e);
-        html = '';
-        renderFailed = true;
-      }
-      // 渲染为空的「按设计不可见」块：链接引用定义 / 孤闭合标签行 → 输出零高度占位
-      // （遮罩盖行，与阅读模式可见性一致）。只在源文判定为纯此类行时替换，
-      // 渲染失败（同样为空）仍保持源码态可见。
-      if (html === '' && slice.trim() && !renderFailed &&
-          (isOnlyLinkRefDefs(slice) || isOnlyStrayClosingTags(slice))) {
-        html = '<div class="wysiwyg-block-hidden"></div>';
+      const cached = htmlCache ? htmlCache.get(slice) : undefined;
+      if (typeof cached === 'string' && cached) {
+        html = cached;
+        fromCache = true;
+      } else {
+        try {
+          html = renderMarkdown(slice, options) || '';
+        } catch (e) {
+          console.error('renderMarkdownBlocks: 块渲染失败，该块保持源码态:', e);
+          html = '';
+          renderFailed = true;
+        }
+        // 渲染为空的「按设计不可见」块：链接引用定义 / 孤闭合标签行 → 输出零高度占位
+        // （遮罩盖行，与阅读模式可见性一致）。只在源文判定为纯此类行时替换，
+        // 渲染失败（同样为空）仍保持源码态可见。
+        if (html === '' && slice.trim() && !renderFailed &&
+            (isOnlyLinkRefDefs(slice) || isOnlyStrayClosingTags(slice))) {
+          html = '<div class="wysiwyg-block-hidden"></div>';
+        }
       }
     }
     // listItem/listItemPos 是逐项列表块的标签（遮罩片段底距 / 活动块 edge-bottom 判定用），
     // 必须随块传出——此处重建对象时漏掉会让下游拿到 undefined（2026-10-21 单测实测）。
+    // finalHtml：html 来自最终缓存（同步后处理已含），调用方挂遮罩时据此跳过后处理。
     out.push(b.listItem
-      ? { start: b.start, end: b.end, html, skipped: b.skipped, listItem: true, listItemPos: b.listItemPos }
-      : { start: b.start, end: b.end, html, skipped: b.skipped });
+      ? { start: b.start, end: b.end, html, skipped: b.skipped, listItem: true, listItemPos: b.listItemPos, finalHtml: fromCache }
+      : { start: b.start, end: b.end, html, skipped: b.skipped, finalHtml: fromCache });
   }
   return out;
 }

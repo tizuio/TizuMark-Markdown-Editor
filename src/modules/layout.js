@@ -13,20 +13,17 @@
       },
       updateSideButtons() {
         const outlineSidebar = document.getElementById('outline-sidebar');
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
-        const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
-        sideLeft.style.left = outlineWidth + 'px';
-        sideRight.style.left = '';
-        // 侧边栏吸附把手：与 ◀ 把手同锚（左缘贴分隔线向右伸），关闭后两侧手同落左缘、本把手 accent 常亮。
+        // 侧边栏吸附把手：贴左缘分隔线（与停靠态折叠钮同形制 16×50），关闭后落左缘、accent 常亮。
         // 注意 jsdom 无布局，可见性必须按 classList 判定（offsetWidth 恒 0）。
         const floatBtn = document.getElementById('sidebar-float-btn');
         if (floatBtn) {
           const visible = !outlineSidebar.classList.contains('hidden');
           floatBtn.classList.toggle('sidebar-open', visible);
-          floatBtn.style.left = visible ? outlineWidth + 'px' : '';
+          floatBtn.style.left = visible ? outlineSidebar.offsetWidth + 'px' : '';
           floatBtn.setAttribute('aria-pressed', String(visible));
         }
+        // 分屏折叠钮（拖拽条内）图标/文案随「分屏方向 × 折叠态」同步
+        if (this._syncFoldButtons) this._syncFoldButtons();
       },
         toggleSidebar() {
           const sidebar = document.getElementById('outline-sidebar');
@@ -806,86 +803,197 @@
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const outlineSidebar = document.getElementById('outline-sidebar');
+        // 分屏方向只作用于「编辑器+预览」双栏区（.editor-row），左侧文件/大纲侧栏是 container 的
+        // 另一个子元素，与分屏方向无关
+        const splitRow = document.querySelector('.editor-row') || container;
         let isResizing = false;
         let startX = 0;
+        let startY = 0;
         let startEditorWidth = 0;
-  
+        let startEditorHeight = 0;
+        let vertical = false;
+
+        const isVertical = () => splitRow.classList.contains('split-vertical');
+
         const onMouseMove = (e) => {
           if (!isResizing) return;
-          const delta = e.clientX - startX;
-          const newEditorWidth = startEditorWidth + delta;
-          const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
-          const resizerWidth = resizer.offsetWidth;
-          const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
-          const editorPercent = (newEditorWidth / totalContentWidth) * 100;
-          if (editorPercent > 20 && editorPercent < 80) {
-            const editorRatio = editorPercent / 100;
-            const previewRatio = 1 - editorRatio;
-            editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
-            previewPane.style.flex = previewRatio.toFixed(4) + ' 0 0px';
-            editorPane.style.width = '';
-            previewPane.style.width = '';
-            this._editorPercent = editorPercent;
-            this.cm.refresh();
-            this.updateSideButtons();
+          if (vertical) {
+            const delta = e.clientY - startY;
+            const newEditorHeight = startEditorHeight + delta;
+            const resizerH = resizer.offsetHeight;
+            const totalContentH = splitRow.offsetHeight - resizerH;
+            const editorPercent = (newEditorHeight / totalContentH) * 100;
+            if (editorPercent > 20 && editorPercent < 80) {
+              const editorRatio = editorPercent / 100;
+              const previewRatio = 1 - editorRatio;
+              // 纵向分屏用像素高度（flex-grow 在 column 容器里分不出高度，会白屏）
+              editorPane.style.flex = '0 0 auto';
+              previewPane.style.flex = '0 0 auto';
+              editorPane.style.height = newEditorHeight + 'px';
+              previewPane.style.height = (totalContentH - newEditorHeight) + 'px';
+              this._editorPercent = editorPercent;
+              this.cm.refresh();
+              this.updateSideButtons();
+            }
+          } else {
+            const delta = e.clientX - startX;
+            const newEditorWidth = startEditorWidth + delta;
+            const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
+            const resizerWidth = resizer.offsetWidth;
+            const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
+            const editorPercent = (newEditorWidth / totalContentWidth) * 100;
+            if (editorPercent > 20 && editorPercent < 80) {
+              const editorRatio = editorPercent / 100;
+              const previewRatio = 1 - editorRatio;
+              editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
+              previewPane.style.flex = previewRatio.toFixed(4) + ' 0 0px';
+              editorPane.style.width = '';
+              previewPane.style.width = '';
+              this._editorPercent = editorPercent;
+              this.cm.refresh();
+              this.updateSideButtons();
+            }
           }
         };
-  
+
         const onMouseUp = () => {
           if (!isResizing) return;
           isResizing = false;
-          document.body.classList.remove('is-resizing');
-          // 保存预览区宽度到设置（合并自 PR #36）
-          const pw = previewPane.getBoundingClientRect().width;
-          this.settings.previewPaneWidth = Math.round(pw);
+          document.body.classList.remove('is-resizing', 'is-resizing-row');
+          const ph = vertical ? previewPane.getBoundingClientRect().height : previewPane.getBoundingClientRect().width;
+          if (vertical) {
+            // 纵向：持久化编辑器高度占比（比例制，窗口缩放比例不变）
+            const total = splitRow.offsetHeight - resizer.offsetHeight;
+            this.settings.editorSplitRatioV = Math.min(0.8, Math.max(0.2, (total - ph) / total));
+          } else {
+            // 横向：持久化编辑器宽度占比（比例制，与纵向对称；窗口缩放/重启后比例不变）
+            const outlineWidth = outlineSidebar.classList.contains('hidden') ? 0 : outlineSidebar.offsetWidth;
+            const total = container.offsetWidth - outlineWidth - resizer.offsetWidth;
+            this.settings.editorSplitRatioH = Math.min(0.8, Math.max(0.2, (total - ph) / total));
+          }
           this.saveSettings();
-          document.documentElement.style.setProperty('--preview-pane-width', Math.round(pw) + 'px');
         };
-  
+
         resizer.addEventListener('mousedown', (e) => {
+          // 按钮区域不触发拖拽（点击由其自身处理器接管：方向切换 / 折叠编辑 / 折叠预览）
+          if (e.target.closest('#btn-split-orientation, #btn-fold-editor, #btn-fold-preview')) return;
           e.preventDefault();
           isResizing = true;
-          startX = e.clientX;
-          startEditorWidth = editorPane.getBoundingClientRect().width;
-          document.body.classList.add('is-resizing');
+          vertical = isVertical();
+          if (vertical) {
+            startY = e.clientY;
+            startEditorHeight = editorPane.getBoundingClientRect().height;
+            document.body.classList.add('is-resizing-row');
+          } else {
+            startX = e.clientX;
+            startEditorWidth = editorPane.getBoundingClientRect().width;
+            document.body.classList.add('is-resizing');
+          }
         });
-  
+
+        // 双击拖拽条（非按钮区）切换左右/上下分屏
+        resizer.addEventListener('dblclick', (e) => {
+          if (e.target.closest('#btn-split-orientation, #btn-fold-editor, #btn-fold-preview')) return;
+          this.toggleSplitOrientation();
+        });
+
+        const btn = document.getElementById('btn-split-orientation');
+        if (btn) {
+          // 按钮上的 mousedown 不进入拖拽流程，仅触发点击切换
+          btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+          btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleSplitOrientation(); });
+        }
+
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
       },
-      // 应用已保存的预览区宽度（合并自 PR #36）：分屏模式下按 settings.previewPaneWidth 还原布局。
-      // 纯预览/编辑器折叠/预览折叠由 CSS 类控制，禁止用用户分屏宽度覆盖，否则占不满且留空白。
+      // 切换分屏方向：左右 ↔ 上下。仅「编辑分屏（双栏均可见）」态允许。
+      // 不写死 class，统一交给 applyPreviewPaneWidth 按 settings.splitOrientation 还原，保证状态单一来源。
+      toggleSplitOrientation() {
+        const container = document.querySelector('.editor-container');
+        if (!container) return;
+        // 单栏 / 折叠态无分屏可言
+        if (container.classList.contains('preview-mode')
+            || container.classList.contains('wysiwyg-mode')
+            || container.classList.contains('text-only')
+            || container.classList.contains('editor-collapsed')
+            || container.classList.contains('preview-collapsed')) return;
+
+        const nowVertical = this.settings.splitOrientation !== 'vertical'; // 翻转
+        this.settings.splitOrientation = nowVertical ? 'vertical' : 'horizontal';
+
+        const editorPane = document.getElementById('editor-pane');
+        const previewPane = document.getElementById('preview-pane');
+        // 清掉内联 flex，交给 applyPreviewPaneWidth 按新方向重算
+        if (editorPane) { editorPane.style.flex = ''; editorPane.style.width = ''; editorPane.style.height = ''; }
+        if (previewPane) { previewPane.style.flex = ''; previewPane.style.width = ''; previewPane.style.height = ''; }
+
+        this.applyPreviewPaneWidth();
+        if (this.cm) this.cm.refresh();
+        this.updateSideButtons();
+        this.saveSettings();
+      },
+      // 应用分屏比例（合并自 PR #36，并扩展支持上下分屏）：
+      // - 单栏/折叠态（preview-mode / editor-collapsed / preview-collapsed / wysiwyg-mode / text-only）
+      //   由 CSS 接管，禁止用分屏比例覆盖，否则占不满或留空白。
+      // - 先从 settings.splitOrientation 还原容器方向（保证任意调用时机都一致）。
+      // - split-vertical：按 settings.editorSplitRatioV 还原上下高度比例。
+      // - 默认（左右分屏）：按 settings.editorSplitRatioH 还原左右宽度比例（旧 px 值惰性迁移）。
       applyPreviewPaneWidth() {
         const container = document.querySelector('.editor-container');
         if (!container) return;
+        const splitRow = document.querySelector('.editor-row') || container;
+        // 由 settings 单一来源还原方向（不依赖调用顺序）；方向类作用于双栏区（.editor-row），
+        // 不牵连左侧文件/大纲侧栏
+        if (this.settings.splitOrientation === 'vertical') splitRow.classList.add('split-vertical');
+        else splitRow.classList.remove('split-vertical');
         if (container.classList.contains('preview-mode')
             || container.classList.contains('editor-collapsed')
-            || container.classList.contains('preview-collapsed')) return;
-        const pw = this.settings.previewPaneWidth;
-        if (!pw) return;
+            || container.classList.contains('preview-collapsed')
+            || container.classList.contains('wysiwyg-mode')
+            || container.classList.contains('text-only')) return;
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         if (!editorPane || !previewPane) return;
         const outlineSidebar = document.getElementById('outline-sidebar');
         const resizer = document.getElementById('resizer');
+
+        if (splitRow.classList.contains('split-vertical')) {
+          const resizerH = resizer ? resizer.offsetHeight : 6;
+          const total = splitRow.offsetHeight - resizerH;
+          if (total <= 0) return;
+          const editorRatio = Math.min(0.8, Math.max(0.2, this.settings.editorSplitRatioV ?? 0.5));
+          const editorH = Math.round(total * editorRatio);
+          // 纵向分屏下 flex-grow 在 column 容器里无法分配高度（与 pane 的 contain: layout / will-change: flex 组合相关，
+          // 浏览器实测 pane 高度恒为 0 导致白屏），故改用像素高度；窗口 resize 时由 applyPreviewPaneWidth 重新计算。
+          editorPane.style.flex = '0 0 auto';
+          previewPane.style.flex = '0 0 auto';
+          editorPane.style.height = editorH + 'px';
+          previewPane.style.height = (total - editorH) + 'px';
+          editorPane.style.width = '';
+          previewPane.style.width = '';
+          this._editorPercent = editorRatio * 100;
+          return;
+        }
+
         const outlineWidth = outlineSidebar && outlineSidebar.classList.contains('hidden') ? 0 : (outlineSidebar ? outlineSidebar.offsetWidth : 0);
         const resizerWidth = resizer ? resizer.offsetWidth : 6;
         const totalContentWidth = container.offsetWidth - outlineWidth - resizerWidth;
-        if (totalContentWidth <= 0) return;
-        const editorWidth = totalContentWidth - pw;
-        const editorRatio = (editorWidth / totalContentWidth);
-        if (editorRatio > 0.1 && editorRatio < 0.9) {
-          editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
-          previewPane.style.flex = (1 - editorRatio).toFixed(4) + ' 0 0px';
-          this._editorPercent = editorRatio * 100;
-        } else {
-          // 比例超出范围时，直接用预设宽度设置预览区
-          previewPane.style.flex = '0 0 auto';
-          previewPane.style.width = pw + 'px';
-          editorPane.style.flex = '1 1 0px';
-          this._editorPercent = ((totalContentWidth - pw) / totalContentWidth) * 100;
+        // 横向：按比例 settings.editorSplitRatioH 还原宽度（比例制，窗口缩放/重启后比例不变）。
+        // 旧版本仅存 px 宽（previewPaneWidth），首次在此按当前窗口惰性换算成比例（不立即落盘，
+        // 交给后续任意 saveSettings；未落盘前每次启动重算，行为稳定）。
+        if (this.settings.editorSplitRatioH == null) {
+          const pw = this.settings.previewPaneWidth;
+          const migrated = (pw && totalContentWidth > 0) ? (totalContentWidth - pw) / totalContentWidth : 0.65;
+          this.settings.editorSplitRatioH = Math.min(0.8, Math.max(0.2, migrated));
         }
-        document.documentElement.style.setProperty('--preview-pane-width', pw + 'px');
+        if (totalContentWidth <= 0) return;
+        const editorRatio = Math.min(0.8, Math.max(0.2, this.settings.editorSplitRatioH));
+        editorPane.style.flex = editorRatio.toFixed(4) + ' 0 0px';
+        previewPane.style.flex = (1 - editorRatio).toFixed(4) + ' 0 0px';
+        editorPane.style.width = '';
+        previewPane.style.width = '';
+        this._editorPercent = editorRatio * 100;
       },
     // 大纲层级过滤下拉（自绘 Select）
     initOutlineFilter() {
@@ -921,8 +1029,19 @@
       const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
       if (btnWysiwyg) btnWysiwyg.addEventListener('click', () => this.setViewMode('wysiwyg'));
       this.initViewModeTooltips();
-      document.getElementById('btn-side-left').addEventListener('click', () => this.toggleCollapse('editor'));
-      document.getElementById('btn-side-right').addEventListener('click', () => this.toggleCollapse('preview'));
+      // 分屏折叠钮（拖拽条内）：折叠编辑器 / 折叠预览。
+      // mousedown/dblclick 阻断冒泡，避免误触拖拽与双击切方向；图标/文案由 _syncFoldButtons 统一同步。
+      const foldEditorBtn = document.getElementById('btn-fold-editor');
+      const foldPreviewBtn = document.getElementById('btn-fold-preview');
+      for (const b of [foldEditorBtn, foldPreviewBtn]) {
+        if (!b) continue;
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+        b.addEventListener('dblclick', (e) => { e.stopPropagation(); });
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleCollapse(b === foldEditorBtn ? 'editor' : 'preview');
+        });
+      }
       document.getElementById('large-file-banner-close').addEventListener('click', () => {
         this.hideLargeFileNotice();
         this._largeFileNoticeDismissed = true;

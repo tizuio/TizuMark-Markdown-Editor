@@ -46,12 +46,12 @@ The three tabs in the center toolbar toggle between three view modes:
 - **Source** — Write on the left, see rendered output on the right
 - **Live Preview** — Like Typora: text keeps its formatted look while the block under the cursor shows Markdown source
 
-In Source Mode:
+In Source Mode, the middle divider hosts three control buttons: **Collapse Editor**, **Toggle Horizontal/Vertical Split**, and **Collapse Preview**. Drag the divider to resize (ratios for each orientation are remembered separately). **Double-click the divider** also flips the split direction. After collapsing one side, the restore button becomes an edge-docked semicircle handle (accent-colored); click it to expand again.
 
 | Action | Method |
 |--------|--------|
-| Collapse editor | Click left <kbd>◄</kbd> button |
-| Collapse preview | Click right <kbd>►</kbd> button |
+| Collapse editor / preview | Click the fold buttons on the divider (click the edge-docked handle to restore) |
+| Flip split direction | Click the orientation button in the divider center, or double-click the divider |
 | Resize panes | Drag the middle divider |
 
 ### Sidebar: Outline & Files
@@ -59,7 +59,7 @@ In Source Mode:
 Click the **floating toggle button on the left edge of the sidebar**, or use the "Toggle Sidebar" shortcut (rebindable in Keyboard Shortcuts), to show or hide the sidebar. It has two tabs:
 
 - **Outline**: Automatically shows the document heading structure (H1–H6), indented by level. **Click any heading** — the preview jumps and centers on it. The outline updates in real time as you edit.
-- **Files**: After opening a directory with `File → Open Folder`, this tab shows a tree view of files in that directory. Click a file to open it in a tab. The tree watches the folder for external additions/removals and refreshes automatically.
+- **Files**: After opening a directory with `File → Open Folder`, this tab shows a tree view of files in that directory. Click a file to open it in a tab. The tree watches the folder for external additions/removals and refreshes automatically. Clicking the **"Files" title itself** opens a folder picker to switch workspace; clicking the **path** under the title opens the current folder in the system file manager; a **"Up One Level"** button on the title bar jumps to the parent directory.
 
 ### Multi-Tab Editing
 
@@ -69,7 +69,7 @@ Click the **floating toggle button on the left edge of the sidebar**, or use the
 | Switch Tab | <kbd>Ctrl</kbd> + <kbd>Tab</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> |
 | Drag to Reorder | Drag a tab to rearrange its position |
 | Close Tab | Click × or <kbd>Ctrl</kbd> + <kbd>W</kbd> |
-| Right-Click Menu | Close / Close Others / Close All / Copy Path |
+| Right-Click Menu | Close / Close Others / Close All / **Rename** / Copy Path / Open Containing Folder (renaming a saved file also renames it on disk) |
 | Double-Click | On empty tab bar space to create new tab |
 
 Unsaved tabs show a `*` indicator.
@@ -100,7 +100,7 @@ Three right-click menus for efficient workflow:
 
 - **Editor**: Cut / Copy / Paste / Structure Insert / Text Format / Lists / Links & Media / Find & Replace / Select All
 - **Preview**: Copy / Select All / Copy as HTML / Find in Preview
-- **Tab**: Close / Close Others / Close All / Copy File Path
+- **Tab**: Close / Close Others / Close All / **Rename** / Copy File Path / Open Containing Folder
 
 ### External File Change Prompt
 
@@ -371,10 +371,10 @@ Update dialog:
 
 ### Export PDF
 
-`File → Export PDF` (shortcut <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>) uses the system print dialog:
+`File → Export PDF` (shortcut <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>):
 
-- After a confirmation prompt, the browser's native print function is used
-- In the print dialog you can choose "Save as PDF" and adjust page orientation/margins
+- After a soft confirmation prompt, the PDF is **exported directly** and a success toast appears — no print dialog needed
+- Only when the WebView2 runtime is too old to support direct export does it fall back to the system print dialog (where you can choose "Save as PDF" and adjust page orientation/margins)
 - Math formulas and Mermaid charts are re-rendered for crisp output
 
 ### Export DOCX

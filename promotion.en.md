@@ -23,7 +23,7 @@ Here's what it does. A 30-second scan will tell you if it fits:
 - **Zero plugins** — KaTeX math, Mermaid diagrams, 100+ language syntax highlighting, three kinds of search — all built in. No plugins fighting each other, nothing breaking after an update, and nothing to reconfigure when you switch machines.
 - **Opens in a double-click, under 10MB / under 50MB RAM** — Rust + Tauri v2, using your system's own WebView instead of bundling an entire Chromium.
 - **Three kinds of search** — `Ctrl+F` find & replace in the current document, `Ctrl+H` cross-file search, `Ctrl+P` file quick-open.
-- **Everything a writer needs** — split-pane live preview with synced scrolling, outline navigation, breadcrumbs, folder workspace, multi-tabs (drag to reorder), slash commands.
+- **Everything a writer needs** — Typora-style live WYSIWYG preview + horizontal/vertical split, outline navigation, breadcrumbs, folder workspace, multi-tabs (drag to reorder, right-click to rename), slash commands.
 - **Long documents stay smooth** — chunked rendering + focus-windowed preview + virtual scrolling in pure-preview mode, so tens of thousands of lines still scroll fluidly.
 - **Customize it your way** — 5 color schemes; separate fonts for editor / preview / code blocks with a full searchable list of installed system fonts plus the ability to import your own font files; **every single shortcut is remappable**, with four presets included.
 - **Images, worry-free** — auto MD5 dedup on paste, optional storage to `assets/` or Base64 inline, relative-path support, click to zoom.
@@ -99,9 +99,11 @@ The file list comes from a single native traversal of the workspace on the Rust 
 
 ## An Interface Arranged Around How You Write
 
-**Live preview + synced scrolling** — type on the left, watch on the right; the preview follows your cursor without switching modes. When you want to focus, press `Ctrl+\` to toggle between editor and preview.
+**Live WYSIWYG preview** — the same writing style as Typora: text stays fully formatted, click anywhere to edit it, and only the block under your cursor shows source. Edit table cells in place, tick task checkboxes, and see code highlighting — editing state matches the rendered state pixel for pixel, no bouncing between source and output.
 
-**Multiple tabs** — a dozen files open without feeling cramped; tabs scroll horizontally when there are too many and can be reordered by dragging.
+**Horizontal / vertical split** — if you prefer the classic way, double-click the divider in source mode to flip the split from side-by-side to top-bottom; each ratio is remembered. Either pane can collapse into an edge-docked semicircle handle — as clean or as focused as you like.
+
+**Multiple tabs** — a dozen files open without feeling cramped; tabs scroll horizontally when there are too many and can be reordered by dragging or renamed via right-click.
 
 **Outline navigation** — headings are parsed into a tree automatically; one click in the sidebar jumps anywhere. Supports subtree collapsing, draggable width, and full hide.
 
@@ -206,7 +208,7 @@ Shortcuts like Ctrl+B for bold, Ctrl+S to save, and Ctrl+\ to toggle views can a
 
 Beyond single files, you can open a whole folder via `File → Open Folder` and browse it in the sidebar file tree, opening files on click. Changes made by external programs refresh automatically; if the file watcher ever drops, reconnect with one click.
 
-The file tree's right-click menu covers full file operations: new, cut, copy, paste, rename, delete — and reveal-in-file-manager in one click. Tab context menus offer close-others/all, copy path, and reveal in folder.
+The file tree's right-click menu covers full file operations: new, cut, copy, paste, rename, delete — and reveal-in-file-manager in one click. Files and folders can be drag-dropped to move them; the title bar has a one-click "Up One Level"; clicking the "Files" title switches workspace. Tab context menus offer rename, close-others/all, copy path, and reveal in folder.
 
 ![Folder workspace + sidebar file tree](screenshots/15-workspace.png)
 
@@ -222,7 +224,7 @@ Novels, notes, research archives — documents only get longer. Rendering is chu
 
 ## And the Details
 
-Views: editor and preview fold independently — read source only, or read the finished render, whichever you prefer.
+Views: three modes — Reading, Source, and Live Preview — one click apart. Source mode supports both horizontal and vertical split with remembered ratios, and the editor and preview fold independently — read source only, or read the finished render, whichever you prefer.
 
 File handling: `.md` / `.markdown` file association opens on double-click; drag a file or folder into the window to open (batches welcome); recently opened files are tracked; if a file is changed by another program you're prompted to reload rather than silently overwritten; and after a restart your previous tabs and workspace are all still there.
 

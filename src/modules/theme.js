@@ -4,6 +4,20 @@
 (function () {
   'use strict';
 
+  // 分屏控制钮的 Lucide 图标（path 数据取自 lucide-static v0.469.0，ISC 许可）：
+  // chevron-left/right/up/down = 折叠（箭头指向被收起侧），折叠态反向（= 恢复方向）；
+  // columns-2 / rows-2 = 当前分屏方向状态（左右/上下），点击后由 toggleSplitOrientation 翻转。
+  const SPLIT_LUCIDE_ICONS = {
+    'chevron-left': '<path d="m15 18-6-6 6-6"/>',
+    'chevron-right': '<path d="m9 18 6-6-6-6"/>',
+    'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+    'columns-2': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>',
+    'rows-2': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/>',
+  };
+  const splitLucideSvg = (name) =>
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (SPLIT_LUCIDE_ICONS[name] || '') + '</svg>';
+
   const mixin = {
       // 同步托盘显隐状态到 Rust 后端
       async applyWindowBehavior() {
@@ -89,6 +103,9 @@
         if (typeof mermaid === 'undefined') return;
         // 主题切换：旧主题的 SVG 缓存失效，清空后让下次 updatePreview / 本函数按新主题重渲染
         this._mermaidCache.clear();
+        // WYSIWYG 块最终 HTML 缓存同步失效（代码高亮类名/mermaid 占位随主题变化；
+        // 指纹含 isDark 会在下次进入时兜底清，这里主动清让本次重渲即时生效）
+        if (this._wysiwygFinalHtmlCache) this._wysiwygFinalHtmlCache.clear();
         const gen = ++this._mermaidGeneration;
 
         // 所见即所得：图表挂在 CM 的块遮罩 widget 里（**不在** #preview），旧实现只重建
@@ -441,8 +458,6 @@
         const btnPreview = document.getElementById('btn-view-preview');
         const btnEdit = document.getElementById('btn-view-edit');
         const btnWysiwyg = document.getElementById('btn-view-wysiwyg');
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
 
         editorPane.style.flex = '';
         editorPane.style.width = '';
@@ -455,6 +470,11 @@
         } else if (this.viewMode === 'wysiwyg') {
           container.classList.add('wysiwyg-mode');
         }
+
+        // 重新应用分屏比例/方向（合并自 PR #36 的横向宽度 + 上下分屏扩展）：
+        // applyViewMode 上方清空了 editor/preview 内联 flex，此处按当前模式与 settings 还原，
+        // 保证视图切换（含方向、拖拽比例）不丢失。单栏/折叠态由 applyPreviewPaneWidth 内部守卫跳过。
+        this.applyPreviewPaneWidth();
 
         btnPreview.classList.toggle('active', this.viewMode === 'preview');
         btnEdit.classList.toggle('active', this.viewMode === 'edit');
@@ -471,21 +491,16 @@
         btnEdit.style.display = '';
         if (btnWysiwyg) btnWysiwyg.style.display = '';
   
-        // 侧边收缩/展开按钮（#btn-side-left / #btn-side-right）默认隐藏，仅 Markdown 显示。
-        sideLeft.classList.add('side-hidden', 'side-active');
-        sideRight.classList.add('side-hidden', 'side-active');
-  
         if (activeTabKind === 'text') {
-          // 非 Markdown 明文：编辑器占满整行，无预览栏、无收缩/展开按钮，只支持编辑
+          // 非 Markdown 明文：编辑器占满整行，无预览栏、无分屏控制钮，只支持编辑
           container.classList.add('text-only');
-        } else if (activeTabKind === 'markdown' && this.viewMode === 'edit') {
-          // 仅 Markdown 在编辑模式下保留侧边收缩/展开按钮（折叠编辑器或预览）；预览模式一律不显示
-          sideLeft.classList.remove('side-hidden', 'side-active');
-          sideRight.classList.remove('side-hidden', 'side-active');
-          sideLeft.innerHTML = '&#9664;';
-          sideLeft.title = this.t('collapseEditor');
-          sideRight.innerHTML = '&#9654;';
-          sideRight.title = this.t('collapsePreview');
+        }
+
+        // 分屏折叠钮（拖拽条内 #btn-fold-editor / #btn-fold-preview）：
+        // 可见性/停靠由容器状态类驱动 CSS，这里只按「方向 × 折叠态」同步图标与文案。
+        // 仅 Markdown 编辑/实预模式有分屏钮；阅读模式与明文/图片由 CSS 守卫隐藏。
+        if (activeTabKind === 'markdown' || this.viewMode === 'edit') {
+          this._syncFoldButtons();
         }
         // 图片：预览显示图片，但同样不需要侧边收缩/展开按钮（图片不可编辑），保持隐藏
   
@@ -545,6 +560,37 @@
           this._viewModeRestoreTimer = null;
         }, 50);
       },
+      // 分屏控制钮（拖拽条内 #btn-fold-editor / #btn-split-orientation / #btn-fold-preview）状态机：
+      // 按「分屏方向 × 折叠态」同步 Lucide 图标（chevron-*、columns-2/rows-2）与 title。
+      // 可见性（显隐/停靠）由 CSS 按容器状态类接管，这里只负责图标/文案/side-active。
+      _syncFoldButtons() {
+        const container = document.querySelector('.editor-container');
+        const btnFoldEditor = document.getElementById('btn-fold-editor');
+        const btnFoldPreview = document.getElementById('btn-fold-preview');
+        const btnOrientation = document.getElementById('btn-split-orientation');
+        if (!container || !btnFoldEditor || !btnFoldPreview) return;
+        const splitRow = document.querySelector('.editor-row');
+        const vertical = !!(splitRow && splitRow.classList.contains('split-vertical'));
+        const editorCollapsed = container.classList.contains('editor-collapsed');
+        const previewCollapsed = container.classList.contains('preview-collapsed');
+        const titleEditor = editorCollapsed ? this.t('restoreEditor') : this.t('collapseEditor');
+        const titlePreview = previewCollapsed ? this.t('restorePreview') : this.t('collapsePreview');
+        this._setSplitBtnIcon(btnFoldEditor, editorCollapsed ? (vertical ? 'chevron-down' : 'chevron-right') : (vertical ? 'chevron-up' : 'chevron-left'));
+        this._setSplitBtnIcon(btnFoldPreview, previewCollapsed ? (vertical ? 'chevron-up' : 'chevron-left') : (vertical ? 'chevron-down' : 'chevron-right'));
+        if (btnOrientation) this._setSplitBtnIcon(btnOrientation, vertical ? 'rows-2' : 'columns-2');
+        btnFoldEditor.title = titleEditor;
+        btnFoldEditor.setAttribute('aria-label', titleEditor);
+        btnFoldPreview.title = titlePreview;
+        btnFoldPreview.setAttribute('aria-label', titlePreview);
+        btnFoldEditor.classList.toggle('side-active', editorCollapsed);
+        btnFoldPreview.classList.toggle('side-active', previewCollapsed);
+      },
+      // 按名渲染 Lucide 图标；dataset 去重，避免 resize 等高频路径反复 innerHTML 重排
+      _setSplitBtnIcon(btn, name) {
+        if (btn.dataset.icon === name) return;
+        btn.dataset.icon = name;
+        btn.innerHTML = splitLucideSvg(name);
+      },
       toggleCollapse(pane) {
         const container = document.querySelector('.editor-container');
         if (this.viewMode === 'preview') {
@@ -555,35 +601,32 @@
         this._canScroll.editor = false;
         this._canScroll.preview = false;
   
-        const sideLeft = document.getElementById('btn-side-left');
-        const sideRight = document.getElementById('btn-side-right');
         const editorPane = document.getElementById('editor-pane');
         const previewPane = document.getElementById('preview-pane');
         const previewScrollTop = this.preview.scrollTop;
   
         editorPane.style.flex = '';
         editorPane.style.width = '';
+        editorPane.style.height = '';
         previewPane.style.flex = '';
         previewPane.style.width = '';
+        previewPane.style.height = '';
   
         if (pane === 'editor') {
           container.classList.toggle('editor-collapsed');
-          const isCollapsed = container.classList.contains('editor-collapsed');
-          sideLeft.innerHTML = isCollapsed ? '&#9654;' : '&#9664;';
-          sideLeft.title = isCollapsed ? this.t('restoreEditor') : this.t('collapseEditor');
-          sideLeft.classList.toggle('side-active', isCollapsed);
         } else {
           container.classList.toggle('preview-collapsed');
-          const isCollapsed = container.classList.contains('preview-collapsed');
-          sideRight.innerHTML = isCollapsed ? '&#9664;' : '&#9654;';
-          sideRight.title = isCollapsed ? this.t('restorePreview') : this.t('collapsePreview');
-          sideRight.classList.toggle('side-active', isCollapsed);
         }
+        // 图标/title/激活态统一由状态机按「方向 × 折叠态」同步（方向类在 splitRow 上）
+        this._syncFoldButtons();
   
         let restored = false;
         const doRefresh = () => {
           if (restored) return;
           restored = true;
+          // 展开时内联 flex/宽高已被清空，按 settings 比例重算（纵向像素高度必须重给，否则双栏塌 0）；
+          // 折叠态下该函数内部守卫直接返回，无副作用
+          this.applyPreviewPaneWidth();
           this.cm.refresh();
           this.preview.scrollTop = previewScrollTop;
           this.updateSideButtons();

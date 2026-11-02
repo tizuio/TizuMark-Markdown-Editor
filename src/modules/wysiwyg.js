@@ -776,12 +776,55 @@
           extendedSyntax: this.settings.extendedSyntax,
           skipHtml: !!parseOnly,
           maxBlocks: parseOnly ? undefined : WYSIWYG_MAX_BLOCKS,
+          htmlCache: this._wysiwygFinalHtmlCacheMap(),
         });
         if (blocks) return blocks; // [{ start, end, html }]
       }
       const lines = [];
       for (let i = 0; i < cm.lineCount(); i++) lines.push(cm.getLine(i));
       return splitBlocks(lines);
+    },
+
+    // ---------------- 块最终 HTML 缓存（跨进入复用，2026-11-01 性能） ----------------
+    // 键 = 块源文本（b.src，与 renderMarkdownBlocks 的 slice 同一文本），值 = **后处理完成
+    // 后**的最终 HTML（KaTeX/代码高亮/复选框/标题锚点等同步 stage 在 DOM 上跑完的结果）。
+    // 此前每次进入 WYSIWYG / 每次挂遮罩都要重跑整条渲染管线 + 同步后处理（块表快照离开
+    // 模式即作废）；命中缓存时两段全部跳过（真实浏览器实测 demo.md 二次进入 ~0.9s→~0.2s 量级）。
+    // 失效：键是源文本，编辑过的块自然 miss；影响输出的设置（softBreaks/tabSize/
+    // extendedSyntax/代码行号开关/暗色）变化 → 指纹不符整体清空；主题切换在 theme.js
+    // rerenderMermaid 里与 _mermaidCache 一起清。异步 stage（mermaid/图片/TOC）不进缓存：
+    // mermaid/图片已有实例级缓存（_mermaidCache/_imageBase64Cache），重挂近乎同步，命中块
+    // 仍走异步 pass 注入（见 maskWysiwygBlock）。
+    _wysiwygFinalHtmlFingerprint() {
+      const lnOn = !!(this.preview && this.preview.classList.contains('code-line-numbers'));
+      return [
+        this.settings.softBreaks ? 1 : 0,
+        this.settings.tabSize,
+        this.settings.extendedSyntax === false ? 0 : 1,
+        this.isDark ? 1 : 0,
+        lnOn ? 1 : 0,
+      ].join('|');
+    },
+    _wysiwygFinalHtmlCacheMap() {
+      const fp = this._wysiwygFinalHtmlFingerprint();
+      if (!this._wysiwygFinalHtmlCache || this._wysiwygFinalHtmlCacheFp !== fp) {
+        this._wysiwygFinalHtmlCache = new Map();
+        this._wysiwygFinalHtmlCacheFp = fp;
+      }
+      return this._wysiwygFinalHtmlCache;
+    },
+    // LRU 写入：命中即重插保新鲜；超大 HTML 不缓存（base64 大图会撑爆内存，
+    // 图片重挂走既有 _imageBase64Cache，近乎同步）
+    _wysiwygCacheFinalHtml(src, html) {
+      if (!src || !html || html.length > 262144) return;
+      const map = this._wysiwygFinalHtmlCacheMap();
+      if (map.has(src)) map.delete(src);
+      map.set(src, html);
+      const CAP = 3000;
+      if (map.size > CAP) {
+        const drop = map.keys().next().value;
+        map.delete(drop);
+      }
     },
 
     // 全量预渲染（后台步骤）：全部块边界 + 全部块 html 一次渲染完成（唯一昂贵步骤，
@@ -796,6 +839,7 @@
           tabSize: this.settings.tabSize,
           extendedSyntax: this.settings.extendedSyntax,
           maxBlocks: Infinity, // 一块不跳：全量预渲染
+          htmlCache: this._wysiwygFinalHtmlCacheMap(), // 命中块跳过整条渲染管线
         });
       }
       if (!blocks) {
@@ -923,7 +967,15 @@
       node.setAttribute('data-block-index', String(idx));
       node.setAttribute('contenteditable', 'false');
       this._wysiwygMaskTypography(node);
-      this._postProcessWysiwygNode(node);
+      if (b.finalHtml) {
+        // 最终缓存命中（html 来自 _wysiwygFinalHtmlCache）：KaTeX/高亮/复选框/锚点等
+        // 同步 stage 已包含在缓存 HTML 里，跳过重跑（异步 stage 仍照常登记，见下方）。
+      } else {
+        this._postProcessWysiwygNode(node);
+        // 现渲染块的同步后处理结果回写最终缓存（b.src 与 renderMarkdownBlocks 的 slice
+        // 同文本；chrome（编辑按钮/表工具）在下方才挂，此刻 innerHTML 是纯内容）。
+        if (b.src) this._wysiwygCacheFinalHtml(b.src, node.innerHTML);
+      }
       // 列表块 / 标题块 / 普通文字段落不挂块级「编辑」按钮（2026-10-16 用户反馈 #1：点列表行
       // 直接进该行编辑，块级源码入口多余；2026-10-19 用户反馈 #1：标题块同理；2026-07-13
       // 用户要求：普通文字右侧不需要编辑按钮——遮罩 mousedown 本就把点击映射到源码行，
@@ -1740,8 +1792,10 @@
           this._wysiwygApplyTocHtml(node, tocCache.html);
           // flush 在挂遮罩操作之外（setTimeout 0），记录值还停在占位高度 → 必须立刻
           // 刷新复测 + 滚动补偿（cm.refresh 的 pending 重断言已改为取真实滚动，见
-          // codemirror.js refresh 注释），否则下一次输入操作末才补出 591px 跳变
-          this._wysiwygRefreshAfterMaskChange();
+          // codemirror.js refresh 注释），否则下一次输入操作末才补出 591px 跳变。
+          // ⚠️ 直调 do 版本（不走合帧调度）：本路径要求刷新与注入同一任务内完成
+          //（不跳顶修复③ 契约），合帧会让「占位 → 全高」阶跃露出一帧。
+          this._wysiwygDoRefreshAfterMaskChange();
         } else {
           this._wysiwygReplaceToc(node).then(() => { if (settled()) this._wysiwygRefreshAfterMaskChange(); });
         }
@@ -1779,6 +1833,10 @@
       return null;
     },
 
+    // 异步 pass 完成后的刷新入口：**合帧调度**（2026-11-01 性能）。同一帧内多个 pass 完成
+    //（图片/mermaid/TOC 批量到齐）只做一次探针+refresh+补偿——旧实现每个 pass 各自全量
+    // cm.refresh()（历史刷新风暴：299 块 × no-op promise 曾 65s 占满主线程；存在性守卫
+    // 已挡纯文本块，本合帧再挡「真有内容的块批量完成」场景）。格编辑期照旧登记延后。
     _wysiwygRefreshAfterMaskChange() {
       try {
         const cm = this.cm;
@@ -1787,6 +1845,26 @@
           this._wysiwygPendingRefreshAfterCellEdit = true;
           return;
         }
+        if (this._wysiwygRefreshPending) return; // 本帧已排：等那次刷新一并覆盖
+        this._wysiwygRefreshPending = true;
+        const self = this;
+        // ⚠️ wysiwyg.js 禁用 rAF（全局约束，见「块高抖动补偿」测试），合帧用 setTimeout
+        this._wysiwygRefreshTimer = setTimeout(() => {
+          self._wysiwygRefreshTimer = null;
+          self._wysiwygRefreshPending = false;
+          if (self.viewMode !== 'wysiwyg') return;
+          if (self._wysiwygCellEditing) { self._wysiwygPendingRefreshAfterCellEdit = true; return; }
+          self._wysiwygDoRefreshAfterMaskChange();
+        }, 16);
+      } catch (_) { /* 调度失败退回同步执行 */ this._wysiwygRefreshPending = false; this._wysiwygDoRefreshAfterMaskChange(); }
+    },
+
+    // 刷新补偿本体（probe → refresh → 按同一行盒顶漂移补偿）：时序敏感，补偿必须紧贴
+    // refresh 前后（见不跳顶修复④），由 _wysiwygRefreshAfterMaskChange 合帧调度调用。
+    _wysiwygDoRefreshAfterMaskChange() {
+      try {
+        const cm = this.cm;
+        if (!cm) return;
         const wrapper = cm.getWrapperElement();
         // 2026-10-21「输入文字页面乱跳」补偿基准修复：改用「视口顶探针行的真实 DOM
         // 窗口位置」测 refresh 前后（同一行的盒漂移 = 视口内容的真实漂移），弃用旧
@@ -2036,6 +2114,7 @@
       if (b) {
         b.html = this.renderWysiwygBlockHtml(b.start, b.end);
         b.src = this._wysiwygBlockSource(b); // 源文本键同步，全量增量刷新才判得出变化
+        b.finalHtml = false; // 结构 HTML（非最终缓存），重挂时须重跑同步后处理并回写缓存
         this.maskWysiwygBlock(blockIdx);
       }
     },
@@ -2262,7 +2341,7 @@
         return;
       }
       // 旧块可能刚被编辑过：缓存 html 过期，重渲（与 setWysiwygActiveBlock 的 prev 处理一致）
-      if (b.html !== undefined) { b.html = this.renderWysiwygBlockHtml(b.start, b.end); b.src = this._wysiwygBlockSource(b); }
+      if (b.html !== undefined) { b.html = this.renderWysiwygBlockHtml(b.start, b.end); b.finalHtml = false; b.src = this._wysiwygBlockSource(b); }
       // 活动引用块的分段遮罩先清（与整块遮罩区间重叠，2026-10-25 引用分段口径）
       this._wysiwygClearQuoteSegments();
       this._wysiwygActiveIdx = -1;
@@ -2319,6 +2398,7 @@
       if (b) {
         b.html = this.renderWysiwygBlockHtml(b.start, b.end);
         b.src = this._wysiwygBlockSource(b); // 源文本键同步：否则全量增量刷新误判「源未变」
+        b.finalHtml = false; // 结构 HTML（非最终缓存），重挂时须重跑同步后处理并回写缓存
         this.maskWysiwygBlock(blockIdx);
       }
       // 切格（settle=false）到此为止：回写 + 重挂遮罩已完成，光标/焦点由新格接管。
@@ -3780,7 +3860,7 @@
         this._wysiwygClearQuoteSegments();
         // 旧块刚被编辑过，缓存 html 过期，需重渲
         const b = this._wysiwygBlocks && this._wysiwygBlocks[prev];
-        if (b && b.html !== undefined) { b.html = this.renderWysiwygBlockHtml(b.start, b.end); b.src = this._wysiwygBlockSource(b); }
+        if (b && b.html !== undefined) { b.html = this.renderWysiwygBlockHtml(b.start, b.end); b.finalHtml = false; b.src = this._wysiwygBlockSource(b); }
         this.maskWysiwygBlock(prev);
       }
       const hadIdx = idx >= 0;
@@ -4377,24 +4457,125 @@
       }
     },
 
-    // 全量视图驻留：挂全部非活动块遮罩（单 operation 批量 DOM），并把视口扩到整篇
-    // （直接写 cm.options，不走 setOption——viewportMargin 选项处理器自带 cm.refresh()，
-    // 会多一次全量重渲染；下方显式 cm.refresh() 统一完成全量渲染 + 高度实测）。
-    // 所有行恒渲染、行高恒实测：CM refresh() 内部 estimateLineHeights（重置回源文估计）
-    // 会在同一次全量视图重渲中被重测回正——几何自愈（2026-10-09 实测：任意位置
-    // 首跳落点误差 ≤0.5px，refresh 后不漂移）。
+    // 全量视图驻留：把视口扩到整篇（直接写 cm.options，不走 setOption——viewportMargin
+    // 选项处理器自带 cm.refresh()，会多一次全量重渲染；renderWysiwygMasks 下方显式
+    // cm.refresh() 统一完成全量渲染 + 高度实测）。所有行恒渲染、行高恒实测：CM refresh()
+    // 内部 estimateLineHeights（重置回源文估计）会在同一次全量视图重渲中被重测回正——
+    // 几何自愈（2026-10-09 实测：任意位置首跳落点误差 ≤0.5px，refresh 后不漂移）。
+    // 视口优先（2026-11-01 性能）：先只挂当前视口 ± 预取块（loading 释放即首帧可交互），
+    // 其余块 _wysiwygPumpIdleMount 分批补挂（时间片预算）。整篇单 operation 同步挂全部块
+    // 是进入耗时的第二大头（实测 demo.md 881ms 中占 ~430ms），分批后首帧 ~视口挂载成本。
     _enterWysiwygFullView() {
       const cm = this.cm;
       if (!cm) return;
       try { cm.options.viewportMargin = cm.lineCount() + 100; } catch (_) { /* 失败退回默认视口 */ }
+      const blocks = this._wysiwygBlocks || [];
+      let first = -1, last = -1;
+      try {
+        const info = cm.getScrollInfo();
+        // ⚠️ CM5 scrollInfo 无视口高度字段（该取法全局禁用），取 scroller 元素
+        const vh = cm.getScrollerElement().clientHeight || 0;
+        first = this.wysiwygBlockIndexAt(cm.lineAtHeight(info.top, 'local'));
+        last = this.wysiwygBlockIndexAt(cm.lineAtHeight(info.top + vh, 'local'));
+      } catch (_) { /* 取不到视口则退回整篇首挂 */ }
+      const MARGIN = 15; // 视口上下各多挂 15 块，容住切换锚点恢复期的小幅滚动
+      const lo = Math.max(0, (first >= 0 ? first : last) - MARGIN);
+      const hi = Math.min(blocks.length, (last >= 0 ? last : first) + 1 + MARGIN);
+      const rest = [];
       try {
         cm.operation(() => {
-          for (let k = 0; k < this._wysiwygBlocks.length; k++) {
+          for (let k = 0; k < blocks.length; k++) {
             if (k === this._wysiwygActiveIdx) continue;
-            this.maskWysiwygBlock(k);
+            if (k >= lo && k < hi) this.maskWysiwygBlock(k);
+            else rest.push(k);
           }
         });
       } catch (e) { console.error('[wysiwyg] 全量遮罩挂载失败:', e); }
+      this._wysiwygIdleMountJob = rest.length ? { blocks, list: rest, pos: 0 } : null;
+      this._wysiwygPumpIdleMount();
+    },
+
+    // 分批补挂剩余块：每批 ~12ms 时间片预算，setTimeout 让帧，不阻塞输入/渲染。
+    // 块表换代（增量刷新/重键替换 _wysiwygBlocks）时按新表重建「未挂」剩余队列；
+    // 已挂/活动块跳过（maskWysiwygBlock 幂等，此处再挡一层防重复 innerHTML 解析）。
+    _wysiwygPumpIdleMount() {
+      const cm = this.cm;
+      const job = this._wysiwygIdleMountJob;
+      if (!cm || this.viewMode !== 'wysiwyg' || !this._wysiwygFull || !job) { this._wysiwygIdleMountJob = null; return; }
+      if (this._wysiwygBlocks !== job.blocks) {
+        job.blocks = this._wysiwygBlocks;
+        job.list = [];
+        const nb = job.blocks || [];
+        for (let k = 0; k < nb.length; k++) {
+          if (k !== this._wysiwygActiveIdx && !(this._wysiwygMarks && this._wysiwygMarks.has(k))) job.list.push(k);
+        }
+        job.pos = 0;
+      }
+      const t0 = Date.now();
+      try {
+        cm.operation(() => {
+          while (job.pos < job.list.length) {
+            const k = job.list[job.pos];
+            job.pos++;
+            if (k === this._wysiwygActiveIdx) continue;
+            if (!(this._wysiwygBlocks && this._wysiwygBlocks[k])) continue;
+            if (this._wysiwygMarks && this._wysiwygMarks.has(k)) continue;
+            this.maskWysiwygBlock(k);
+            if (Date.now() - t0 > 12) break;
+          }
+        });
+      } catch (e) { console.error('[wysiwyg] 分批补挂失败:', e); job.pos = job.list.length; }
+      if (job.pos < job.list.length) {
+        if (this._wysiwygIdleMountTimer) clearTimeout(this._wysiwygIdleMountTimer);
+        const self = this;
+        this._wysiwygIdleMountTimer = setTimeout(() => { self._wysiwygIdleMountTimer = null; self._wysiwygPumpIdleMount(); }, 16);
+      } else {
+        this._wysiwygIdleMountJob = null;
+        // 补挂完成：冲刷最后一批的异步 pass（mermaid/图片在视口外块上的注入）
+        this.flushWysiwygAsyncPasses();
+      }
+    },
+
+    // 补挂期间滚动到未挂区域：立即同步挂视口 ± 预取块（防源码长闪），剩余队列按
+    // 「先视口附近、后其余」重排后继续泵。块表已换代则直接交泵重建。
+    _wysiwygFullMountVisible() {
+      const cm = this.cm;
+      const job = this._wysiwygIdleMountJob;
+      if (!cm || this.viewMode !== 'wysiwyg' || !this._wysiwygFull || !job) return;
+      const blocks = this._wysiwygBlocks;
+      if (!blocks || !blocks.length) return;
+      if (blocks !== job.blocks) { this._wysiwygPumpIdleMount(); return; }
+      let first = -1, last = -1;
+      try {
+        const info = cm.getScrollInfo();
+        const vh = cm.getScrollerElement().clientHeight || 0; // CM5 scrollInfo 无 clientHeight，取 scroller
+        first = this.wysiwygBlockIndexAt(cm.lineAtHeight(info.top, 'local'));
+        last = this.wysiwygBlockIndexAt(cm.lineAtHeight(info.top + vh, 'local'));
+      } catch (_) { return; }
+      if (first < 0 && last < 0) return;
+      const MARGIN = 15;
+      const lo = Math.max(0, (first >= 0 ? first : last) - MARGIN);
+      const hi = Math.min(blocks.length, (last >= 0 ? last : first) + 1 + MARGIN);
+      const need = [];
+      for (let k = lo; k < hi; k++) {
+        if (k !== this._wysiwygActiveIdx && !(this._wysiwygMarks && this._wysiwygMarks.has(k))) need.push(k);
+      }
+      if (need.length) {
+        try {
+          cm.operation(() => { for (const k of need) this.maskWysiwygBlock(k); });
+        } catch (_) { /* 单批失败由泵兜底 */ }
+        this.flushWysiwygAsyncPasses();
+      }
+      const inWin = (k) => k >= lo && k < hi;
+      const near = [];
+      const far = [];
+      for (let p = job.pos; p < job.list.length; p++) {
+        const k = job.list[p];
+        (inWin(k) ? near : far).push(k);
+      }
+      job.list = near.concat(far);
+      job.pos = 0;
+      this._wysiwygPumpIdleMount();
     },
 
     // ---------------- IME 组合期标题字号（2026-10-19 用户反馈 #2「输入标题字号闪」） ----------------
@@ -4631,6 +4812,7 @@
         const nb = newBlocks[ni];
         if (!nb) continue;
         nb.html = (ob.html !== undefined) ? ob.html : nb.html; // 复用缓存 html
+        if (ob.html !== undefined) nb.finalHtml = !!ob.finalHtml; // finalHtml 标记随 html 传递（挂遮罩时决定是否跳过后处理）
         nextMarks.set(ni, mark);
         // 块索引位移：同步遮罩节点上的块号，点击映射才落对块
         if (ni !== oi) {
@@ -5112,10 +5294,17 @@
       let t = null;
       const self = this;
       this.cm.on('scroll', () => {
-        if (self.viewMode !== 'wysiwyg' || !self._wysiwygVirtual) return;
+        if (self.viewMode !== 'wysiwyg') return;
         if (self._wysiwygAnchorRestoring) return; // 滚动锚定的恢复性滚动，不再触发更新
-        if (t) clearTimeout(t);
-        t = setTimeout(() => { t = null; self.updateWysiwygViewportMasks(); }, 120);
+        if (self._wysiwygVirtual) {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => { t = null; self.updateWysiwygViewportMasks(); }, 120);
+        } else if (self._wysiwygFull && self._wysiwygIdleMountJob) {
+          // 视口优先补挂未完成时快速滚动：把视口内未挂块立即挂上（防源码长闪），
+          // 剩余队列重排为从视口附近继续（60ms 防抖：锚定恢复的连续滚动只算一次）
+          if (t) clearTimeout(t);
+          t = setTimeout(() => { t = null; self._wysiwygFullMountVisible(); }, 60);
+        }
       });
     },
 
@@ -5602,6 +5791,17 @@
       try {
         if (this.cm && this.cm.options && this.cm.options.viewportMargin > 10) this.cm.setOption('viewportMargin', 10);
       } catch (_) { /* 忽略 */ }
+      // 视口优先补挂队列作废（离开模式/整篇重建）；合帧刷新调度一并取消
+      this._wysiwygIdleMountJob = null;
+      if (this._wysiwygIdleMountTimer) {
+        clearTimeout(this._wysiwygIdleMountTimer);
+        this._wysiwygIdleMountTimer = null;
+      }
+      if (this._wysiwygRefreshTimer != null) {
+        clearTimeout(this._wysiwygRefreshTimer);
+        this._wysiwygRefreshTimer = null;
+      }
+      this._wysiwygRefreshPending = false;
       // 预渲染块表在此清空：renderWysiwygMasks 顶部先取走快照再调本方法，
       // 其余清理路径（切模式/切标签）顺带作废未消费的预渲染结果
       this._wysiwygPreRenderedBlocks = null;

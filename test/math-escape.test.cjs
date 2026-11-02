@@ -1,9 +1,11 @@
 // 反斜杠转义与数学定界符测试。
-// 关键语义（v1.2.2 起保守恢复 \(...\) 与 \[...\] 数学支持）：
-//   - inner 具备 LaTeX 数学特征（反斜杠命令 \frac/\alpha/... 或上标 ^）→ 当公式渲染。
-//   - inner 无数学特征（如文献引用 \[J/OL\]、\[1\]）→ 保持 CommonMark 转义，输出字面 [J/OL]、[1]。
+// 关键语义（v1.2.2 起恢复 \(...\) 与 \[...\] 数学支持，两者策略不同）：
+//   - 行内 \(...\)：默认按公式渲染（KaTeX 标准行内定界符，作者写出即显式声明）。
+//     仅在 inner 含中文（夹注 \(见附录\)）或连续英文单词（散文 \(hello world\)）时保持字面。
+//   - 块级 \[...\]：保守，inner 须具备 LaTeX 数学特征（反斜杠命令 \frac/\alpha/... 或上标 ^）；
+//     无特征者（文献引用 \[J/OL\]、\[1\]、文件名 \[my_paper_v2\]）保持 CommonMark 转义为字面 []。
 //   - 数学也可直接用 $ ... $（行内）与 $$ ... $$（块级），或 ```math 围栏。
-//   - 不成对 / 跨行（行内） / 围栏与行内代码内 → 一律字面量。
+//   - 不成对 / 跨行（行内） / 空 inner / 围栏与行内代码内 → 一律字面量。
 const test = require('node:test');
 const assert = require('node:assert');
 const { renderMarkdown } = require('../src/unified-renderer.js');
@@ -74,11 +76,47 @@ test('行内 \\(...\\) 无 LaTeX 特征 → 字面圆括号', () => {
   assert.ok(!/katex|math-display|math-inline/.test(html), '不应生成数学: ' + html);
 });
 
-test('无特征与有特征混排：\\(x\\) 字面 与 \\(\\alpha\\) 数学共存', () => {
-  const md = '字面 \\(x\\) 与公式 \\(\\alpha\\) 共存';
-  const html = render(md);
-  assert.ok(html.includes('(x)'), '\\(x\\) 应还原为字面 (x): ' + html);
-  assert.ok(html.includes('$\\alpha$'), '\\(\\alpha\\) 应归一化为 $...$: ' + html);
+test('行内 \\(...\\) 单字母变量 → 公式（不再要求命令/上标特征）', () => {
+  const html = render('单字母 \\(x\\) 也当公式');
+  assert.ok(html.includes('$x$'), '\\(x\\) 应归一化为 $...$: ' + html);
+  assert.ok(!html.includes('(x)'), '不应渲染为字面 (x): ' + html);
+});
+
+// 回归：真实专利文档（v14）中 104 处行内公式因「无命令无上标」被漏判，逐类收口。
+// 注：< > & 在输出 HTML 里会被实体转义，断言前需同样转义。
+const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+test('行内 \\(...\\) 下标变量 → 公式', () => {
+  const cases = ['S_{k,t} = 1.0', 'T_S', 'C_L', 'X_{k,t}', 'L_{k,t-1} = 4.50'];
+  for (const inner of cases) {
+    const html = render('值 \\(' + inner + '\\) 结束');
+    assert.ok(html.includes('$' + escHtml(inner) + '$'), inner + ' 应归一化为公式: ' + html);
+  }
+});
+
+test('行内 \\(...\\) 比较/算术/坐标 → 公式', () => {
+  const cases = ['>0', 'F=5', 'C_H>C_M>C_L', '(0,1)', '0.15/0.20 = 0.75', '(48.2, -2.0)', 'i-1', 'S_{k,t} = 0 < T_S'];
+  for (const inner of cases) {
+    const html = render('值 \\(' + inner + '\\) 结束');
+    assert.ok(html.includes('$' + escHtml(inner) + '$'), inner + ' 应归一化为公式: ' + html);
+  }
+});
+
+test('行内 \\(...\\) 含中文 → 字面（中文夹注不是公式）', () => {
+  const html = render('参见 \\(见附录 A\\) 说明');
+  assert.ok(!/katex|math-inline/.test(html), '含中文不应渲染为公式: ' + html);
+  assert.ok(html.includes('(见附录 A)'), '应还原为字面括号: ' + html);
+});
+
+test('行内 \\(...\\) 含 LaTeX 命令时命令优先：\\text{max value} 仍是公式', () => {
+  const html = render('取 \\(\\text{max value}\\) 为阈值');
+  assert.ok(html.includes('$\\text{max value}$'), '命令内的英文不应被散文规则误杀: ' + html);
+  assert.ok(!html.includes('(\\text{max value})'), '不应退化为字面括号: ' + html);
+});
+
+test('行内 \\(...\\) 空内容 → 字面（避免生成 $$ 被当成块级定界符）', () => {
+  const html = render('空 \\(\\) 括号');
+  assert.ok(!/katex|math-inline|math-display/.test(html), '空 inner 不应生成数学: ' + html);
 });
 
 // ---- 代码上下文 / 不成对 → 字面量 ----

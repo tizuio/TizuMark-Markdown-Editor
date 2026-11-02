@@ -189,19 +189,58 @@ function englishSection() {
   return lines;
 }
 
+// ════════════════════════════════════════════════════════════════════
+// 精选发布说明（按版本覆盖）：版本号命中时优先使用，跳过「逐条归纳提交」。
+// 背景：v1.2.5 起单版本提交量大（WYSIWYG 迭代 70+ 条），逐条归纳会产生
+// 大量「S91/S92」内部编号噪声，不适合直接作为发布页文案。
+// 结构红线不变：仅三个分类键（new/improve/fix），渲染仍走同一模板骨架。
+// ════════════════════════════════════════════════════════════════════
+const CURATED_NOTES = {
+  '1.2.5': {
+    new: [
+      '实时预览（所见即所得）模式：正文保持排版效果、光标所在块就地显示源码，像 Typora 一样直接写作；表格格内编辑与行列拖拽、任务复选框点击勾选、代码块编辑态语法高亮，编辑态与阅读态像素级对齐',
+      '编辑模式上下分屏：左右/上下分屏一键切换（双击分隔条或点按钮），分屏方向与比例持久化',
+      '标签页右键重命名（已保存文件同步修改磁盘文件名）',
+      '文件树：工作区标题「上一级」按钮；点击「文件」标题弹出目录选择切换工作区、点击路径打开所在文件夹；文件/文件夹拖放移动',
+      '更新器：安装包磁盘缓存（已下载不再重复下载）与「跳过此版本」',
+    ],
+    improve: [
+      '实时预览性能：进入暖启动 449→374ms、单块预渲染 131→34ms，结构编辑改为增量刷新',
+      '导出 PDF：支持直接导出（仅极旧 WebView2 回退系统打印），确认弹框排版对齐 DOCX，修复暗色主题灰底',
+      '编辑器与预览顶部内容对齐（左右与上下分屏）',
+      '行内公式定界符 \\(...\\) 默认按公式渲染，不再退化为字面括号',
+      '中文输入法（IME）在列表、标题场景的输入体验修复',
+      '分屏折叠控制钮收进拖拽条，折叠后以贴边半圆把手常驻',
+    ],
+    fix: [
+      '滚动同步偏差：编辑器滚动定位系统性偏移（横向差 2~10 行、纵向差 24~30 行），预览跟随不准',
+      '窗口最大化/还原后分栏消失',
+      '导出 PDF 灰圈根因（WebView2 背景色）',
+      '实时预览编辑态大量细节修复（引用块嵌套、块间距与阅读态不一致、文末回车等）',
+    ],
+  },
+};
+
 function buildNotes() {
   const tag = lastTag();
   const commits = collectCommits(tag);
   const grouped = { new: [], improve: [], fix: [] };
-  const seen = new Set();
-  for (const c of commits) {
-    if (isInternalReleaseCommit(c)) continue; // 过滤发布/打包内部提交
-    if (isNoiseCommit(c)) continue; // 过滤开发过程/基础设施/文档元数据噪声
-    const cat = categorize(c);
-    const one = summarize(c);
-    if (one && !seen.has(one)) {
-      seen.add(one);
-      grouped[cat].push(one);
+  const curated = CURATED_NOTES[VERSION];
+  if (curated) {
+    grouped.new = curated.new.slice();
+    grouped.improve = curated.improve.slice();
+    grouped.fix = curated.fix.slice();
+  } else {
+    const seen = new Set();
+    for (const c of commits) {
+      if (isInternalReleaseCommit(c)) continue; // 过滤发布/打包内部提交
+      if (isNoiseCommit(c)) continue; // 过滤开发过程/基础设施/文档元数据噪声
+      const cat = categorize(c);
+      const one = summarize(c);
+      if (one && !seen.has(one)) {
+        seen.add(one);
+        grouped[cat].push(one);
+      }
     }
   }
 

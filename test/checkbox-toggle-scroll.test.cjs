@@ -25,8 +25,8 @@ const HTML = `<!DOCTYPE html><html><body>
   <div id="preview-pane"></div>
   <button id="btn-view-preview"></button>
   <button id="btn-view-edit"></button>
-  <button id="btn-side-left"></button>
-  <button id="btn-side-right"></button>
+  <button id="btn-fold-editor"></button>
+  <button id="btn-fold-preview"></button>
 </body></html>`;
 
 const dom = new JSDOM(HTML, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/' });

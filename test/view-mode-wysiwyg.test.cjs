@@ -981,8 +981,11 @@ test('遮罩须补跑预览后处理（与阅读模式 render() 同序全链，�
   // preview-controller 同款判据）
   assert.match(pblk, /preview\.classList\.contains\('code-line-numbers'\)/, '代码行号未与阅读模式同源');
   // 后处理要在 innerHTML 赋值之后、markText 之前对节点执行
+  //（窗口 300→700：2026-11-01 性能改造在 innerHTML 与后处理之间插入「最终缓存命中则跳过
+  // 同步后处理」条件分支——命中块的缓存 HTML 已含全部同步 stage 产物，语义见
+  // _wysiwygFinalHtmlCacheMap 注释）
   const mIdx = wsrc.indexOf('node.innerHTML = html;');
-  const seg = wsrc.slice(mIdx, mIdx + 300);
+  const seg = wsrc.slice(mIdx, mIdx + 700);
   assert.match(seg, /_postProcessWysiwygNode\(node\)/, '后处理未紧跟 innerHTML 赋值');
   // 共享管线本体必须真的调各 pass（两模式共用的渲染逻辑收敛在 render-post.js）
   const rpIdx = bundle.indexOf('const RenderPost = {');
@@ -1069,9 +1072,10 @@ test('全量视图驻留：直接写 cm.options 扩视口（避开 setOption 的
   // 会多一次全量重渲染（万行文档 ~1.8s，2026-10-09 实测）
   assert.match(wsrc, /cm\.options\.viewportMargin = cm\.lineCount\(\) \+ 100;/, '全量视图驻留未扩视口到整篇');
   assert.doesNotMatch(wsrc, /setOption\('viewportMargin', cm\.lineCount/, '扩视口走了 setOption（触发内置 refresh，多一次全量重渲染）');
-  // 单 operation 批量挂全部非活动块遮罩
+  // 单 operation 批量挂非活动块遮罩（窗口 800→1600：2026-11-01 视口优先改造在 operation
+  // 前插入视口范围求解——先挂视口 ±15 块、其余 _wysiwygPumpIdleMount 分批补挂，批量操作仍在）
   const eIdx = wsrc.indexOf('_enterWysiwygFullView() {');
-  const eblk = wsrc.slice(eIdx, eIdx + 800);
+  const eblk = wsrc.slice(eIdx, eIdx + 1600);
   assert.match(eblk, /cm\.operation\(\(\) => \{/, '全量挂遮罩未用单 operation 批量（逐块=数千次 display 更新）');
   // 离开所见即所得恢复默认视口余量（窗口 5800→6600：函数内含批量撤遮罩 + 活动块高亮撤行类 +
   // 正文排版行类撤除 + 块间空行间隙清理（2026-10-17），函数体变长；
@@ -3219,7 +3223,9 @@ test('S83 引用/提示块活动态「渲染分段 + 光标行源码」：非光
   assert.match(wys, /renderWysiwygBlockHtml\(start, end\) \{[\s\S]{0,200}?this\._wysiwygRenderSource\(lines\.join\('\\n'\)\);/, 'renderWysiwygBlockHtml 未收口到 _wysiwygRenderSource');
   assert.match(wys, /_wysiwygRenderSource\(src\) \{/, '缺公共渲染方法 _wysiwygRenderSource');
   // ⑤ 集成点：活动块切换退/挂、光标移动同步、change 钩子、防抖重算 ×2、格编辑/模式清理
-  assert.match(wys, /const hadPrev = prev >= 0;[\s\S]{0,200}?_wysiwygClearQuoteSegments\(\);[\s\S]{0,80}?const b = this\._wysiwygBlocks && this\._wysiwygBlocks\[prev\];[\s\S]{0,160}?this\.maskWysiwygBlock\(prev\);/, 'setWysiwygActiveBlock 退活未先清分段（须在重遮 prev 之前清分段）');
+  //（第三窗口 160→260：2026-11-01 性能改造在「重渲旧块」语句中插入 b.finalHtml=false
+  // 复位——现渲染的 HTML 是结构 HTML，重挂时须重跑同步后处理并回写最终缓存）
+  assert.match(wys, /const hadPrev = prev >= 0;[\s\S]{0,200}?_wysiwygClearQuoteSegments\(\);[\s\S]{0,80}?const b = this\._wysiwygBlocks && this\._wysiwygBlocks\[prev\];[\s\S]{0,260}?this\.maskWysiwygBlock\(prev\);/, 'setWysiwygActiveBlock 退活未先清分段（须在重遮 prev 之前清分段）');
   assert.match(wys, /if \(hadIdx\) this\._wysiwygApplyQuoteSegments\(\);[\s\S]{0,60}?if \(hadPrev \|\| hadIdx\) this\._restoreWysiwygAnchor\(\);/, 'setWysiwygActiveBlock 新活动块未在锚点补偿前挂分段');
   assert.match(wys, /this\.setWysiwygActiveBlock\(activeIdx\);[\s\S]{0,200}?this\._wysiwygApplyQuoteSegments\(\);/, 'syncWysiwygActiveBlock 光标移动后未重挂分段');
   assert.match(wys, /if \(self\._wysiwygBlockIsQuote\(b\)\) self\._wysiwygApplyQuoteSegments\(\);/, 'change 钩子缺分段重挂');

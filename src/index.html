@@ -468,7 +468,14 @@
             </div>
             <div id="editor-wrapper"></div>
           </div>
-          <div class="resizer" id="resizer"></div>
+          <div class="resizer" id="resizer" title="拖动调整分屏比例，双击切换左右/上下分屏">
+            <!-- 分屏中央控制钮：折叠编辑 / 切方向 / 折叠预览（横向分屏竖排、上下分屏横排；
+                 图标为 Lucide（lucide-static v0.469.0，ISC），折叠态由 _syncFoldButtons 换
+                 panel-*-open 并贴边停靠，见 styles.css .split-fold-btn 停靠段） -->
+            <button id="btn-fold-editor" class="split-fold-btn" type="button" title="折叠编辑器" aria-label="折叠编辑器" data-icon="chevron-left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button id="btn-split-orientation" class="split-orientation-btn" type="button" title="切换分屏方向" aria-label="切换分屏方向" data-icon="columns-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg></button>
+            <button id="btn-fold-preview" class="split-fold-btn" type="button" title="折叠预览" aria-label="折叠预览" data-icon="chevron-right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
           <div class="preview-pane" id="preview-pane">
             <div id="preview-wrapper">
               <div id="preview" class="preview-content"></div>
@@ -486,8 +493,6 @@
       <button id="sidebar-float-btn" class="sidebar-float-btn sidebar-open" type="button" title="切换侧边栏" aria-pressed="true" aria-label="切换侧边栏">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
       </button>
-      <div class="side-btn" id="btn-side-left" title="折叠编辑器">&#9664;</div>
-      <div class="side-btn" id="btn-side-right" title="折叠预览">&#9654;</div>
     </main>
 
     <footer class="statusbar">
@@ -549,7 +554,7 @@
           <div class="dependency-body about-version-body">
             <div class="about-app-line">
               <span class="about-app-name">TizuMark</span>
-              <span id="about-version" class="about-version-chip">TizuMark v1.2.4</span>
+              <span id="about-version" class="about-version-chip">TizuMark v1.2.5</span>
             </div>
             <p id="about-version-desc" class="about-version-desc">轻量级跨平台 Markdown 编辑器</p>
             <p id="about-build" class="about-build">基于 Tauri v2.5 + Rust 构建</p>
@@ -1384,6 +1389,8 @@
     <div class="context-menu-separator"></div>
     <div class="context-menu-item" data-action="tab-copy-path"><span>复制文件路径</span></div>
     <div class="context-menu-item" data-action="tab-open-containing"><span>打开所在目录</span></div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item" data-action="tab-rename"><span>重命名</span></div>
   </div>
 
   <!-- 文件树右键菜单：action 用 file- 前缀避免与编辑器菜单的 cut/copy/paste 冲突（合并自 PR #36） -->

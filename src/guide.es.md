@@ -46,12 +46,12 @@ Las tres pestañas en el centro de la barra de herramientas alternan entre tres 
 - **Código**: Escritura a la izquierda y vista previa renderizada a la derecha.
 - **Vista en vivo**: Como Typora: el texto mantiene su aspecto renderizado mientras el bloque bajo el cursor muestra el código Markdown.
 
-En modo código:
+En el modo código, el divisor central aloja tres botones de control: **Contraer editor**, **Alternar división horizontal/vertical** y **Contraer vista previa**. Arrastra el divisor para redimensionar (la proporción de cada orientación se recuerda por separado). **Doble clic en el divisor** también cambia la orientación. Tras contraer un panel, el botón de restauración se convierte en un asa semicircular anclada al borde (color de acento); haz clic en ella para expandir de nuevo.
 
 | Acción | Método |
 |--------|--------|
-| Contraer editor | Clic en el botón izquierdo <kbd>◄</kbd> |
-| Contraer vista previa | Clic en el botón derecho <kbd>►</kbd> |
+| Contraer editor / vista previa | Clic en los botones de plegado del divisor (clic en el asa anclada para restaurar) |
+| Cambiar orientación de la división | Clic en el botón central del divisor, o doble clic en el divisor |
 | Redimensionar paneles | Arrastra el divisor central |
 
 ### Barra lateral: Esquema y Archivos
@@ -59,7 +59,7 @@ En modo código:
 Haz clic en el **botón flotante en el borde izquierdo de la barra lateral**, o usa el atajo «Alternar barra lateral» (personalizable en los atajos de teclado), para mostrar u ocultar la barra lateral. Cuenta con dos pestañas:
 
 - **Esquema**: Muestra automáticamente la estructura de títulos del documento (H1–H6), indentada por niveles. **Haz clic en cualquier título**: la vista previa se desplaza y centra en él inmediatamente. El esquema se actualiza en tiempo real mientras escribes.
-- **Archivos**: Tras abrir un directorio con `Archivo → Abrir carpeta`, esta pestaña presenta un árbol de archivos. Haz clic en cualquier archivo para abrirlo en una pestaña. El árbol monitorea la carpeta en busca de adiciones o eliminaciones externas y se actualiza de forma automática.
+- **Archivos**: Tras abrir un directorio con `Archivo → Abrir carpeta`, esta pestaña presenta un árbol de archivos. Haz clic en cualquier archivo para abrirlo en una pestaña. El árbol monitorea la carpeta en busca de adiciones o eliminaciones externas y se actualiza de forma automática. El **título «Archivos» en sí** es pulsable y abre un selector de carpetas para cambiar el espacio de trabajo; la **ruta** bajo el título abre la carpeta actual en el explorador del sistema; el botón **«Subir un nivel»** en la barra de título regresa al directorio padre.
 
 ### Edición multipestaña
 
@@ -100,7 +100,7 @@ Tres menús contextuales de clic derecho para optimizar el flujo de trabajo:
 
 - **Editor**: Cortar / Copiar / Pegar / Inserción de estructura / Formato de texto / Listas / Enlaces y multimedia / Buscar y reemplazar / Seleccionar todo
 - **Vista previa**: Copiar / Seleccionar todo / Copiar como HTML / Buscar en vista previa
-- **Pestaña**: Cerrar / Cerrar las demás / Cerrar todas / Copiar ruta del archivo
+- **Pestaña**: Cerrar / Cerrar las demás / Cerrar todas / **Renombrar** / Copiar ruta del archivo / Abrir carpeta contenedora (renombrar un archivo guardado también lo renombra en disco)
 
 ### Aviso de modificación externa
 
@@ -318,8 +318,8 @@ Haz clic en cualquier imagen de la vista previa para abrir el visor interactivo:
 ### Exportar PDF
 
 `Archivo → Exportar PDF` (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>):
-- Utiliza la ventana de impresión del sistema.
-- Permite seleccionar "Guardar como PDF", ajustar márgenes y orientación.
+- Tras una confirmación suave, el PDF se **exporta directamente** con una notificación de éxito, sin pasar por el diálogo de impresión.
+- Solo cuando el runtime de WebView2 es demasiado antiguo se recurre al diálogo de impresión del sistema (donde puedes elegir "Guardar como PDF" y ajustar márgenes y orientación).
 - Fórmulas y diagramas Mermaid se renderizan nítidamente.
 
 ### Exportar DOCX
