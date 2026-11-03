@@ -6,7 +6,7 @@ But before that little routine, there's a whole setup ritual to get through.
 
 **With VS Code**, you install plugins one by one: a Markdown preview enhancer, math rendering, diagram rendering... Then RAM usage climbs to hundreds of MB and startup takes a few seconds. It's powerful, sure — but sometimes I just want to write two thousand words.
 
-**With Typora**, the experience really is light. But it costs ¥88. It's just a writing tool; I've always felt that writing Markdown shouldn't cost money.
+**With Typora**, the experience really is light. But it's paid (about ¥88). It's just a writing tool; I've always felt that writing Markdown shouldn't cost money.
 
 So I built my own: **TizuMark**.
 
@@ -20,13 +20,14 @@ Double-click and it's open — no waiting through a startup animation. Math, flo
 
 Here's what it does. A 30-second scan will tell you if it fits:
 
-- **Zero plugins** — KaTeX math, Mermaid diagrams, 100+ language syntax highlighting, three kinds of search — all built in. No plugins fighting each other, nothing breaking after an update, and nothing to reconfigure when you switch machines.
-- **Opens in a double-click, under 10MB / under 50MB RAM** — Rust + Tauri v2, using your system's own WebView instead of bundling an entire Chromium.
+- **Zero plugins** — KaTeX math, Mermaid diagrams (with ELK auto-layout), 100+ language syntax highlighting, three kinds of search — all built in. No plugins fighting each other, nothing breaking after an update, and nothing to reconfigure when you switch machines.
+- **Opens in a double-click, under 10MB** — Rust + Tauri v2, using your system's own WebView instead of bundling an entire Chromium.
 - **Three kinds of search** — `Ctrl+F` find & replace in the current document, `Ctrl+H` cross-file search, `Ctrl+P` file quick-open.
 - **Everything a writer needs** — Typora-style live WYSIWYG preview + horizontal/vertical split, outline navigation, breadcrumbs, folder workspace, multi-tabs (drag to reorder, right-click to rename), slash commands.
+- **The right view for each file type** — Markdown auto-splits into preview + edit; images open as read-only preview; code / plain text go straight into pure edit mode, no useless preview pane forced on you.
 - **Long documents stay smooth** — chunked rendering + focus-windowed preview + virtual scrolling in pure-preview mode, so tens of thousands of lines still scroll fluidly.
-- **Customize it your way** — 5 color schemes; separate fonts for editor / preview / code blocks with a full searchable list of installed system fonts plus the ability to import your own font files; **every single shortcut is remappable**, with four presets included.
-- **Images, worry-free** — auto MD5 dedup on paste, optional storage to `assets/` or Base64 inline, relative-path support, click to zoom.
+- **Customize it your way** — 6 color schemes; separate fonts for editor / preview / code blocks with a full searchable list of installed system fonts plus the ability to import your own font files; **every single shortcut is remappable**, with four presets included.
+- **Images, worry-free** — auto MD5 dedup on paste, optional storage to `assets/` or Base64 inline, relative-path support, Obsidian-style `![[image]]` syntax, click to zoom.
 - **Export chores handled too** — Word / HTML / long PNG / PDF, no extra tools like Pandoc required.
 - **Fully offline** — no account, no internet, open it and write.
 
@@ -40,18 +41,17 @@ Below are typical measured values; results vary by machine, for reference only.
 
 | | VS Code | Typora | TizuMark |
 |---|---|---|---|
-| Installer | 80–150 MB | 30–50 MB | **~9 MB** |
-| RAM usage | 300–800 MB | 200 MB+ | **< 50 MB** |
+| Installer | 80–150 MB | 30–50 MB | **Under 10 MB** |
 | Cold start | 3–8 s | 1–2 s | **< 1 s** |
-| Price | Free | **¥88 paid** | **Free** |
+| Price | Free | **Paid (~¥88)** | **Free** |
 | Math | **Plugin needed** | Built-in | Built-in (KaTeX) |
-| Diagrams | **Plugin needed** | ✗ | Built-in (Mermaid) |
+| Diagrams | **Plugin needed** | ✗ | Built-in (Mermaid + ELK) |
 | Folder-wide search | **Needs setup** | ✗ | Built-in (cross-file) |
 | File quick-open | Built-in | ✗ | Built-in (Ctrl+P) |
 | Auto-update | Manual | Yes | **Built-in (check + one-click upgrade)** |
-| Chinese UI | Needs localization | Built-in | **Native Chinese (and English)** |
+| UI languages | Needs localization | Built-in | **Native Chinese / English / Spanish** |
 
-Under 10 MB is roughly the size of a phone photo. RAM is usually under 50 MB — for reference, a single Chrome tab often exceeds that.
+Under 10 MB is roughly the size of a phone photo.
 
 Small isn't squeezed out by late-stage optimization; it's decided by the architecture: **Rust + Tauri v2**, which uses the system's own WebView instead of packing a full Chromium into the installer like Electron does.
 
@@ -99,11 +99,13 @@ The file list comes from a single native traversal of the workspace on the Rust 
 
 ## An Interface Arranged Around How You Write
 
-**Live WYSIWYG preview** — the same writing style as Typora: text stays fully formatted, click anywhere to edit it, and only the block under your cursor shows source. Edit table cells in place, tick task checkboxes, and see code highlighting — editing state matches the rendered state pixel for pixel, no bouncing between source and output.
+**Live WYSIWYG preview** — the same writing style as Typora: text stays fully formatted, click anywhere to edit it, and only the block under your cursor shows source. Edit table cells in place, **drag to add or remove rows and columns**, tick task checkboxes, and see code highlighting — editing state matches the rendered state pixel for pixel, no bouncing between source and output.
 
-**Horizontal / vertical split** — if you prefer the classic way, double-click the divider in source mode to flip the split from side-by-side to top-bottom; each ratio is remembered. Either pane can collapse into an edge-docked semicircle handle — as clean or as focused as you like.
+**Horizontal / vertical split** — if you prefer the classic way, double-click the divider in source mode to flip the split from side-by-side to top-bottom; both the direction and the ratio are remembered. Either pane can collapse into an edge-docked semicircle handle — as clean or as focused as you like.
 
-**Multiple tabs** — a dozen files open without feeling cramped; tabs scroll horizontally when there are too many and can be reordered by dragging or renamed via right-click.
+**Smart view switching by file type** — Markdown auto-splits into preview + edit; images open as read-only preview; plain text and code go straight into pure edit mode (no preview pane). Every file type gets the most fitting way to open.
+
+**Multiple tabs** — a dozen files open without feeling cramped; tabs scroll horizontally when there are too many and can be reordered by dragging or renamed via right-click (renaming a saved file also renames it on disk).
 
 **Outline navigation** — headings are parsed into a tree automatically; one click in the sidebar jumps anywhere. Supports subtree collapsing, draggable width, and full hide.
 
@@ -119,11 +121,11 @@ The file list comes from a single native traversal of the workspace on the Rust 
 
 These are the things you can't avoid when writing technical documents. In VS Code you'd stitch them together with plugins; in TizuMark they're built in — nothing to install:
 
-**KaTeX math** — `$E=mc^2$` inline, `$$\sum_{i=1}^n i^2$$` as a standalone block; matrices and equation systems supported. No LaTeX installation required.
+**KaTeX math** — `$E=mc^2$` inline, `$$\sum_{i=1}^n i^2$$` as a standalone block; matrices and equation systems supported, plus the LaTeX-style `\(...\)` / `\[…\]` delimiters. No LaTeX installation required.
 
 ![KaTeX math rendering](screenshots/06-math.png)
 
-**Mermaid** — flowcharts, sequence diagrams, Gantt charts, state diagrams, class diagrams, pie charts — write the code and it renders automatically.
+**Mermaid** — flowcharts, sequence diagrams, Gantt charts, state diagrams, class diagrams, pie charts — write the code and it renders automatically, with colors that follow the light/dark theme. Declare `layout: elk` in the frontmatter to enable the ELK auto-layout engine, so complex diagrams don't need manual coordinates.
 
 ![Mermaid diagram rendering](screenshots/07-mermaid.png)
 
@@ -145,6 +147,7 @@ These are the things you can't avoid when writing technical documents. In VS Cod
 | Table of contents | `[TOC]` auto-generated |
 | Abbreviations | `*[HTML]: HyperText...` |
 | Smart punctuation | Auto-tunes Chinese & English punctuation |
+| Obsidian image embed | `![[image path]]`, optional `\|600` or `\|600x400` sizing |
 | Tables, quotes, links, images | All supported |
 
 ![Five callout styles (Note / Tip / Important / Warning / Caution)](screenshots/09-callout.png)
@@ -157,7 +160,7 @@ Light, dark, or follow-system. When you switch, editor and preview change togeth
 
 ![Dark theme](screenshots/10-theme.png)
 
-Five color schemes: Baseline, Warm Orange, Emerald, Midnight, Twilight Purple.
+Six color schemes: Default, Classic, Sunset, Forest, Nord, Dusk.
 
 Fonts for editor, preview, and code blocks are set independently. Installed system fonts are listed in full with search (DengXian, Microsoft YaHei, PingFang, Source Han Sans... if it's installed, it's selectable), and you can import your own font files (ttf / otf / woff / woff2) with a live preview.
 
@@ -172,7 +175,7 @@ Hold `Ctrl` and scroll to scale editor and preview font sizes continuously — t
 - **DOCX** — the easy path for homework and submissions. Math and Mermaid diagrams are rasterized to images, task lists become ☑/☐, and code blocks and callouts are converted to inline styles Word understands. Images auto-scale proportionally: anything wider than 500px is capped at 500px, anything taller than a page shrinks to fit, and small images keep their original size rather than being upscaled — no blown-out pages, no smeared pixels. The whole conversion runs on a background thread, so large documents never freeze the UI.
 - **HTML** — a single self-contained file with images inlined as base64 and KaTeX/highlight.js styles embedded. No external dependencies — send it to anyone and it opens.
 - **Long PNG** — 800px wide, auto-height, at 2x sharpness. Ready to drop straight into blog posts or social feeds.
-- **PDF** — via the system print dialog; headers/footers and background graphics are configurable, WYSIWYG layout.
+- **PDF** — one-click direct export with WYSIWYG layout; headers/footers and background graphics are configurable. Only a very old WebView2 runtime falls back to the system print dialog.
 
 None of the four require extra conversion tools like Pandoc.
 
@@ -196,6 +199,7 @@ Shortcuts like Ctrl+B for bold, Ctrl+S to save, and Ctrl+\ to toggle views can a
 
 - Auto-dedup on paste (by MD5) — the same image pasted twice never gets stored twice
 - Both local and network images supported
+- Obsidian-style embed `![[image path]]` (with optional `|600`, `|600x400` sizing)
 - Storage as "copy to assets/" or "embed as Base64": the former suits version control, the latter lets a single file be shared
 - Relative (survives moving the folder) and absolute path modes
 - Click an image in the preview to open a viewer with drag-pan, **cursor-anchored** scroll zoom, and double-click to reset
@@ -224,13 +228,11 @@ Novels, notes, research archives — documents only get longer. Rendering is chu
 
 ## And the Details
 
-Views: three modes — Reading, Source, and Live Preview — one click apart. Source mode supports both horizontal and vertical split with remembered ratios, and the editor and preview fold independently — read source only, or read the finished render, whichever you prefer.
+File handling: `.md` / `.markdown` file association opens on double-click; drag a file or folder into the window to open (batches welcome); you can also open a specific file from the command line with `TizuMark <file path>`; recently opened files are tracked; if a file is changed by another program you're prompted to reload rather than silently overwritten; and after a restart your previous tabs and workspace are all still there.
 
-File handling: `.md` / `.markdown` file association opens on double-click; drag a file or folder into the window to open (batches welcome); recently opened files are tracked; if a file is changed by another program you're prompted to reload rather than silently overwritten; and after a restart your previous tabs and workspace are all still there.
+System-level: a system tray is supported — closing the window can quit, minimize to tray, or ask each time; a global hotkey can be set to bring TizuMark back from any other window; updates are checked silently on launch with a prompt and download progress when a new version exists, the installer is cached locally (already-downloaded setups aren't re-downloaded) and you can "skip this version"; single-instance running — a second launch just focuses the existing window, and files handed to the new instance are opened by the running one.
 
-System-level: a system tray is supported — closing the window can quit, minimize to tray, or ask each time; updates are checked silently on launch with a prompt and download progress when a new version exists; single-instance running — a second launch just focuses the existing window, and files handed to the new instance are opened by the running one.
-
-Others: editor, preview, and tabs each have their own context menus (copy as HTML, copy path, close other tabs, and more); the UI switches between Chinese and English; a built-in rehype-sanitize pipeline filters HTML/CSS on rendered content to guard against XSS.
+Others: editor, preview, and tabs each have their own context menus (copy as HTML, copy path, close other tabs, and more); the UI switches between Chinese, English, and Spanish; a built-in rehype-sanitize pipeline filters HTML/CSS on rendered content to guard against XSS.
 
 No account, no internet, fully usable offline.
 
@@ -242,6 +244,8 @@ No account, no internet, fully usable offline.
 - GitHub: https://github.com/tizuio/TizuMark-Markdown-Editor/releases
 
 **Windows** is available now; macOS and Linux are in progress.
+
+Three package types: the classic **NSIS installer** (recommended — sets up file associations and a desktop shortcut), **MSI** (enterprise bulk deploy / group policy), and a **portable** single file (no install, no registry writes, run it straight from a USB drive).
 
 Download the installer → double-click → open → start writing.
 
