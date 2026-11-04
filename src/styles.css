@@ -550,7 +550,9 @@ body {
   padding: 2px 0 0 0;
   overflow: hidden;
   position: relative;
-  background-color: var(--bg-primary);
+  /* 标签条底色用 --bg-tab：未激活标签与该底色一致（融入条带），
+     激活标签用 --bg-tab-active（与编辑区同色）从而形成对比。 */
+  background-color: var(--bg-tab);
   border-bottom: 1px solid var(--border-color);
 }
 

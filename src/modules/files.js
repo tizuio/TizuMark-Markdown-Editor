@@ -1280,18 +1280,127 @@
         }
         this.highlightTreeActiveFile();
       },
+      // 路径比较统一口径：Windows 下大小写不敏感且 \ 与 / 都可作为分隔符，
+      // 直接用字符串相等判断会漏高亮（同一文件经不同入口打开时写法可能不同）。
+      _pathKey(p) {
+        return String(p == null ? '' : p)
+          .replace(/\\/g, '/')
+          .replace(/\/{2,}/g, '/')
+          .replace(/\/+$/, '')
+          .toLowerCase();
+      },
       highlightTreeActiveFile() {
         const treeEl = document.getElementById('folder-tree');
         if (!treeEl) return;
         const activePath = (this.activeTab && this.activeTab.filePath) ? this.activeTab.filePath : null;
         treeEl.querySelectorAll('.tree-row.active').forEach(el => el.classList.remove('active'));
         if (!activePath) return;
+        const activeKey = this._pathKey(activePath);
         treeEl.querySelectorAll('.tree-node.tree-file').forEach(node => {
-          if (node.dataset.path === activePath) {
+          if (this._pathKey(node.dataset.path) === activeKey) {
             const row = node.querySelector('.tree-row');
             if (row) row.classList.add('active');
           }
         });
+      },
+      // 「定位当前文档」：展开文件所在的各级目录（懒加载层级按需渲染），高亮并滚动到可视区。
+      // 高亮只作用于已渲染的节点，目录折叠/面板收起时看不到，所以需要用户主动定位时补齐。
+      async locateActiveFile() {
+        const filePath = (this.activeTab && this.activeTab.filePath) ? this.activeTab.filePath : null;
+        if (!filePath) {
+          this.showToast(this.t('locateNoActiveFile'));
+          return;
+        }
+        if (!this.workspaceFolder || !this._relativeTreeSegments(filePath, this.workspaceFolder)) {
+          this.showToast(this.t('locateNotInWorkspace'));
+          return;
+        }
+        // 面板/侧边栏收起时先恢复，保证定位结果可见
+        if (this.settings.sidebarHidden) this.showSidebar();
+        if (this.settings.filesCollapsed) {
+          this.settings.filesCollapsed = false;
+          this.saveSettings();
+          this.applyPanelCollapse();
+        }
+        let row = await this._walkToTreeFile(filePath);
+        if (!row) {
+          // 树可能因外部新建/删除而过期：重建一次再尝试
+          await this.renderFolderTree();
+          row = await this._walkToTreeFile(filePath);
+        }
+        if (!row) {
+          this.showToast(this.t('locateNotFound'));
+          return;
+        }
+        // 先清掉可能残留的旧高亮，再标记目标行
+        this.highlightTreeActiveFile();
+        row.classList.add('active');
+        if (typeof row.scrollIntoView === 'function') {
+          row.scrollIntoView({ block: 'center' });
+        }
+      },
+      // filePath 相对 workspaceFolder 的路径分段；不在工作区内返回 null
+      _relativeTreeSegments(filePath, rootPath) {
+        const rootKey = this._pathKey(rootPath);
+        const fileKey = this._pathKey(filePath);
+        if (!rootKey || !fileKey || fileKey === rootKey) return null;
+        if (fileKey.indexOf(rootKey + '/') !== 0) return null;
+        return fileKey.slice(rootKey.length + 1).split('/').filter(Boolean);
+      },
+      // 沿目录层级逐级展开（必要时渲染懒加载子级），返回目标文件所在行；任一环节失败返回 null
+      async _walkToTreeFile(filePath) {
+        const treeEl = document.getElementById('folder-tree');
+        if (!treeEl) return null;
+        const segs = this._relativeTreeSegments(filePath, this.workspaceFolder);
+        if (!segs) return null;
+        let container = treeEl;
+        let currentPath = this.workspaceFolder;
+        for (let i = 0; i < segs.length; i++) {
+          const isLast = i === segs.length - 1;
+          const targetKey = this._pathKey(currentPath) + '/' + segs[i];
+          let node = null;
+          for (const child of container.querySelectorAll(':scope > .tree-node')) {
+            if (this._pathKey(child.dataset.path) === targetKey) { node = child; break; }
+          }
+          if (!node) return null;
+          if (isLast) {
+            return node.classList.contains('tree-file') ? node.querySelector(':scope > .tree-row') : null;
+          }
+          if (!node.classList.contains('tree-folder')) return null;
+          if (!node.classList.contains('expanded')) await this._expandTreeFolder(node);
+          const children = node.querySelector(':scope > .tree-children');
+          if (!children) return null;
+          children.classList.remove('hidden');
+          if (children.childElementCount === 0) {
+            try {
+              await this.renderFolderLevel(node.dataset.path, children, this._treeDepthOf(node) + 1);
+            } catch (_) { return null; }
+          }
+          container = children;
+          currentPath = node.dataset.path;
+        }
+        return null;
+      },
+      // 展开单个目录节点（与点击展开保持同样的 expanded 类/图标/会话记忆）
+      async _expandTreeFolder(node) {
+        const FOLDER_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></svg>';
+        node.classList.add('expanded');
+        const childContainer = node.querySelector(':scope > .tree-children');
+        if (childContainer) childContainer.classList.remove('hidden');
+        const icon = node.querySelector(':scope > .tree-row .tree-icon.folder');
+        if (icon) icon.innerHTML = FOLDER_OPEN;
+        if (node.dataset.path) this.expandedFolders.add(node.dataset.path);
+        this.saveSession();
+      },
+      // 节点深度（根级为 0），用于 renderFolderLevel 的递归深度参数
+      _treeDepthOf(node) {
+        let depth = 0;
+        let p = node.parentElement;
+        while (p && p.id !== 'folder-tree') {
+          if (p.classList.contains('tree-children')) depth++;
+          p = p.parentElement;
+        }
+        return depth;
       },
       async saveFile() {
         try {
