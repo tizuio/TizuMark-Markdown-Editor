@@ -127,8 +127,10 @@ test('exportPDF: mermaid 重渲染字体链 = 用户字体 + 中文尾链', asyn
   await withEditor({ invokeImpl: (cmd) => (cmd === 'plugin:dialog|save' ? '/tmp/out.pdf' : null) }, async (w, ed) => {
     ed.settings.previewFont = 'IBM Plex Serif';
     let capturedFontFamily = null;
+    // 取第一次 initialize（导出路径的重绘初始化）：导出结束 finally 会把 mermaid 预览
+    // 配置还原一次（strict/预览字体），若取最后一次会被还原调用覆盖、断言失真。
     w.mermaid = {
-      initialize: (opts) => { capturedFontFamily = opts.fontFamily; },
+      initialize: (opts) => { capturedFontFamily = capturedFontFamily || opts.fontFamily; },
       render: async () => ({ svg: '<svg viewBox="0 0 10 10"></svg>' }),
     };
     try {

@@ -333,6 +333,128 @@
         const old = document.getElementById('tm-export-overlay');
         if (old && old.parentNode) old.parentNode.removeChild(old);
       },
+      // ---------- 导出公共：亮色导出上下文（2026-11-09 定稿） ----------
+      //
+      // 口径：无论应用当前是明亮还是暗黑，导出物（HTML/长图/DOCX/PDF）内容一律按亮色主题
+      // 渲染。实现为「成对调用 + 引用计数」：各导出在选完保存路径后调 _enterLightExport()、
+      // 在自身 finally 末尾调 _leaveLightExport()——**不得**再包一层 try/finally：
+      // test/export-parity / export-expand-all 对各导出函数体有字符窗口断言，新增 finally
+      // 会挤爆窗口（2026-11-09 排查结论）。引用计数同时解决并发导出的状态撕裂
+      // （A 存快照→切亮→B 存快照→切亮→A 恢复→B 恢复，若无计数用户主题会被 B 的恢复写坏）。
+      //
+      // 快照三件套：data-theme 属性、html 内联 color-scheme（theme.js 写的，内联优先级高于
+      // CSS，只切 data-theme 时 color-scheme:dark 仍让 Chromium 用暗色 UA 画布——PDF 黑边
+      // #121212 的根因之一）、hljs 亮/暗主题 link href。另注入临时样式禁用全局 transition
+      // （body 有 background-color .3s，切亮色后立刻读 computed/截图会取到渐变中间灰）。
+      async _waitForStylesheet(link, timeout = 1500) {
+        if (!link) return;
+        await new Promise((res) => {
+          let done = false;
+          const fin = () => { if (!done) { done = true; res(); } };
+          link.addEventListener('load', fin, { once: true });
+          link.addEventListener('error', fin, { once: true });
+          setTimeout(fin, timeout);
+        });
+      },
+      async _enterLightExport() {
+        this._lightExportDepth = (this._lightExportDepth || 0) + 1;
+        if (this._lightExportDepth > 1) return; // 已有并发导出把文档切到亮色，直接复用
+        const root = document.documentElement;
+        const hljsLink = document.getElementById('highlight-theme');
+        this._lightExportSnapshot = {
+          theme: root.getAttribute('data-theme'),
+          colorScheme: root.style.getPropertyValue('color-scheme') || null,
+          hljsHref: hljsLink ? hljsLink.getAttribute('href') : null,
+        };
+        root.setAttribute('data-theme', 'light');
+        try { root.style.colorScheme = 'light'; } catch (_e) { /* 极旧内核无此属性，忽略 */ }
+        // 禁用过渡：见上「快照三件套」注释——切亮色必须即刻生效，不能让导出快照到渐变中间态
+        const st = document.createElement('style');
+        st.id = 'tm-export-light-transition-off';
+        st.textContent = 'html, html * { transition: none !important; }';
+        document.head.appendChild(st);
+        this._lightExportTransitionStyle = st;
+        // 暗色高亮主题换亮色 github（测试 harness 无此 link，判空兜底）
+        if (hljsLink && /dark/i.test(this._lightExportSnapshot.hljsHref || '')) {
+          hljsLink.href = 'lib/highlight.js/github.min.css';
+          await this._waitForStylesheet(hljsLink);
+        }
+      },
+      _leaveLightExport() {
+        const depth = (this._lightExportDepth || 0) - 1;
+        this._lightExportDepth = Math.max(depth, 0);
+        if (depth > 0) return; // 还有并发导出依赖亮色上下文，先不还原
+        const snap = this._lightExportSnapshot;
+        this._lightExportSnapshot = null;
+        if (!snap) return;
+        const root = document.documentElement;
+        if (snap.theme !== null && snap.theme !== undefined) root.setAttribute('data-theme', snap.theme);
+        else root.removeAttribute('data-theme');
+        if (snap.colorScheme !== null) root.style.colorScheme = snap.colorScheme;
+        else { try { root.style.removeProperty('color-scheme'); } catch (_e) {} }
+        if (this._lightExportTransitionStyle && this._lightExportTransitionStyle.parentNode) {
+          this._lightExportTransitionStyle.parentNode.removeChild(this._lightExportTransitionStyle);
+        }
+        this._lightExportTransitionStyle = null;
+        const hljsLink = document.getElementById('highlight-theme');
+        if (hljsLink && snap.hljsHref) hljsLink.href = snap.hljsHref;
+        // 导出期间 mermaid 被按亮色/loose 重新 initialize 过（重绘图表），必须还原预览配置，
+        // 否则暗色模式下导出完一次，预览里后续新增的图表全变亮色（theme/安全等级同时漂移）。
+        if (this._lightMermaidTouched) {
+          this._lightMermaidTouched = false;
+          this._restoreMermaidPreviewConfig();
+        }
+      },
+      // 还原 mermaid 预览配置：与 theme.js:155-164 同参（theme 按 DOM 实际值、strict、预览字体）。
+      _restoreMermaidPreviewConfig() {
+        if (typeof mermaid === 'undefined') return;
+        try {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
+            securityLevel: 'strict',
+            fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif',
+          });
+        } catch (e) { console.error('[export] mermaid 预览配置还原失败:', e); }
+      },
+      // 图表亮色重绘（导出物一律亮色的最后一块拼图）：预览里的 mermaid SVG 颜色是按
+      // **当时主题**生成并内联在 SVG 上的，切 data-theme 救不了它——白纸/亮底文档里
+      // 嵌一张暗色图。这里把容器还原成 mermaid 源码后按 default（亮色）主题重渲染。
+      // 原 _preparePdfClone 内联实现抽出共用（HTML / 长图 / PDF 三条链路同口径）。
+      // securityLevel 保留 'loose'：导出要完整保真（mermaid-batch-rerender.test 的明确例外）。
+      async _rerenderMermaidLightInClone(clone, idPrefix, fontFamily) {
+        const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
+        if (typeof mermaid === 'undefined' || !mermaidContainers.length) return;
+        this._lightMermaidTouched = true;
+        mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', fontFamily: fontFamily || '-apple-system, sans-serif', themeVariables: { fontSize: '14px' } });
+        for (let i = 0; i < mermaidContainers.length; i++) {
+          const code = (mermaidContainers[i].getAttribute('data-code') || mermaidContainers[i].textContent || '').trim();
+          if (!code) continue;
+          try {
+            const result = await mermaid.render(idPrefix + i, code);
+            const wrapper = document.createElement('div');
+            wrapper.className = 'mermaid-container';
+            wrapper.innerHTML = result.svg;
+            const svgEl = wrapper.querySelector('svg');
+            if (svgEl) {
+              svgEl.removeAttribute('style');
+              svgEl.removeAttribute('width');
+              svgEl.removeAttribute('height');
+              const vb = svgEl.getAttribute('viewBox');
+              if (vb) {
+                const parts = vb.split(/\s+/);
+                if (parts.length >= 4) {
+                  svgEl.setAttribute('width', parts[2]);
+                  svgEl.setAttribute('height', parts[3]);
+                }
+              }
+            }
+            mermaidContainers[i].replaceWith(wrapper);
+          } catch (e) {
+            console.error('Mermaid light render error for diagram', i, ':', e);
+          }
+        }
+      },
       // 裁剪 canvas 四周空白/透明/背景色边距，仅保留有内容的区域。
       // backgroundColor 为 null 时只裁剪完全透明像素；传入 {r,g,b} 时按颜色裁剪（容差 15）。
       _trimCanvas(canvas, { backgroundColor = null, padding = 4, tolerance = 15 } = {}) {
@@ -647,8 +769,12 @@
         //    触发重排后才渲染），直接 html2canvas 会截到空容器导致图表缺失/报错。
         if (typeof mermaid !== 'undefined') {
           const ff = getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif';
+          // 主题读 DOM 的 data-theme（不再读 this.isDark）：亮色导出上下文会把 html 切成
+          // light，但 this.isDark 仍是进入前的快照——按它取主题会让暗黑模式的 Word 里
+          // 嵌暗色图表。上下文内 DOM 已是 light，这里自然得 'default'（亮色）。
           // mermaid.initialize 失败不致命：下方 mermaid.render 有独立 try/catch，且初始化异常不应阻断导出
-          try { mermaid.initialize({ startOnLoad: false, theme: this.isDark ? 'dark' : 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } }); } catch (e) { console.error('[export] mermaid.initialize 失败（不影响导出）:', e); }
+          this._lightMermaidTouched = true;
+          try { mermaid.initialize({ startOnLoad: false, theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } }); } catch (e) { console.error('[export] mermaid.initialize 失败（不影响导出）:', e); }
         }
         const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
         for (let mi = 0; mi < mermaidContainers.length; mi++) {
@@ -827,7 +953,9 @@
           this._showExportOverlay(this.t('exportingHTML'));
           // 让遮罩先上屏，再开始图片内联/样式序列化这类同步重活
           await new Promise(r => requestAnimationFrame(r));
-  
+          // 亮色导出上下文：无论当前主题，导出物一律亮色（见 _enterLightExport 注释）
+          await this._enterLightExport();
+
           const clone = this.preview.cloneNode(true);
           clone.style.position = '';
           clone.style.left = '';
@@ -836,14 +964,19 @@
           clone.style.padding = '';
           clone.style.overflow = '';
           clone.style.height = '';
-  
+
           clone.querySelectorAll('.copy-btn').forEach(el => el.remove());
           const abbrData = clone.querySelector('#abbr-data');
           if (abbrData) abbrData.remove();
           // 摘掉 KaTeX 的 MathML 副本（不依赖 clip-path 隐藏，详见 _stripKatexMathml）
           this._stripKatexMathml(clone);
-  
+
           await this._inlineImagesForExport(clone, this.activeTab.filePath);
+          // 图表亮色重绘：预览里的 mermaid SVG 颜色按当时主题内联，切主题救不了（见公共注释）
+          if (clone.querySelector('.mermaid-container')) {
+            await this._rerenderMermaidLightInClone(clone, 'html-mermaid-',
+              getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif');
+          }
   
           // 样式：CSSOM 直读（应用样式 + KaTeX + 当前高亮主题），字体 url 绝对化
           const appSheet = this._exportStyleFromLink((h) => /(^|\/)styles\.css(\?|$)/.test(h));
@@ -871,6 +1004,7 @@
           // （height:100vh + overflow:hidden + 禁用选中），在独立 HTML 里会把内容直接裁掉，
           // 且读者需要能选中/复制文本。除此之外不改任何阅读样式。
           const docFix = `
+    :root { color-scheme: light !important; }
     html, body { height: auto !important; overflow: visible !important; background: var(--preview-bg, #fff) !important; }
     body { -webkit-user-select: text !important; user-select: text !important; }
     .preview-content { overflow: visible !important; max-width: 860px; margin: 0 auto; }`;
@@ -911,6 +1045,7 @@
           // 与 DOCX 同口径（export.js「导出真正完成后再弹成功提示；先关遮罩，确保 toast
           // 不被遮住」）——写入文件成功才弹，失败只走 setStatus 错误态。
           if (htmlExported) this.showToast(this.t('exportSuccess'), 'success');
+          this._leaveLightExport();
         }
       },
       // docx 页面尺寸（twips，1/20 pt）：A4 / Letter，支持纵向/横向。
@@ -1144,7 +1279,10 @@
             this.setStatus(this.t('exportError'));
             hideOverlay();
           }, 120000);
-  
+
+          // 亮色导出上下文：无论当前主题，Word 导出（图表重绘/代码高亮）一律亮色
+          await this._enterLightExport();
+
           const clone = this.preview.cloneNode(true);
           clone.style.position = '';
           clone.style.left = '';
@@ -1258,6 +1396,7 @@
           if (exported) {
             this.showToast(this.t('exportSuccess'), 'success');
           }
+          this._leaveLightExport();
         }
       },
       // 回退路径：用 html-docx 把 HTML altChunk 写入 docx（兼容性较差，仅 docx 生成失败时兜底）。
@@ -1268,16 +1407,12 @@
         this._katexElsToLatexText(clone);
         const escapedTitle = this.activeTab.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         // 公式已降级为 LaTeX 源码文本，不再需要内联 KaTeX CSS（约 300KB，白白撑大 docx）。
+        // hljs 高亮 CSS：不再按 this.isDark 设门禁（暗黑模式导出也要亮色高亮），且改走
+        // CSSOM 采集——裸 fetch 失败是静默的（导出帧 token 全黑），采集器自带回退。
         let hljsCSS = '';
-        if (!this.isDark) {
-          try {
-            const themeLink = document.getElementById('highlight-theme');
-            if (themeLink) {
-              const resp = await fetch(themeLink.getAttribute('href'));
-              if (resp.ok) hljsCSS = await resp.text();
-            }
-          } catch (e) { /* 高亮主题 CSS 为可选样式，拉取失败不阻断导出 */ console.error('[export] 高亮主题 CSS 拉取失败:', e); }
-        }
+        try {
+          hljsCSS = this._exportStyleFromLink((h) => /highlight|hljs|github/.test(h)).css;
+        } catch (e) { /* 高亮主题 CSS 为可选样式，采集失败不阻断导出 */ console.error('[export] 高亮主题 CSS 采集失败:', e); }
         const wordOverride = `
         .alert { background: #f6f5f4; border-left-color: #d4d4d8; }
         .alert-note { background: #eef4ff; border-left-color: #3884ff; }
@@ -1342,6 +1477,8 @@
           overlayOn = true;
           this._showExportOverlay(this.t('generatingImg'));
           await new Promise(r => requestAnimationFrame(r));
+          // 亮色导出上下文：无论当前主题，长图一律亮色（见 _enterLightExport 注释）
+          await this._enterLightExport();
 
           // ---- 1) 离屏宿主：在本文档内，样式与阅读模式同源，用于度量与图片内联 ----
           const source = this.preview.cloneNode(true);
@@ -1368,6 +1505,11 @@
           document.head.appendChild(expandStyle);
 
           await this._inlineImagesForExport(host, this.activeTab.filePath);
+          // 图表亮色重绘：预览里的 mermaid SVG 颜色按当时主题内联，切主题救不了（见公共注释）
+          if (host.querySelector('.mermaid-container')) {
+            await this._rerenderMermaidLightInClone(host, 'png-mermaid-',
+              getComputedStyle(document.documentElement).getPropertyValue('--font-preview').trim() || '-apple-system, sans-serif');
+          }
           await this._waitImagesReady(host);
           await new Promise(r => setTimeout(r, 60));
 
@@ -1401,7 +1543,9 @@
           // 序列化后就是 foreignObject 的根，全文档作用域恰好等于宿主内部作用域。
           const expandCSSForSvg = this._exportExpandRules('');
           const styleEl = document.createElement('style');
-          styleEl.textContent = customFontCSS + appCSS + hljsCSS + katexCSS + expandCSSForSvg;
+          // 尾部追加 color-scheme:light：SVG 里 `:root` 命中 <svg> 根，独立渲染环境不带
+          // 主文档的内联 color-scheme，必须自带（否则暗色 UA 画布语义渗进 SVG 渲染）。
+          styleEl.textContent = customFontCSS + appCSS + hljsCSS + katexCSS + expandCSSForSvg + ':root { color-scheme: light !important; }';
           host.insertBefore(styleEl, host.firstChild);
           // 清掉离屏定位等宿主专用内联样式，只留排版必需的宽度/背景/取消内部滚动
           host.setAttribute('style', `width:${W}px;height:auto;overflow:visible;background:${bg};`);
@@ -1467,6 +1611,7 @@
           // 2026-10-26 用户反馈：长图导出完成后没有任何成功提示。与 HTML/DOCX/PDF 同口径：
           // 先关遮罩再弹 toast，且只在写盘成功后弹。
           if (imgExported) this.showToast(this.t('exportSuccess'), 'success');
+          this._leaveLightExport();
         }
       },
       // PrintToPdf 能力检测：ICoreWebView2_7::PrintToPdf 随 WebView2 运行时 101.x（2022-05）
@@ -1529,6 +1674,7 @@
         let printStyle = null;
         let expandStyle = null;
         let savedTheme = null;
+        let savedColorScheme = null;
         let savedHljsHref = null;
         let pdfExported = false;
         let handedOverToPrint = false;
@@ -1538,6 +1684,7 @@
         // 把用户当前主题/hljs 误当成「未设置」清掉（removeAttribute 的危险分支）。
         const rootEl0 = document.documentElement;
         savedTheme = rootEl0.getAttribute('data-theme');
+        savedColorScheme = rootEl0.style.getPropertyValue('color-scheme') || null;
         const hljsLink0 = document.getElementById('highlight-theme');
         savedHljsHref = hljsLink0 ? hljsLink0.getAttribute('href') : null;
         try {
@@ -1555,6 +1702,10 @@
           const rootEl = document.documentElement;
           savedTheme = rootEl.getAttribute('data-theme');
           rootEl.setAttribute('data-theme', 'light');
+          // color-scheme 必须同切：theme.js 把 color-scheme:dark 写成了 html **内联样式**
+          //（优先级高于 CSS），只切 data-theme 时 Chromium 仍按暗色 UA 语义渲染画布
+          //（PDF 黑边 #121212 的根因）。恢复在 finally（快照已在 try 外捕获）。
+          try { rootEl.style.colorScheme = 'light'; } catch (_e) { /* 极旧内核无此属性，忽略 */ }
           const hljsLink = document.getElementById('highlight-theme');
           savedHljsHref = hljsLink ? hljsLink.getAttribute('href') : null;
           if (hljsLink && /dark/i.test(savedHljsHref || '')) {
@@ -1595,6 +1746,9 @@
        快照，会把**过渡中的灰色**印进 PDF（真机 timeline 实测：45ms 间隔采样
        32→81→181→222→244→253→255）。打印态全局禁用 transition，白底即刻生效。 */
     html.pdf-printing, html.pdf-printing body, html.pdf-printing * { transition: none !important; }
+    /* color-scheme 同切（内联 color-scheme:dark 不切掉时 UA 按暗色语义画画布/滚动条/表单件）：
+       只能加在屏幕规则区，@media print 块内有 400/500 字符窗口断言，勿动 */
+    html.pdf-printing { color-scheme: light !important; }
     html.pdf-printing body > * { display: none !important; }
     html.pdf-printing #pdf-print-root { display: block !important; overflow: visible !important; height: auto !important; }
     /* 进度遮罩要留在屏幕上，但绝不能被打进 PDF（@media print 只作用于打印渲染） */
@@ -1674,8 +1828,16 @@
           const rootEl = document.documentElement;
           if (savedTheme !== null) rootEl.setAttribute('data-theme', savedTheme);
           else rootEl.removeAttribute('data-theme');
+          if (savedColorScheme !== null) rootEl.style.colorScheme = savedColorScheme;
+          else { try { rootEl.style.removeProperty('color-scheme'); } catch (_e) {} }
           const hljsLink = document.getElementById('highlight-theme');
           if (hljsLink && savedHljsHref) hljsLink.href = savedHljsHref;
+          // mermaid 已按亮色/loose 重初始化过（_preparePdfClone），还原预览配置（theme 按
+          // 还原后的实际主题、strict），否则暗色模式下导出完 PDF 预览里新图表全变亮色。
+          if (this._lightMermaidTouched) {
+            this._lightMermaidTouched = false;
+            this._restoreMermaidPreviewConfig();
+          }
           document.documentElement.classList.remove('pdf-printing');
           document.body.classList.remove('pdf-printing');
           if (printStyle && printStyle.parentNode) printStyle.parentNode.removeChild(printStyle);
@@ -1698,39 +1860,9 @@
         this._stripKatexMathml(clone);
         await this._inlineImagesForExport(clone, this.activeTab.filePath);
 
-        const mermaidContainers = Array.from(clone.querySelectorAll('.mermaid-container'));
-        if (typeof mermaid !== 'undefined' && mermaidContainers.length) {
-          const ff = this._exportPdfFontStack();
-          // 图表一律按亮色 default 主题重绘：纸面是白底，暗色主题的浅色线条在白纸上几乎不可见
-          mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', fontFamily: ff, themeVariables: { fontSize: '14px' } });
-          for (let i = 0; i < mermaidContainers.length; i++) {
-            const code = (mermaidContainers[i].getAttribute('data-code') || mermaidContainers[i].textContent || '').trim();
-            if (!code) continue;
-            try {
-              const result = await mermaid.render('pdf-mermaid-' + i, code);
-              const wrapper = document.createElement('div');
-              wrapper.className = 'mermaid-container';
-              wrapper.innerHTML = result.svg;
-              const svgEl = wrapper.querySelector('svg');
-              if (svgEl) {
-                svgEl.removeAttribute('style');
-                svgEl.removeAttribute('width');
-                svgEl.removeAttribute('height');
-                const vb = svgEl.getAttribute('viewBox');
-                if (vb) {
-                  const parts = vb.split(/\s+/);
-                  if (parts.length >= 4) {
-                    svgEl.setAttribute('width', parts[2]);
-                    svgEl.setAttribute('height', parts[3]);
-                  }
-                }
-              }
-              mermaidContainers[i].replaceWith(wrapper);
-            } catch (e) {
-              console.error('Mermaid PDF render error for diagram', i, ':', e);
-            }
-          }
-        }
+        // 图表一律按亮色 default 主题重绘：纸面是白底，暗色主题的浅色线条在白纸上几乎不可见。
+        // 实现已抽到公共 _rerenderMermaidLightInClone（HTML / 长图同口径），字体链保持 PDF 专属。
+        await this._rerenderMermaidLightInClone(clone, 'pdf-mermaid-', this._exportPdfFontStack());
         return clone;
       },
       // 回退路径用：把 clone 组装成独立打印帧 HTML（完整 appCSS + 亮色 hljs + katex + 打印补充）
@@ -1754,7 +1886,7 @@
 
         const printCSS = `
     @page { margin: 1.5cm; }
-    html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
+    html, body { margin: 0 !important; padding: 0 !important; background: white !important; color-scheme: light !important; }
     .preview-content { max-width: 680px !important; margin: 0 auto !important; padding: 16px 24px !important; font-family: ${this._exportPdfFontStack()} !important; background: #fff !important; } /* 白纸语义：钉死纯白，nord 等方案的灰紫 --preview-bg 不得漏进来（2026-10-26） */
     ${this._exportExpandRules('.preview-content')}
     .preview-content pre code.hljs,
