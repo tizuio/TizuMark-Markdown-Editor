@@ -92,10 +92,10 @@ TizuMark 支持网络图片、相对路径、绝对路径三种来源。图片�
 
 **1. 远程/网络图片**（URL 直链，原样渲染，无需本地文件）
 
-![示例图片](https://picsum.photos/800/400)
+![示例图片](https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800)
 
 ```markdown
-![示例图片](https://picsum.photos/800/400)
+![示例图片](https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800)
 ```
 
 **2. 相对路径图片**（相对于当前 `.md` 文件所在目录，移动文件夹仍有效）

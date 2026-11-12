@@ -425,8 +425,20 @@ test('链接：demo 多锚点跳转行（三个中文锚点均能匹配对应标
 // ============================================================
 
 test('图片：远程 URL', async () => {
-  const { off } = renderBoth('![示例图片](https://picsum.photos/800/400)');
-  assert.ok(/<img src="https:\/\/picsum\.photos\/800\/400"[^>]*alt="示例图片"/.test(off), '远程图片应渲染');
+  const { off } = renderBoth('![示例图片](https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800)');
+  assert.ok(/<img src="https:\/\/images\.unsplash\.com\/photo-1506744038136-46273834b3fb\?w=800"[^>]*alt="示例图片"/.test(off), '远程图片应渲染');
+});
+
+test('图片：demo.md / testdemo.md 的外链图不再使用已失效的 picsum', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const NEW_URL = 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800';
+  for (const name of ['demo.md', 'testdemo.md']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+    assert.ok(!src.includes('picsum.photos'), `${name} 不应再引用已失效的 picsum.photos`);
+    assert.strictEqual(src.split(NEW_URL).length - 1, 2,
+      `${name} 的渲染效果与对应语法示例应同时指向新链接`);
+  }
 });
 
 test('图片：相对路径', async () => {

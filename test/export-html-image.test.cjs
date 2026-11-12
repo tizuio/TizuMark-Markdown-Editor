@@ -8,11 +8,18 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { withEditor } = require('./helpers/app-env.cjs');
 
-test('exportHTML: 相对路径图片内联为 base64，data: 保留，网络图下载内联', async () => {
+// 合法 JPEG 头的 base64：外链图现在只走 Rust 后端下载（浏览器 fetch 会被 CORS 挡下），
+// 测试里用 invoke mock 模拟后端返回真实图片字节。
+const JPEG_B64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array(24).fill(0x42)]).toString('base64');
+
+test('exportHTML: 相对路径图片内联为 base64，data: 保留，网络图经后端内联且不发 CORS 请求', async () => {
   const captured = {};
+  const fetched = [];
   await withEditor({ invokeImpl: (cmd, args) => {
     if (cmd === 'plugin:dialog|save') return '/tmp/out.html';
-    if (cmd === 'fetch_image_as_base64') return 'BASE64DATA';
+    if (cmd === 'fetch_image_as_base64') {
+      return String(args.url).startsWith('http') ? JPEG_B64 : 'BASE64DATA';
+    }
     if (cmd === 'write_file') { captured.content = args.content; return undefined; }
     return null;
   } }, async (w, ed) => {
@@ -22,11 +29,8 @@ test('exportHTML: 相对路径图片内联为 base64，data: 保留，网络图�
       '<img src="images/a.png">' +
       '<img src="data:image/png;base64,EXISTING">' +
       '<img src="https://example.com/b.png">';
-    // 网络图下载：mock fetch 返回带真实 mime 的 blob
-    w.fetch = async (url) => {
-      assert.ok(String(url).startsWith('https://'), '网络图应按 URL 下载');
-      return { ok: true, blob: async () => new w.Blob(['netimg'], { type: 'image/jpeg' }) };
-    };
+    // 跨域图不允许再走浏览器 fetch：那只会刷一条 No 'Access-Control-Allow-Origin' 红字
+    w.fetch = async (url) => { fetched.push(String(url)); throw new Error('offline'); };
 
     await ed.exportHTML();
 
@@ -34,17 +38,21 @@ test('exportHTML: 相对路径图片内联为 base64，data: 保留，网络图�
     const c = captured.content;
     assert.ok(c.includes('data:image/png;base64,BASE64DATA'), '相对路径图片应内联为 base64');
     assert.ok(c.includes('data:image/png;base64,EXISTING'), 'data: 图片应保留');
-    assert.ok(c.includes('data:image/jpeg;base64,bmV0aW1n'), '网络图应下载内联为 data URI（blob.type 真实 mime）');
+    assert.ok(c.includes('data:image/jpeg;base64,'), '网络图应经后端内联为 JPEG data URI');
     assert.ok(!c.includes('https://example.com/b.png'), '网络图原 URL 不应保留');
     assert.ok(!c.includes('src="images/a.png"'), '原相对路径不应再保留');
+    assert.ok(!fetched.some((u) => u.includes('example.com/b.png')), '外链图不应再发浏览器 fetch');
   });
 });
 
-test('exportHTML: 网络图下载失败（离线）时保留原 URL，不阻断导出', async () => {
+test('exportHTML: 后端下载失败（离线/522）时保留原 URL，不阻断导出', async () => {
   const captured = {};
   await withEditor({ invokeImpl: (cmd, args) => {
     if (cmd === 'plugin:dialog|save') return '/tmp/out.html';
-    if (cmd === 'fetch_image_as_base64') return 'BASE64DATA';
+    if (cmd === 'fetch_image_as_base64') {
+      if (String(args.url).startsWith('http')) throw new Error('offline');
+      return 'BASE64DATA';
+    }
     if (cmd === 'write_file') { captured.content = args.content; return undefined; }
     return null;
   } }, async (w, ed) => {

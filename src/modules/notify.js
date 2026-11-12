@@ -285,17 +285,22 @@
           }
         };
   
-        setInterval(async () => {
+        // 唤醒后 Chromium 会补发挂起期间的定时器，叠加 window.focus 的即时检查 →
+        // 对所有 tab 串行发 fileMeta IPC 的洪峰（磁盘/网络盘刚恢复时尤其明显）。
+        // 冷却窗口由 lifecycle.js 的唤醒复位设置，窗口内自动轮询整体让路，过后自行恢复。
+        const guardedPass = async () => {
+          // 唤醒探测的心跳搭在本轮询上（lifecycle.js 的 initWakeRecovery 不另起定时器）：
+          // 放在冷却检查之前，保证唤醒后第一个 tick 就能复位卡死的一次性状态。
+          if (typeof this._wakeProbe === 'function') this._wakeProbe('heartbeat');
           if (this._watching) return;
+          const cooldown = this._wakeCooldownMs || 3000;
+          if (this._wakeRecoveredAt && Date.now() - this._wakeRecoveredAt < cooldown) return;
           this._watching = true;
           try { await pass(); } catch (e) { /* ignore */ } finally { this._watching = false; }
-        }, 1500);
+        };
+        setInterval(guardedPass, 1500);
   
-        window.addEventListener('focus', () => {
-          if (this._watching) return;
-          this._watching = true;
-          pass().catch(() => {}).finally(() => { this._watching = false; });
-        });
+        window.addEventListener('focus', guardedPass);
       },
       setStatus(text) {
         this.statusText.textContent = text;

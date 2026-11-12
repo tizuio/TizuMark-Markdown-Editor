@@ -257,12 +257,22 @@ class MarkdownEditor {
   }
 
   initAppLifecycleEvents() {
+    // 合盖睡眠唤醒后的状态复位（详见 modules/lifecycle.js 的 initWakeRecovery）
+    this.initWakeRecovery();
+
+    // 唤醒 / 外接屏重连时 WebView2 会连发 resize；这里原来是每事件同步跑布局逻辑，
+    // 与 CM5 自身的 resize→setSize() 清缓存全量重测叠加会形成布局抖动。防抖合并成一次。
+    let resizeTimer = null;
     window.addEventListener('resize', () => {
-      this.updateMaximizeIcon();
-      this.updateSideButtons();
-      // 仅纵向分屏需要重算（像素高度依赖窗口高度）；横向用 flex 比例自动跟随窗口缩放，
-      // 重算反而会在窗口变小时把预览固定成大 px 宽、编辑器(basis 0)挤成 0 宽 → 分栏消失
-      if (this.settings.splitOrientation === 'vertical') this.applyPreviewPaneWidth();
+      if (resizeTimer != null) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        this.updateMaximizeIcon();
+        this.updateSideButtons();
+        // 仅纵向分屏需要重算（像素高度依赖窗口高度）；横向用 flex 比例自动跟随窗口缩放，
+        // 重算反而会在窗口变小时把预览固定成大 px 宽、编辑器(basis 0)挤成 0 宽 → 分栏消失
+        if (this.settings.splitOrientation === 'vertical') this.applyPreviewPaneWidth();
+      }, 80);
     });
 
     // 应用退出时全量 revoke Blob URL，避免 WebView 存活期内泄漏（LRU 兜底外的一刀切）

@@ -5,6 +5,45 @@
   'use strict';
   const { dialogSave } = TMConst;
 
+  // 网络资源超时：外链图 522 / 挂起时不能拖住整条导出链（_inlineImagesForExport 用
+  // Promise.allSettled 等最慢的一张，一挂就是「遮罩撤了、文件没写」）。
+  const REMOTE_IMAGE_TIMEOUT_MS = 8000;
+  const EXPORT_FRAME_TIMEOUT_MS = 200;
+  const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    Promise.resolve(promise).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+  // Rust 的 fetch_image_as_base64 只返回纯 base64、不带 Content-Type；按 URL 扩展名猜会把
+  // picsum.photos/800/400 这类无扩展名的 JPEG 误标成 PNG。改按图片头 magic bytes 判定，
+  // 顺带把「后端返回了非图片内容（错误页/空串）」挡掉，避免把垃圾内联进文档。
+  const mimeFromBase64 = (b64) => {
+    try {
+      const head = atob(String(b64).slice(0, 24));
+      const c = (i) => head.charCodeAt(i);
+      if (c(0) === 0xff && c(1) === 0xd8 && c(2) === 0xff) return 'image/jpeg';
+      if (head.slice(0, 3) === 'GIF') return 'image/gif';
+      if (head.slice(0, 2) === 'BM') return 'image/bmp';
+      if (c(0) === 0x89 && head.slice(1, 4) === 'PNG') return 'image/png';
+      if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return 'image/webp';
+      if (/^\s*(<svg|<\?xml)/i.test(head)) return 'image/svg+xml';
+    } catch (_e) { /* 非法 base64 / 非图片内容 */ }
+    return null;
+  };
+  // 可选步骤隔离：图片内联、DOM 预处理、样式采集这类「增强」任一失败/挂起，都只跳过自己，
+  // 绝不让整份文档导不出来。带独立超时，防止某个 await 永不 settle 把导出拖死。
+  const OPTIONAL_STEP_TIMEOUT_MS = 15000;
+  const safeStep = async (label, fn, ms) => {
+    try {
+      return await withTimeout(Promise.resolve().then(fn), ms || OPTIONAL_STEP_TIMEOUT_MS);
+    } catch (e) {
+      console.warn(`[export] 可选步骤「${label}」失败或超时，已跳过：`, e && e.message ? e.message : e);
+      return null;
+    }
+  };
+
   const mixin = {
       // 导出时把预览里的图片全部内联为 base64 data URI，使导出文档自包含、不受运行时
       // blob: 回收 / 源解析影响（同源 srcdoc 打印帧在 PDF 导出、外部打开在 HTML 导出都适用）。
@@ -56,16 +95,16 @@
                 }
               }
             } else if (src.startsWith('http://') || src.startsWith('https://')) {
-              // 网络图片：下载内联为 base64，保证导出的 HTML 离线（换目录/断网）也能显示。
-              // 走浏览器 fetch（blob.type 携带真实 mime，避免按扩展名猜错）；
-              // 下载失败（离线/超时）时保留原 URL，至少联网打开仍可见。
+              // 跨域外链图**只**走 Rust 后端 reqwest（lib.rs:fetch_image_as_base64）。
+              // 浏览器 fetch 必然被 "No 'Access-Control-Allow-Origin'" 挡下，除了在控制台
+              // 刷一条红字、再等一次网络超时，没有任何收益 —— 用户会误读成「导出报错了」。
+              // 后端也拿不到（图床 522 / 离线 / 运行时缺失）就保留原 URL，一张图不拖住整份文档。
+              const timeoutMs = this._exportFetchTimeoutMs || REMOTE_IMAGE_TIMEOUT_MS;
               try {
-                const resp = await fetch(src);
-                if (resp.ok) {
-                  const blob = await resp.blob();
-                  dataUri = await blobToDataUri(blob);
-                }
-              } catch (_e) { /* 离线或网络异常：保留原 src */ }
+                const b64 = await withTimeout(TauriApi.fetchImageAsBase64({ url: src }), timeoutMs);
+                const mime = b64 ? mimeFromBase64(b64) : null;
+                if (mime) dataUri = `data:${mime};base64,${b64}`;
+              } catch (_e) { /* 后端不可用/超时/非图片：保留原 src */ }
             } else if (src.startsWith('file://')) {
               // file:// 走 Rust 读磁盘（绕过 CSP，与 processImages 一致）
               const url = src.replace(/^file:\/\//, '');
@@ -88,7 +127,10 @@
             console.warn('[export] 图片内联失败，保留原 src:', src, e);
           }
         });
-        await Promise.allSettled(imgPromises);
+        // 整体上限：某一张图永久挂起（IPC 不回、FileReader 不回调）时，allSettled 会一直等。
+        // 超时直接放行，已完成的图片仍留在 clone 上，由调用方继续导出整份文档。
+        await withTimeout(Promise.allSettled(imgPromises),
+          this._exportInlineTimeoutMs || REMOTE_IMAGE_TIMEOUT_MS).catch(() => {});
       },
       // PDF 导出需要完整 styles.css。优先运行时 fetch（原始文本保真），失败则回退读取
       // 已加载样式表的 CSSOM（自包含、不依赖网络/打包路径），彻底杜绝
@@ -1180,6 +1222,35 @@
           marginLeft: margins.left, marginRight: margins.right,
         };
       },
+      // 写盘统一入口：Tauri 走 IPC；纯浏览器调试页（无 __TAURI__）降级为 Blob 下载。
+      // 不能因为「运行时缺失 / dialogSave 抛错」就让用户一个文件都拿不到。
+      async _writeExportBinary(path, bytes) {
+        const hasTauri = typeof window !== 'undefined' &&
+          !!(window.__TAURI__ && window.__TAURI__.core);
+        if (hasTauri) {
+          await TauriApi.writeBinaryFile({ path, contents: bytes });
+          return;
+        }
+        const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const blob = new Blob([arr], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
+        if (typeof URL === 'undefined' || !URL.createObjectURL) {
+          throw new Error('浏览器下载不可用：URL.createObjectURL 缺失');
+        }
+        const url = URL.createObjectURL(blob);
+        try {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = String(path || 'export.docx').split(/[/\\]/).pop() || 'export.docx';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } finally {
+          // 立即回收会让部分内核取消下载，延后一拍；一次性定时器，不常驻。
+          setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_e) {} }, 1000);
+        }
+      },
       // 确保 lib/docx.min.js 已加载（定义 window.DocxLib）。
       // index.html 已常驻加载它，但用户若在改动 index.html 前就打开了 dev 页面且没刷新，
       // 旧页面里没有 docx.min.js → window.DocxLib 缺失 → 主路径整条失败、静默降级 altChunk。
@@ -1251,6 +1322,7 @@
   
         let overlayDone = false;
         let exported = false;
+        let exportPath = null;   // 提到外层：catch 里要写诊断文件（真机拿不到 console）
         const hideOverlay = () => {
           if (overlayDone) return;
           overlayDone = true;
@@ -1260,18 +1332,36 @@
         let watchdog = null;
         try {
           // 先让 overlay 渲染出来，再执行可能较重的同步/阻塞操作。
-          await new Promise(r => requestAnimationFrame(r));
-  
-          const path = await dialogSave({
-            defaultPath: this.activeTab.filePath
-              ? this.activeTab.filePath.replace(/\.md$/, '.docx')
-              : 'export.docx',
-            filters: [{ name: 'Word 文档', extensions: ['docx'] }]
-          });
+          // 裸 await rAF 在窗口挂起/不可见时会永不 resolve，整条导出链停在遮罩上，
+          // 且此时 watchdog 尚未启动 —— 既不报错也不出文件。超时后继续，正常环境 rAF 先到。
+          try {
+            await withTimeout(new Promise(r => requestAnimationFrame(r)),
+              this._exportFrameTimeoutMs || EXPORT_FRAME_TIMEOUT_MS);
+          } catch (_e) { /* 帧回调超时：照常继续 */ }
+
+          const defaultName = this.activeTab.filePath
+            ? this.activeTab.filePath.replace(/\.md$/, '.docx')
+            : 'export.docx';
+          let path = null;
+          try {
+            path = await dialogSave({
+              defaultPath: defaultName,
+              filters: [{ name: 'Word 文档', extensions: ['docx'] }]
+            });
+          } catch (dlgErr) {
+            // 纯浏览器调试页没有 __TAURI__，dialogSave 必抛「Tauri 运行时不可用」。
+            // 不再因此把整次导出判死：切到浏览器下载（_writeExportBinary 自动识别）。
+            const noTauri = typeof window === 'undefined' ||
+              !(window.__TAURI__ && window.__TAURI__.core);
+            if (!noTauri) throw dlgErr;
+            console.warn('[export] 未检测到 Tauri 运行时，导出切换为浏览器下载：', dlgErr && dlgErr.message);
+            path = defaultName;
+          }
           if (!path) {
             hideOverlay();
             return;
           }
+          exportPath = path;
   
           // watchdog 只在「真正开始导出处理」之后才计时，不把用户选文件的时间算进去；
           // 超时放宽到 120s，避免公式/图表多、文档大时导出仍在进行却被误判卡死提前撤掉遮罩。
@@ -1280,8 +1370,11 @@
             hideOverlay();
           }, 120000);
 
+          // 以下全是「可选增强」：任何一步报错/超时只跳过自己，整份文档照常导出。
           // 亮色导出上下文：无论当前主题，Word 导出（图表重绘/代码高亮）一律亮色
-          await this._enterLightExport();
+          await safeStep('亮色导出上下文', async () => {
+            await this._enterLightExport();
+          });
 
           const clone = this.preview.cloneNode(true);
           clone.style.position = '';
@@ -1301,7 +1394,7 @@
           // 不再依赖 _prepareWordDOM 内 new Image() 异步重加载：该方式在 SVG（naturalWidth 为 0）、
           // 图片未成功内联、或加载超时时会读取失败 → natW=0 → 所有图片退化为 width=500
           // （小图被放大、超高图因不设 height 而跨页被裁）。
-          {
+          await safeStep('图片尺寸采集', () => {
             const srcImgs = Array.from(this.preview.querySelectorAll('img'));
             const dstImgs = Array.from(clone.querySelectorAll('img'));
             dstImgs.forEach((dimg, i) => {
@@ -1317,25 +1410,26 @@
               dimg.dataset.dispW = String(dw || (simg.naturalWidth || 0));
               dimg.dataset.dispH = String(dh || (simg.naturalHeight || 0));
             });
-          }
-  
-          await this._inlineImagesForExport(clone, this.activeTab.filePath);
+          });
+
+          // 图片拿不到/挂起是最常见的局部故障：超时后直接跳过，不为一张图拖住整份文档。
+          await safeStep('图片内联',
+            () => this._inlineImagesForExport(clone, this.activeTab.filePath),
+            this._exportInlineTimeoutMs || OPTIONAL_STEP_TIMEOUT_MS);
   
           // 把 Web 预览 DOM 预处理成 docx 兼容结构。
           // skipMathImage=true：保留 .katex（其 <math> 供 MathML→OMML 转可编辑公式），
           // 公式转 PNG 仅在 html-docx 回退路径需要（_fallbackWordHtmlExport 内补跑）。
-          await this._prepareWordDOM(clone, { skipMathImage: true });
+          await safeStep('DOM 预处理', () => this._prepareWordDOM(clone, { skipMathImage: true }));
   
           // 页面设置已在流程开始的弹框里选好（pageCfg），此处不再二次弹框打断导出。
   
           // 用 docx 库生成真 OOXML：DOM → 中间结构 → 主线程构建 Document → toBlob。
           // _buildDocxBuffer 内部保证 docx 库已加载（缺失时按需补加载），主路径失败才回退 altChunk。
-          const structure = (typeof window.domToDocxStructure === 'function')
-            ? window.domToDocxStructure(clone)
-            : null;
-          const mathConverted = (structure && Array.isArray(structure))
-            ? this._structureMathmlToOmml(structure)
-            : false;
+          const structure = await safeStep('DOM→docx 结构', () =>
+            (typeof window.domToDocxStructure === 'function') ? window.domToDocxStructure(clone) : null);
+          const mathConverted = await safeStep('公式转 OMML', () =>
+            (structure && Array.isArray(structure)) ? this._structureMathmlToOmml(structure) : false);
           if (structure && Array.isArray(structure) && structure.length > 0 && mathConverted) {
             const page = this._docxPageConfig(); // 固定 A4/纵向/标准边距
             const diag = {
@@ -1351,7 +1445,7 @@
               const arrayBufferDocx = await this._buildDocxBuffer(structure, page);
               clearTimeout(watchdog);
               const bufDocx = new Uint8Array(arrayBufferDocx);
-              await TauriApi.writeBinaryFile({ path, contents: bufDocx });
+              await this._writeExportBinary(path, bufDocx);
               this.setStatus(`${this.t('exportedWord')}: ${path}`);
               exported = true;
             } catch (docxErr) {
@@ -1389,8 +1483,55 @@
         } catch (error) {
           clearTimeout(watchdog);
           console.error('exportWord error:', error);
-          this.setStatus(`${this.t('exportFailed')}: ${error}`);
+          const msg = error && error.message ? error.message : String(error);
+          // 浏览器直接打开 dev-server 页面（无 Tauri 运行时）时 dialogSave 必然抛错，
+          // 这条最容易被误读成「导出功能坏了」，给一句能直接照做的提示。
+          if (/Tauri 运行时不可用/.test(msg)) {
+            this.setStatus('导出失败：请在 Tauri 应用窗口中使用（浏览器调试页无法保存文件）');
+          } else {
+            this.setStatus(`${this.t('exportFailed')}: ${msg}`);
+          }
+          // 落一份诊断文件：真机拿不到 console，下次反馈可直接看错误栈与图片源。
+          // 之前只有 docx 主路径失败才写诊断，外层 catch 是盲区，正是「报错却查不到」的原因。
+          if (exportPath) {
+            try {
+              let imgSrcs = '';
+              try {
+                imgSrcs = Array.from(this.preview.querySelectorAll('img'))
+                  .slice(0, 10)
+                  .map((im, i) => `  [${i}] ${String(im.getAttribute('src') || '').slice(0, 200)}`)
+                  .join('\n');
+              } catch (_e) { /* 预览已销毁 */ }
+              const diagPath = exportPath.replace(/\.docx$/i, '_diagnostic.txt');
+              const diagText = `TizuMark 导出诊断\n` +
+                `时间: ${new Date().toISOString()}\n` +
+                `Tauri 运行时: ${typeof window !== 'undefined' && !!window.__TAURI__}\n` +
+                `目标路径: ${exportPath}\n` +
+                `错误: ${msg}\n` +
+                `调用栈: ${error && error.stack ? error.stack : '(无)'}\n\n` +
+                `预览图片 src（最多 10 条）:\n${imgSrcs || '  (无)'}\n`;
+              await TauriApi.writeFile({ path: diagPath, content: diagText });
+              this.showToast('导出失败，已生成诊断文件：' + diagPath, 'warning');
+            } catch (_e) { /* 写诊断失败不阻塞错误上报 */ }
+          }
         } finally {
+          // 最终兜底：只要已拿到目标路径且尚未成功写出，就用最简 HTML 再试一次。
+          // 图片、公式、图表、样式、甚至整条主链路报错，都不该让用户一个文件都拿不到。
+          if (!exported && exportPath) {
+            try {
+              const minimal = document.createElement('div');
+              minimal.innerHTML = this.preview ? this.preview.innerHTML : '';
+              minimal.querySelectorAll('script,style,link').forEach((el) => el.remove());
+              const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' +
+                minimal.innerHTML + '</body></html>';
+              const buf = await this._convertHtmlToDocxBuffer(html);
+              await this._writeExportBinary(exportPath, new Uint8Array(buf));
+              exported = true;
+              this.setStatus(`${this.t('exportedWord')}: ${exportPath}（兼容模式）`);
+            } catch (e) {
+              console.error('[export] 最终兜底导出失败:', e);
+            }
+          }
           hideOverlay();
           // 导出真正完成后（写入文件成功）再弹成功提示；先关遮罩，确保 toast 不被遮住。
           if (exported) {
@@ -1436,7 +1577,7 @@
         try {
           const arrayBuffer = await this._convertHtmlToDocxBuffer(wordHTML);
           const buf = new Uint8Array(arrayBuffer);
-          await TauriApi.writeBinaryFile({ path, contents: buf });
+          await this._writeExportBinary(path, buf);
           this.setStatus(`${this.t('exportedWord')}: ${path}`);
           onDone(true);
         } catch (error) {
