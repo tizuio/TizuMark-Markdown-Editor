@@ -35,6 +35,9 @@
   // 可选步骤隔离：图片内联、DOM 预处理、样式采集这类「增强」任一失败/挂起，都只跳过自己，
   // 绝不让整份文档导不出来。带独立超时，防止某个 await 永不 settle 把导出拖死。
   const OPTIONAL_STEP_TIMEOUT_MS = 15000;
+  // Word 图片宽度上限（CSS px）：小图按原显示尺寸，大图等比缩到此值。
+  // 页面可用宽度更小时由 _docxPageConfig() 取较小值传给 docx-builder 做最终钳位。
+  const WORD_IMG_MAX_PX = 500;
   const safeStep = async (label, fn, ms) => {
     try {
       return await withTimeout(Promise.resolve().then(fn), ms || OPTIONAL_STEP_TIMEOUT_MS);
@@ -346,6 +349,20 @@
         clone.querySelectorAll('.katex-mathml').forEach((el) => el.remove());
         return clone;
       },
+      // 导出遮罩属于 UI、不属于导出物：_enterLightExport() 会把 html 的 data-theme 临时
+      // 切成 light（导出物一律亮色）。若遮罩只继承 html 变量，暗色主题下导出会中途闪成亮色、
+      // 退出时再闪回去。CSS 的 [data-theme] / [data-color-scheme] 规则不限定元素，
+      // 把「软件当前主题」固化到遮罩自身，即可在遮罩作用域内解析出对应配色变量，
+      // 后续 html 切亮/还原都不影响它。并发导出时优先取亮色上下文保存的快照。
+      _applyExportOverlayTheme(overlay) {
+        const root = document.documentElement;
+        const snap = this._lightExportSnapshot;
+        const theme = (snap && snap.theme) || root.getAttribute('data-theme')
+          || (this.isDark ? 'dark' : 'light');
+        overlay.setAttribute('data-theme', theme);
+        overlay.setAttribute('data-color-scheme',
+          root.getAttribute('data-color-scheme') || 'default');
+      },
       // 导出遮罩：长图 / HTML / PDF 三条链路共用。三处都自己拼 overlay 会各写一套 z-index
       // 与样式；统一在这里，且由调用方 finally 保证移除（导出失败/取消同样收干净）。
       _showExportOverlay(text) {
@@ -356,14 +373,15 @@
         overlay.innerHTML = '<div class="tm-export-spinner"></div><div class="tm-export-text"></div>';
         overlay.querySelector('.tm-export-text').textContent = text || '';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;display:flex;flex-direction:column;'
-          + 'align-items:center;justify-content:center;background:rgba(0,0,0,0.32);cursor:progress;';
+          + 'align-items:center;justify-content:center;background:var(--bg-primary);cursor:progress;';
+        this._applyExportOverlayTheme(overlay);
         if (!document.getElementById('tm-export-overlay-style')) {
           const s = document.createElement('style');
           s.id = 'tm-export-overlay-style';
-          s.textContent = '.tm-export-spinner{width:34px;height:34px;border:3px solid rgba(255,255,255,0.28);'
-            + 'border-top-color:#fff;border-radius:50%;animation:tm-export-spin .7s linear infinite;margin-bottom:12px;}'
+          s.textContent = '.tm-export-spinner{width:34px;height:34px;border:3px solid var(--border-color);'
+            + 'border-top-color:var(--accent-color);border-radius:50%;animation:tm-export-spin .7s linear infinite;margin-bottom:12px;}'
             + '@keyframes tm-export-spin{to{transform:rotate(360deg)}}'
-            + '.tm-export-text{color:#fff;font-size:14px;letter-spacing:.4px;}';
+            + '.tm-export-text{color:var(--text-primary);font-size:14px;letter-spacing:.4px;}';
           document.head.appendChild(s);
         }
         document.body.appendChild(overlay);
@@ -897,7 +915,7 @@
           img.className = 'tizu-mermaid-img';
           // 同时设置 HTML width/height 属性：小于 500 的小图保持原显示尺寸，大图限制 500，
           // 过高则按页面高度上限等比缩小，确保 Word 中完整显示、不跨页裁切。
-          this._applyWordImgSize(img, natW, natH, 500, cssW);
+          this._applyWordImgSize(img, natW, natH, WORD_IMG_MAX_PX, cssW);
           img.style.display = 'inline-block';
           container.innerHTML = '';
           container.style.textAlign = 'center';
@@ -933,7 +951,7 @@
           // 先清除原始 width/height 属性（如 width="1200"），再由 _applyWordImgSize 写入正确的等比尺寸。
           img.removeAttribute('width');
           img.removeAttribute('height');
-          this._applyWordImgSize(img, natW, natH, 500, dispW > 0 ? dispW : natW);
+          this._applyWordImgSize(img, natW, natH, WORD_IMG_MAX_PX, dispW > 0 ? dispW : natW);
           img.style.display = 'inline-block';
           img.style.maxWidth = '100%';
         }));
@@ -1220,6 +1238,10 @@
           pageWidth: pageSize.width, pageHeight: pageSize.height,
           marginTop: margins.top, marginBottom: margins.bottom,
           marginLeft: margins.left, marginRight: margins.right,
+          // 图片上限：既有 500px 口径与「页面可用宽度」取较小值（1px=15twips @96dpi），
+          // 交给 docx-builder 的 clampImageToPage 做最终钳位，防止可选步骤超时后超宽裁切。
+          maxImageWidthPx: Math.max(1, Math.min(WORD_IMG_MAX_PX,
+            Math.floor((pageSize.width - margins.left - margins.right) / 15))),
         };
       },
       // 写盘统一入口：Tauri 走 IPC；纯浏览器调试页（无 __TAURI__）降级为 Blob 下载。
@@ -1311,11 +1333,12 @@
         // 给用户一个明确的等待反馈；60s watchdog 兜底防止 overlay 永远不消失。
         const overlay = document.createElement('div');
         overlay.innerHTML = `<div class="pdf-loading-spinner"></div><div class="pdf-loading-text">${this.t('preparingWordExport')}</div>`;
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);font-family:-apple-system,sans-serif;';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg-primary);font-family:-apple-system,sans-serif;';
+        this._applyExportOverlayTheme(overlay);
         if (!document.getElementById('pdf-loading-style')) {
           const s = document.createElement('style');
           s.id = 'pdf-loading-style';
-          s.textContent = '.pdf-loading-spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:pdf-spin .7s linear infinite;margin-bottom:14px;}@keyframes pdf-spin{to{transform:rotate(360deg)}}.pdf-loading-text{color:#fff;font-size:15px;letter-spacing:.5px;}';
+          s.textContent = '.pdf-loading-spinner{width:36px;height:36px;border:3px solid var(--border-color);border-top-color:var(--accent-color);border-radius:50%;animation:pdf-spin .7s linear infinite;margin-bottom:14px;}@keyframes pdf-spin{to{transform:rotate(360deg)}}.pdf-loading-text{color:var(--text-primary);font-size:15px;letter-spacing:.5px;}';
           document.head.appendChild(s);
         }
         document.body.appendChild(overlay);

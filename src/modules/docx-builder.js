@@ -17,6 +17,31 @@
     return null;
   }
 
+  // Word 图片最终尺寸钳位（最后一道关卡）：export.js 的 DOM 预处理是带超时的可选步骤，
+  // 一旦被跳过，imageToNode 会退回读预览显示宽度（可能远大于页面可用宽），图片在 Word
+  // 里就被右边界裁掉。这里按页面宽减左右边距算出可用宽度，超出才等比缩小；
+  // 未超出的小图保持原尺寸，绝不放大。
+  // 单位：page.* 为 twips（1/20pt），ImageRun 的 transformation 为 px（96dpi → 1px=15twips）。
+  const TWIPS_PER_PX = 15;
+  const DEFAULT_MAX_IMAGE_PX = 500;   // 与 export.js 的限宽口径一致（page 未传时兜底）
+  function imageMaxWidthPx(page) {
+    const p = page || {};
+    const usableTwips = (Number(p.pageWidth) || 0) - (Number(p.marginLeft) || 0) - (Number(p.marginRight) || 0);
+    const byPage = Math.floor(usableTwips / TWIPS_PER_PX);
+    const cap = Number(p.maxImageWidthPx) || DEFAULT_MAX_IMAGE_PX;
+    // page 异常/缺失时退回默认上限，绝不因脏数据把图片压成 1px
+    const candidates = [cap, byPage > 0 ? byPage : cap].filter((n) => n > 0);
+    return Math.max(1, Math.min.apply(null, candidates));
+  }
+  function clampImageToPage(node, page) {
+    const w = Math.round(Number(node && node.width) || 0);
+    const h = Math.round(Number(node && node.height) || 0);
+    const maxW = imageMaxWidthPx(page);
+    if (w <= 0) return { width: maxW, height: h > 0 ? h : maxW };
+    if (w <= maxW) return { width: w, height: h > 0 ? h : w };
+    return { width: maxW, height: Math.max(1, Math.round(h * maxW / w)) };
+  }
+
   function buildTable(D, node) {
     // 列宽：cell.width 之前传 0 导致 Word 列宽全 0、排版乱。按列数平均分配 100%。
     const colCount = (node.rows && node.rows[0] && node.rows[0].cells) ? node.rows[0].cells.length : 1;
@@ -116,7 +141,7 @@
           children: [new D.ImageRun({
             type: node.imageType || 'png',
             data: Uint8Array.from(node.data || []),
-            transformation: { width: node.width, height: node.height },
+            transformation: clampImageToPage(node, page),
           })]
         }));
       } else if (node.type === 'hr') {
@@ -150,7 +175,9 @@
     return Packer.toBlob(doc);
   }
 
-  const api = { buildDocxFromStructure };
+  // clampImageToPage 只在 node 侧导出供回归测试直接调用；浏览器端不新增全局，
+  // 以免污染 check-globals 的全局白名单（主线程仍只用 window.buildDocxFromStructure）。
+  const api = { buildDocxFromStructure, clampImageToPage };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else if (typeof window !== 'undefined') {
