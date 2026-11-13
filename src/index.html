@@ -483,6 +483,47 @@
               </button>
             </div>
           </div>
+          <!-- 空态欢迎页：与 .editor-row 平级而非盖住整个 .editor-container，
+               这样标签栏与「+」按钮始终可点，用户随时能新建/打开第一个文档。 -->
+          <div id="empty-welcome" class="empty-welcome hidden" aria-hidden="true">
+            <div class="empty-welcome-inner">
+              <!-- 主视觉：双层稿纸 + 主题色折角 + Markdown「#」徽章（参考 VS Code 空编辑区的
+                   低对比大号水印，但保留一点品牌色点睛）。图标为自绘线性 SVG，不依赖外部资源。 -->
+              <div class="empty-welcome-hero" aria-hidden="true">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <defs>
+                    <linearGradient id="ew-paper-fill" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="var(--accent-color)" stop-opacity=".18"/>
+                      <stop offset="1" stop-color="var(--accent-color)" stop-opacity=".01"/>
+                    </linearGradient>
+                  </defs>
+                  <path d="M20 12h22l12 12v38a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4V16a4 4 0 0 1 4-4Z" opacity=".26"/>
+                  <path d="M28 18h18l12 12v34a4 4 0 0 1-4 4H28a4 4 0 0 1-4-4V22a4 4 0 0 1 4-4Z" fill="url(#ew-paper-fill)"/>
+                  <path d="M46 18v12h12" stroke="var(--accent-color)" fill="color-mix(in srgb, var(--accent-color) 22%, transparent)"/>
+                  <path d="M32 40h18" stroke="var(--accent-color)" stroke-width="2.4"/>
+                  <path d="M32 48h15M32 56h11" opacity=".42"/>
+                  <circle cx="62" cy="62" r="11" fill="var(--accent-color)" stroke="none"/>
+                  <path d="M60 57.5 58 67M65 57.5 63 67M57 60.5h10M56.5 64.5h10" stroke="var(--accent-text)" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <!-- 标题文案保留给屏幕阅读器 / i18n 测试，视觉上由上方大图标承担 -->
+              <h2 id="empty-welcome-title" class="empty-welcome-title"></h2>
+              <p id="empty-welcome-hint" class="empty-welcome-hint"></p>
+              <div class="empty-welcome-actions">
+                <!-- 按钮内部不留空白文本节点：契约测试按 textContent 断言文案 -->
+                <button id="btn-empty-new" type="button" class="empty-welcome-btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6M9 15h6"/></svg><span id="btn-empty-new-label" class="ew-btn-label"></span></button>
+                <button id="btn-empty-open" type="button" class="empty-welcome-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.3 10H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg><span id="btn-empty-open-label" class="ew-btn-label"></span></button>
+              </div>
+              <div id="empty-welcome-recent" class="empty-welcome-recent hidden">
+                <div id="empty-welcome-recent-title" class="empty-welcome-section-title"></div>
+                <div id="empty-welcome-recent-list" class="empty-welcome-recent-list"></div>
+              </div>
+              <div class="empty-welcome-foot">
+                <p id="empty-welcome-drop" class="empty-welcome-tip"><svg class="ew-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg><span id="empty-welcome-drop-label"></span></p>
+                <p id="empty-welcome-shortcuts" class="empty-welcome-shortcuts"></p>
+              </div>
+            </div>
+          </div>
         </div>
         <div id="pane-loading" class="pane-loading hidden"><div class="pane-spinner"></div></div>
       </div>
@@ -524,6 +565,10 @@
   <script src="lib/codemirror/addon/search/jump-to-line.js"></script>
   <script src="lib/codemirror/addon/dialog/dialog.js"></script>
   <script src="lib/codemirror/addon/selection/active-line.js"></script>
+  <!-- 源码模式区块折叠：foldcode 提供 foldCode/foldAll 等命令，foldgutter 提供行号槽里的
+       折叠箭头。折叠范围由 modules/code-fold.js 自定义（标题章节 / 围栏与公式 / 长段落）。 -->
+  <script src="lib/codemirror/addon/fold/foldcode.js"></script>
+  <script src="lib/codemirror/addon/fold/foldgutter.js"></script>
   <script src="lib/highlight.js/highlight.min.js"></script>
   <script src="lib/katex/katex.min.js"></script>
   <script src="lib/katex/auto-render.min.js"></script>
@@ -1048,6 +1093,10 @@
             <label>显示行号</label>
             <label class="toggle"><input type="checkbox" id="set-line-numbers" checked><span class="toggle-slider"></span></label>
           </div>
+          <div class="settings-row">
+            <label>源码区块折叠</label>
+            <label class="toggle"><input type="checkbox" id="set-code-folding" checked><span class="toggle-slider"></span></label>
+          </div>
           </div>
         </div>
         <div class="settings-section" data-collapsed="false">
@@ -1454,6 +1503,7 @@
 <script src="modules/theme.js"></script>
 <script src="modules/font.js"></script>
 <script src="modules/shortcuts.js"></script>
+<script src="modules/code-fold.js"></script>
 <script src="modules/editor-core.js"></script>
 <script src="modules/tabs.js"></script>
 <script src="modules/find.js"></script>

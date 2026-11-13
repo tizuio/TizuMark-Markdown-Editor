@@ -21,6 +21,7 @@ test('session: saveSession 写入 localStorage 且 loadSession 可解析', async
   assert.ok(raw, 'saveSession 应写入 tizumark-session');
   const parsed = JSON.parse(raw);
   assert.strictEqual(parsed.version, 2, '会话版本应为 2');
+  assert.strictEqual(parsed.emptyTabs, false, '有文档时不应标记为空态');
   assert.strictEqual(parsed.activeFilePath, 'C:/work/doc1.md', '活动文件路径应正确');
   assert.ok(Array.isArray(parsed.tabs) && parsed.tabs.length === 1, '应保存 1 个标签');
   assert.strictEqual(parsed.tabs[0].filePath, 'C:/work/doc1.md', '标签 filePath 应正确');
@@ -42,6 +43,8 @@ test('session: 无 filePath 的标签不会被保存', async () => {
   ed.saveSession();
   const parsed = JSON.parse(w.localStorage.getItem('tizumark-session'));
   assert.strictEqual(parsed.tabs.length, 0, '无 filePath 的标签不应写入会话');
+  // 关键：tabs:[] 但仍有 1 个未保存的空白标签时，不能被误判成「关光了」
+  assert.strictEqual(parsed.emptyTabs, false, '仍有标签时不应标记为空态');
   cleanup(w);
 });
 

@@ -92,15 +92,17 @@ test('renderOutlineHtml: 无子节点项也渲染隐藏占位 toggle 以保证�
   const tree = buildOutlineTree(hs);
   const html = renderOutlineHtml(tree, opts);
 
-  // 有子节点项：可见 toggle（不含 --hidden），输出细长倒三角 SVG
-  assert.ok(html.includes('class="outline-toggle"><svg'), 'A 应为可见 toggle（含小三角 SVG）');
+  // 有子节点项：可见 toggle（不含 --hidden），输出与文件目录同款线性 chevron SVG
+  assert.ok(html.includes('class="outline-toggle"><svg'), 'A 应为可见 toggle（含 chevron SVG）');
   // 无子节点项：占位 toggle（含 --hidden），用于对齐
   assert.ok(html.includes('outline-toggle--hidden'), 'B（叶子）应渲染隐藏占位 toggle');
   // 占位 toggle 不应是可见 toggle（类名需区分）
   const leafToggle = html.match(/<span class="(outline-toggle outline-toggle--hidden)">/);
   assert.ok(leafToggle, '叶子 toggle 应带 outline-toggle--hidden 类');
-  // 占位 toggle 同样输出小三角 SVG，宽度与可见 toggle 完全一致，保证对齐
-  assert.ok(html.includes('class="outline-toggle outline-toggle--hidden"><svg'), '占位 toggle 应保留小三角 SVG');
+  // 占位 toggle 同样输出 chevron SVG，宽度与可见 toggle 完全一致，保证对齐
+  assert.ok(html.includes('class="outline-toggle outline-toggle--hidden"><svg'), '占位 toggle 应保留 chevron SVG');
+  assert.ok(html.includes('m9 18 6-6-6-6') && html.includes('fill="none"'), 'toggle 必须是描边 chevron-right');
+  assert.ok(!html.includes('M1.5 4 L10.5 4 L6 8 Z'), '不得再输出实心等腰小三角');
 });
 
 test('与旧实现逐字符一致（回归）', async () => {

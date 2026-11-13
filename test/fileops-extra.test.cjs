@@ -111,16 +111,18 @@ test('fileops-extra: closeOtherTabs 仅保留指定标签', async () => {
   } finally { cleanup(w); }
 });
 
-test('fileops-extra: closeAllTabs 关闭全部并留一个空白标签', async () => {
+test('fileops-extra: closeAllTabs 关闭全部后进入空态（0 标签）', async () => {
   const { w, ed } = await makeEditor();
   try {
     ed.showSaveDialog = async () => 'discard';
     await ed.addTab('a.md', 'A', 'C:/t/a.md');
     await ed.addTab('b.md', 'B', 'C:/t/b.md');
     await ed.closeAllTabs();
-    assert.strictEqual(ed.tabs.length, 1, '应只剩一个空白标签');
-    assert.strictEqual(ed.tabs[0].filePath, null);
+    assert.strictEqual(ed.tabs.length, 0, '应允许关闭所有标签');
+    assert.strictEqual(ed.activeTabIndex, -1);
     assert.strictEqual(ed.cm.getValue(), '', '编辑器应清空');
+    assert.ok(!w.document.getElementById('empty-welcome').classList.contains('hidden'),
+      '应显示空态欢迎页');
   } finally { cleanup(w); }
 });
 

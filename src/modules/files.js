@@ -111,6 +111,10 @@
             }));
           const data = {
             version: 2,
+            // saveSession 只序列化有 filePath 的标签，tabs:[] 既可能是「用户关光了标签」，
+            // 也可能是「只有一个未保存的空白文档」。显式标志让重启后能保持空态。
+            // 旧版本读不到该字段会按 tabs:[] 回退默认单标签，属安全降级。
+            emptyTabs: this.tabs.length === 0,
             activeFilePath: (this.activeTab && this.activeTab.filePath) ? this.activeTab.filePath : null,
             tabs,
             workspaceFolder: this.workspaceFolder || null,
@@ -124,6 +128,21 @@
         if (!session) return false;
         const tabs = session.tabs || [];
         const workspaceFolder = session.workspaceFolder || null;
+        // 允许 0 标签：命中 emptyTabs 时直接覆盖构造器默认单标签并进入空态，
+        // 不再走下面两处 return false / 补空白 Tab 分支。
+        if (session.emptyTabs && tabs.length === 0) {
+          this.tabs = [];
+          this.activeTabIndex = -1;
+          this.updateTabBar();
+          if (workspaceFolder) {
+            this.workspaceFolder = workspaceFolder;
+            this.expandedFolders = new Set(session.expandedFolders || []);
+            await this.renderFolderTree();
+            this.showSidebar();
+            this.startFolderWatch();
+          }
+          return true;
+        }
         if (tabs.length === 0 && !workspaceFolder) return false;
   
         const restored = [];
@@ -191,7 +210,7 @@
         const restoreScroll = (active && active.scrollPos) || { top: 0, left: 0 };
         const restorePreviewTop = (active && active.previewScrollTop) || 0;
   
-        this.cm.setValue(this.activeTab.content || '');
+        this.cm.setValue((this.activeTab && this.activeTab.content) || '');
         this.cm.setCursor(restoreCursor);
         this.cm.clearHistory();
         this.updateTabBar();
@@ -1075,6 +1094,11 @@
       async renderFolderTree() {
         const treeEl = document.getElementById('folder-tree');
         if (!treeEl) return;
+        // 重建代次：打开文件夹 / 打开文件 / folder-changed / 文件操作 / 设置变更都会触发本方法，
+        // 先清空 treeEl 再 await listDir 时，多个并发重建会各自把一整份结果 append 到同一容器
+        // → 目录重复出现。seq 让被新一轮取代的旧渲染在 await 之后直接作废。
+        this._treeRenderSeq = (this._treeRenderSeq || 0) + 1;
+        const seq = this._treeRenderSeq;
         // 拖拽进行中重渲染（folder-changed 防抖、关闭工作区等）：源行即将被移除，
         // 浏览器对已移除节点不可靠派发收尾事件 → 在这里主动走 _treeDragEnd 收尾
         // （取消态会恢复拖拽前的剪贴板/上下文；drop 完成态则只清状态）。
@@ -1120,9 +1144,10 @@
           treeEl.appendChild(empty);
           return;
         }
-        await this.renderFolderLevel(this.workspaceFolder, treeEl, 0);
+        await this.renderFolderLevel(this.workspaceFolder, treeEl, 0, seq);
       },
-      async renderFolderLevel(dirPath, containerEl, depth) {
+      // seq 为 renderFolderTree 的重建代次；点击展开子目录时不传（该容器是新建的、无需代次校验）。
+      async renderFolderLevel(dirPath, containerEl, depth, seq) {
         if (depth > 20) return; // 防御：限制目录递归深度，避免深层嵌套/符号链接环导致浏览器卡死
         const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>';
         const FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></svg>';
@@ -1136,6 +1161,11 @@
         } catch (e) {
           return;
         }
+        // 旧代次在 await 期间已被新一轮重建取代：直接丢弃，绝不能清容器或再 append
+        // （否则会抹掉新结果 / 叠出第二份目录）。
+        if (seq != null && seq !== this._treeRenderSeq) return;
+        // 本层填充幂等：即便两个调用共用同一容器，也只保留最后一次的结果
+        containerEl.replaceChildren();
         const rawEntries = Array.isArray(listing)
           ? listing
           : (listing && Array.isArray(listing.entries) ? listing.entries : []);
@@ -1145,6 +1175,8 @@
         const entries = this._filterTreeEntries(sorted, this.settings.showAllFiles);
         const truncated = !!(listing && listing.truncated);
         for (const entry of entries) {
+          // 目录展开时会再 await 递归渲染，期间可能又起了新一轮重建；每轮 append 前都校验代次
+          if (seq != null && seq !== this._treeRenderSeq) return;
           const node = document.createElement('div');
           node.className = 'tree-node ' + (entry.is_dir ? 'tree-folder' : 'tree-file');
           node.dataset.path = entry.path;
@@ -1190,7 +1222,7 @@
             node.appendChild(row);
             node.appendChild(childContainer);
             if (expanded) {
-              await this.renderFolderLevel(entry.path, childContainer, depth + 1);
+              await this.renderFolderLevel(entry.path, childContainer, depth + 1, seq);
             }
             row.addEventListener('click', async () => {
               if (this._treeDragSuppressClick) { this._treeDragSuppressClick = false; return; } // 拖拽结束后的 click 是拖拽尾巴，不是点击
@@ -1266,6 +1298,7 @@
   
           containerEl.appendChild(node);
         }
+        if (seq != null && seq !== this._treeRenderSeq) return;
         if (truncated) {
           const ph = document.createElement('div');
           ph.className = 'tree-node tree-file tree-truncated';
@@ -1294,6 +1327,7 @@
         });
       },
       async saveFile() {
+        if (!this.activeTab) return;
         try {
           let path = this.activeTab.filePath;
           if (!path) {
@@ -1321,6 +1355,7 @@
         }
       },
       async saveAsFile() {
+        if (!this.activeTab) return;
         try {
           const path = await dialogSave({
             defaultPath: this.activeTab.filePath || `${this.activeTab.name}`,

@@ -42,12 +42,25 @@ test('tab: closeTab 移除当前标签', async () => {
   const ed = w.editor;
   stubTabSideEffects(ed);
   ed.showSaveDialog = async () => 'cancel'; // 隔离未保存确认弹窗
-  // 先确保至少 2 个标签，才能真正验证「移除」而非触发「保留空白标签」分支
+  // 先确保至少 2 个标签，验证「移除」而不归零
   await ed.addTab('a.md', '# hello', null);
   const before = ed.tabs.length;
   await ed.closeTab(ed.activeTabIndex);
   assert.strictEqual(ed.tabs.length, before - 1, 'closeTab 应移除一个标签');
-  assert.ok(ed.tabs.length >= 1, '至少保留一个标签（不允许 0 标签）');
+  assert.ok(ed.tabs.length >= 1, '还剩一个标签时不应归零');
+  cleanup(w);
+});
+
+test('tab: closeTab 允许关到 0 标签（activeTabIndex 为 -1 哨兵）', async () => {
+  const { w } = await buildEnv({ captureInitErr: true });
+  await delay(300);
+  const ed = w.editor;
+  stubTabSideEffects(ed);
+  ed.showSaveDialog = async () => 'discard';
+  while (ed.tabs.length > 0) await ed.closeTab(ed.activeTabIndex);
+  assert.strictEqual(ed.tabs.length, 0, '应允许 0 个标签');
+  assert.strictEqual(ed.activeTabIndex, -1, '无活动文档时索引为 -1');
+  assert.strictEqual(ed.activeTab, undefined);
   cleanup(w);
 });
 

@@ -15,6 +15,8 @@ const {
   EXPORT_CJK_FONT_TAIL,
   EXPORT_FALLBACK_SANS,
   FONT_LOCALE_REV,
+  DOC_REQUIRED_BUTTON_IDS,
+  DOC_FREE_MENU_ACTIONS,
   Tab,
   dialogOpen,
   dialogSave,
@@ -187,6 +189,11 @@ class MarkdownEditor {
   get activeTab() {
     return this.tabs[this.activeTabIndex];
   }
+  // 允许 0 标签：无文档时 activeTab 为 undefined，所有「必须有当前文档」的动作
+  // 在 3 个集中派发点（_bindMenuAction / executeMenuAction / 快捷键注册）统一短路。
+  hasDoc() {
+    return this.tabs.length > 0 && !!this.activeTab;
+  }
   // 事件绑定只做「DOM 事件 → 功能方法」的路由，具体交互实现分散在 modules/ 各功能模块。
   // 新增事件请就近放进对应模块，不要往这里堆。
   initEventListeners() {
@@ -214,6 +221,8 @@ class MarkdownEditor {
         const m = document.getElementById(closeMenu);
         if (m) m.classList.add('hidden');
       }
+      // 无文档时静默拦掉必须依赖当前文档的按钮（置灰由 _applyEmptyState 负责）
+      if (DOC_REQUIRED_BUTTON_IDS.includes(id) && !this.hasDoc()) return;
       fn();
     });
   }
@@ -308,6 +317,8 @@ class MarkdownEditor {
     this._dispatchGlobalShortcut(e);
   }
   executeMenuAction(action) {
+    // 无文档时只放行文件树 / 文件夹类右键动作（它们不依赖 activeTab，且是空态恢复入口）
+    if (!this.hasDoc() && !DOC_FREE_MENU_ACTIONS.includes(action)) return;
     switch (action) {
       case 'cut': { const s = this.cm.getSelection(); if (s) { navigator.clipboard.writeText(s); this.cm.replaceSelection(''); } this.cm.focus(); break; }
       case 'copy': { const s = this.cm.getSelection(); if (s) navigator.clipboard.writeText(s); this.cm.focus(); break; }

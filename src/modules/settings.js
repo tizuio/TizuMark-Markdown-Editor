@@ -12,6 +12,7 @@
           tabSize: 4,
           lineWrap: true,
           lineNumbers: true,
+          codeFolding: true, // 源码模式按标题/围栏/长段落显示折叠箭头（可在设置里关闭）
           previewFontSize: 16,
           lineHeight: 1.7,
           maxWidth: 0,
@@ -133,6 +134,7 @@
         if (this._selects && this._selects.tabSize) this._selects.tabSize.setValue(String(s.tabSize), true);
         document.getElementById('set-line-wrap').checked = s.lineWrap;
         document.getElementById('set-line-numbers').checked = s.lineNumbers;
+        document.getElementById('set-code-folding').checked = s.codeFolding !== false;
         document.getElementById('set-preview-font-size').value = s.previewFontSize;
         document.getElementById('preview-font-size-label').textContent = s.previewFontSize + 'px';
         if (this._selects && this._selects.lineHeight) this._selects.lineHeight.setValue(String(s.lineHeight), true);
@@ -267,6 +269,9 @@
         });
         document.getElementById('set-line-numbers').addEventListener('change', (e) => {
           this.settings.lineNumbers = e.target.checked;
+        });
+        document.getElementById('set-code-folding').addEventListener('change', (e) => {
+          this.settings.codeFolding = e.target.checked;
         });
         document.getElementById('set-preview-font-size').addEventListener('input', (e) => {
           document.getElementById('preview-font-size-label').textContent = Number(e.target.value) + 'px';
@@ -531,6 +536,8 @@
         // 行号 + 最大宽度由所见即所得外壳统一同步（所见即所得下强制去行号，离开按设置恢复）
         if (this.applyWysiwygEditorChrome) this.applyWysiwygEditorChrome();
         else this.cm.setOption('lineNumbers', s.lineNumbers);
+        // 折叠开关变更后即时挂/卸折叠槽（含启动时的初始化）
+        if (this._syncCodeFolding) this._syncCodeFolding();
         this.preview.style.fontSize = s.previewFontSize + 'px';
         this.previewZoom = null; // 应用设置时回落到设置字号（与编辑器 tab.fontSize 重置一致）
         this.preview.style.lineHeight = String(s.lineHeight);

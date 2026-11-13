@@ -41,6 +41,7 @@ const KNOWN_GLOBALS = new Set([
   'TMEditorCore', 'TMTabs', 'TMFind', 'TMMiscUI', 'TMFiles', 'TMExport',
   'TMPreviewSync', 'TMNotify', 'TMUpdater', 'TMFormat', 'TMCtxMenu', 'TMSlash',
   'TMLifecycle', 'TMToolbar', 'TMEmptyHint', 'TMWysiwyg',
+  'TMCodeFold', // 源码模式区块折叠的纯函数范围规则（无 mixin，仅暴露 rangeFinder 等）
 ]);
 
 // 不锚行首：\bwindow\.[A-Z][A-Za-z0-9]*\s*=

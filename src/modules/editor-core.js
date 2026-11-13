@@ -173,6 +173,26 @@
           matchBrackets: true,
           autoCloseBrackets: true,
           indentUnit: this.settings.tabSize,
+          // 源码模式区块折叠：范围规则见 modules/code-fold.js（标题章节 / 围栏与公式 / 长段落）。
+          // foldGutter 开关与 gutters 由 _syncCodeFolding() 按「设置 × 视图模式」动态挂卸。
+          // widget 用主题色胶囊（chevron + 折叠行数）替代默认省略号，折叠态一眼可辨；
+          // foldCode 的 makeWidget 会 cloneNode，点击事件由 addon 绑在最终节点上。
+          foldOptions: window.TMCodeFold ? {
+            rangeFinder: window.TMCodeFold.rangeFinder,
+            minFoldSize: 1,
+            widget: (from, to) => {
+              const n = Math.max(1, to.line - from.line);
+              const el = document.createElement('span');
+              el.className = 'CodeMirror-foldmarker';
+              const chevron = document.createElement('i');
+              chevron.className = 'tm-fold-chevron';
+              const label = document.createElement('span');
+              label.textContent = this.t('foldedLines', { n });
+              el.appendChild(chevron);
+              el.appendChild(label);
+              return el;
+            },
+          } : {},
           extraKeys: {
             'Enter': (cm) => this._handleTableEnter(cm),
             'Tab': (cm) => {
@@ -328,6 +348,7 @@
         }, true);  // capture：先于预览内部可能的滚动监听拦截
   
         this.cm.on('change', (cmObj, c) => {
+          if (!this.activeTab) return;
           this.activeTab.content = this.cm.getValue();
           this.updateTabDisplay();
           // 大文档滑动窗口模式：打字时把窗口焦点同步到光标当前行（0-based），
@@ -450,7 +471,7 @@
           } else {
             this._maybeTriggerSlash(this.cm, cursor);
           }
-          this.activeTab.cursorPos = cursor;
+          if (this.activeTab) this.activeTab.cursorPos = cursor;
           this.cursorPosition.textContent = this.t('cursorPos', { line: cursor.line + 1, col: cursor.ch + 1 });
           this.updateBreadcrumb();
           // 光标移动时大纲同步高亮当前标题（与面包屑一致）
@@ -474,7 +495,7 @@
           // 若写回 scrollPos 会把已保存位置清零，导致切回编辑跳顶部。仅当编辑器可见才更新快照。
           if (container.classList.contains('preview-mode') || container.classList.contains('editor-collapsed')) return;
           const info = this.cm.getScrollInfo();
-          this.activeTab.scrollPos = { top: info.top, left: info.left };
+          if (this.activeTab) this.activeTab.scrollPos = { top: info.top, left: info.left };
   
           // 滚动时按视口顶部行更新面包屑，实现「滚动到某标题时面包屑自动切换」
           if (this._breadcrumbHeadings && this._breadcrumbHeadings.length) {
@@ -540,7 +561,73 @@
         const end = b < last ? { line: b + 1, ch: 0 } : { line: b, ch: cm.getLine(b).length };
         cm.setSelection({ line: a, ch: 0 }, end);
       },
+      // ---- 源码模式区块折叠（CodeMirror fold addon）----
+      // 只在 viewMode==='edit' 且设置开启时挂 foldGutter + 折叠槽；离开源码模式必须
+      // 先展开所有折叠再卸掉槽，否则 WYSIWYG 遮罩按源码行定位时行高被折叠标记改写、
+      // 块位置会整体错位，滚动同步与大纲跳转的 lineAtHeight 也会漂移。
+      _syncCodeFolding() {
+        const cm = this.cm;
+        if (!cm || typeof cm.foldCode !== 'function' || !window.TMCodeFold) return;
+        const on = this.settings.codeFolding !== false && this.viewMode === 'edit';
+        if (!on) {
+          this._clearAllFolds(cm);
+          if (cm.getOption('foldGutter')) cm.setOption('foldGutter', false);
+          cm.setOption('gutters', ['CodeMirror-linenumbers']);
+          return;
+        }
+        if (!cm.getOption('foldGutter')) {
+          cm.setOption('gutters', ['CodeMirror-linenumbers', 'CodeMirror-foldgutter']);
+          cm.setOption('foldGutter', { gutter: 'CodeMirror-foldgutter' });
+        }
+      },
+      _clearAllFolds(cm) {
+        if (!cm || typeof cm.getAllMarks !== 'function') return;
+        cm.operation(() => {
+          for (const m of cm.getAllMarks()) if (m.__isFold) m.clear();
+        });
+      },
+      // 光标所在块：scanUp 让光标停在折叠块内部时也能向上找到折叠头并展开。
+      toggleFoldAtCursor() {
+        const cm = this.cm;
+        if (!cm || this.viewMode !== 'edit' || this.settings.codeFolding === false) return;
+        if (typeof cm.foldCode !== 'function') return;
+        cm.foldCode(cm.getCursor(), { scanUp: true });
+      },
+      // 只展开、绝不折叠：force='unfold' 让 foldCode 在 scanUp 找到范围后清掉已有
+      // __isFold mark 并直接返回，不会顺手把没折过的块折起来。
+      unfoldAtCursor() {
+        const cm = this.cm;
+        if (!cm || this.viewMode !== 'edit' || this.settings.codeFolding === false) return;
+        if (typeof cm.foldCode !== 'function') return;
+        cm.foldCode(cm.getCursor(), { scanUp: true }, 'unfold');
+      },
+      // 折叠全部：只折每层的「最外块」，折完跳到 range.to 之后，避免嵌套范围重叠
+      // （CM5 的 foldCode(force:'fold') 不检查已有 mark，重叠 replacedWith 会互相打架）。
+      foldAllBlocks() {
+        const cm = this.cm;
+        if (!cm || this.viewMode !== 'edit' || this.settings.codeFolding === false) return;
+        const finder = window.TMCodeFold && window.TMCodeFold.rangeFinder;
+        if (!finder) return;
+        this._clearAllFolds(cm);
+        cm.operation(() => {
+          let i = cm.firstLine();
+          const last = cm.lastLine();
+          while (i <= last) {
+            const range = finder(cm, { line: i, ch: 0 });
+            if (range && range.to.line > i) {
+              cm.foldCode({ line: i, ch: 0 }, null, 'fold');
+              i = range.to.line + 1;
+            } else i++;
+          }
+        });
+      },
+      unfoldAllBlocks() {
+        const cm = this.cm;
+        if (!cm || this.viewMode !== 'edit') return;
+        this._clearAllFolds(cm);
+      },
       onGutterClick(cm, line, gutter, ev) {
+        if (gutter === 'CodeMirror-foldgutter') return; // 折叠箭头由 foldgutter 自己处理，不要选中整行
         if (ev.button !== 0) return;        // 仅左键
         ev.preventDefault();                // 阻止 CM 原生行选区/拖拽干扰
         if (ev.shiftKey) {

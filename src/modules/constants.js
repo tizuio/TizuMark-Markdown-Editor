@@ -137,6 +137,19 @@
     return await TauriApi.dialogSave(options);
   }
 
+  // 允许 0 标签：无文档时必须拦截 / 置灰的动作清单，由 3 个集中派发点共用。
+  // 菜单按钮用 id；格式与右键动作、全局快捷键用 actionId。清单之外的入口一律放行，
+  // 保证新建、打开、文件树、拖放等恢复入口在空态下永远可用（否则用户会被困住）。
+  const DOC_REQUIRED_BUTTON_IDS = [
+    'btn-save', 'btn-save-as', 'btn-reload', 'btn-reload-menu',
+    'btn-export-html', 'btn-export-img', 'btn-export-pdf', 'btn-export-word',
+  ];
+  const DOC_FREE_MENU_ACTIONS = [
+    'file-new-file', 'file-new-folder', 'file-cut', 'file-copy', 'file-paste',
+    'file-rename', 'file-copy-path', 'file-delete',
+    'folder-open-containing', 'folder-copy-path',
+  ];
+
   const api = {
     MAX_PREVIEW_LINES,
     MAX_PREVIEW_CHARS,
@@ -154,6 +167,8 @@
     EXPORT_CJK_FONT_TAIL,
     EXPORT_FALLBACK_SANS,
     FONT_LOCALE_REV,
+    DOC_REQUIRED_BUTTON_IDS,
+    DOC_FREE_MENU_ACTIONS,
     Tab,
     dialogOpen,
     dialogSave,

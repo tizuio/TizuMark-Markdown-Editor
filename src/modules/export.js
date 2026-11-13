@@ -998,6 +998,7 @@
       // 只为「独立文档没有应用外壳」这一事实补少量修正。
       // DOCX 不走本方法（exportWord → export-docx.js），导出逻辑与样式均不受影响。
       async exportHTML() {
+        if (!this.activeTab) return;
         let overlayOn = false;
         let htmlExported = false;
         try {
@@ -1321,6 +1322,7 @@
         }
       },
       async exportWord() {
+        if (!this.activeTab) return;
         // 主路径：docx 库主线程直构建真 OOXML（可编辑公式 + 二进制图片）；
         // html-docx（altChunk）仅在主路径失败时兜底。
   
@@ -1627,6 +1629,7 @@
       //    的 <br> 这类未闭合标签会直接让整张图渲染失败）；
       //  · canvas 单边 ≤ 32767px、面积约 ≤ 268MP：超长文档按此自动降 scale（不裁内容）。
       async exportImage() {
+        if (!this.activeTab) return;
         const result = await dialogSave({
           defaultPath: `${this.activeTab.name.replace(/\.[^.]+$/, '')}.png`,
           filters: [{ name: 'PNG', extensions: ['png'] }]
@@ -1803,6 +1806,7 @@
       // 2026-10-26 用户要求**彻底移除**系统打印回退（PrintToPdf 落盘失败——如目标 PDF 被
       // 占用——时回退会突然弹出系统打印对话框，体验割裂）：失败就明确报错。
       async exportPDF() {
+        if (!this.activeTab) return;
         // 能力分流（2026-10-26 用户四轮要求）：**弹确认框之前**先检测运行时是否支持
         // PrintToPdf，按结果弹对应的弹框——
         //   支持（主路径）：DOCX 同风格的柔和提示，大文件警示用琥珀色（soft），无红色警示块；

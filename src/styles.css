@@ -22,6 +22,11 @@
   /* 全局统一小三角（chevron-down）：原生 select 背景三角的唯一样式源（固定灰，无法继承主题色）。
      自定义 Select/FontPicker 用 .picker-caret 内联 SVG（与折叠标题 .collapse-caret 同源，继承主题色），不走背景图。 */
   --caret-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  /* 全局统一的展开/折叠 disclosure 图标：与文件目录 .tree-arrow 的 CHEVRON 同款
+     Lucide chevron-right（24×24 / stroke 2）。默认右指 = 折叠态；展开态旋转 90° 指向下。
+     大纲 .outline-toggle 用同一 SVG 的内联版本；CodeMirror 折叠槽是 addon 生成的空 div，
+     只能用 CSS mask 复用同一路径，再用 currentColor 让它跟随主题 / hover / active 变色。 */
+  --tm-disclosure: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
 }
 
 /* ========== 默认字体栈（不内置任何字体文件，全部为系统字体） ========== */
@@ -1754,6 +1759,217 @@ body {
   display: none;
 }
 
+/* ====== 空态欢迎页（允许 0 标签）======
+   盖层只覆盖 .editor-row：标签栏与「+」保持可点。不隐藏 .editor-row、不改
+   .editor-container 的 class，分栏比例 / 折叠状态 / settings 全部原样保留。
+   本应用无全局 .hidden 规则，显隐必须显式定义。 */
+.editor-row { position: relative; }
+
+.empty-welcome {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  /* 柔光走 background-image（受 size/position/repeat 约束），不能用 background-color 铺满 */
+  background-image: radial-gradient(420px 240px at 50% 42%,
+    color-mix(in srgb, var(--accent-color) 7%, transparent), transparent 100%);
+  background-repeat: no-repeat;
+  pointer-events: auto;
+  overflow: auto;
+  padding: 24px;
+}
+.empty-welcome.hidden { display: none; }
+.empty-welcome-inner {
+  width: min(430px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+/* 纯文字大标题改为大图标主视觉；文案仅留给屏幕阅读器（i18n / 无障碍仍完整） */
+.empty-welcome-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.empty-welcome-hero {
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  background-color: color-mix(in srgb, var(--accent-color) 6%, var(--bg-primary));
+  /* 内光源走 background-image，避免用 background-color 把整块盖层铺平 */
+  background-image: radial-gradient(circle at 28% 22%,
+    color-mix(in srgb, var(--accent-color) 14%, transparent), transparent 62%);
+  box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--accent-color) 40%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+}
+.empty-welcome-hero svg { width: 70px; height: 70px; transition: transform .25s ease; }
+.empty-welcome-hero:hover svg { transform: translateY(-2px); }
+.empty-welcome-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.empty-welcome-actions { display: flex; gap: 8px; margin-top: 16px; }
+.empty-welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 112px;
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease, transform .1s ease;
+}
+.empty-welcome-btn svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.empty-welcome-btn.primary {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: var(--accent-text);
+  box-shadow: 0 2px 6px -2px color-mix(in srgb, var(--accent-color) 60%, transparent);
+}
+.empty-welcome-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.empty-welcome-btn:not(.primary):hover {
+  background: var(--bg-hover-strong);
+  border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+}
+.empty-welcome-btn:active { transform: translateY(1px); }
+.empty-welcome-btn:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.empty-welcome-recent {
+  width: 100%;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  text-align: left;
+}
+.empty-welcome-recent.hidden { display: none; }
+.empty-welcome-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .6px;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+.empty-welcome-recent-list { display: flex; flex-direction: column; gap: 1px; }
+.empty-welcome-recent-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+/* 暗色主题 --bg-secondary 与底色只差几级灰，hover 必须用主题无关的 --bg-hover-strong
+   （暗色 10% 白 / 亮色 9% 黑），再叠加左侧主题色竖条与图标/文字高亮，反馈才看得清。 */
+.empty-welcome-recent-item:hover,
+.empty-welcome-recent-item:focus-visible {
+  background: var(--bg-hover-strong);
+  box-shadow: inset 3px 0 0 var(--accent-color), inset 0 0 0 1px var(--border-color);
+  outline: none;
+}
+.empty-welcome-recent-item:hover .empty-welcome-recent-name,
+.empty-welcome-recent-item:focus-visible .empty-welcome-recent-name { color: var(--accent-color); }
+.empty-welcome-recent-item:hover .ew-recent-icon,
+.empty-welcome-recent-item:focus-visible .ew-recent-icon { color: var(--accent-color); }
+.empty-welcome-recent-item:hover .empty-welcome-recent-dir,
+.empty-welcome-recent-item:focus-visible .empty-welcome-recent-dir { color: var(--text-secondary); }
+.empty-welcome-recent-item::after {
+  content: '\2192';
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--accent-color);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity .14s ease, transform .14s ease;
+}
+.empty-welcome-recent-item:hover::after,
+.empty-welcome-recent-item:focus-visible::after { opacity: 1; transform: none; }
+.ew-recent-icon { flex: 0 0 auto; color: var(--text-tertiary); }
+.ew-recent-icon svg { display: block; width: 15px; height: 15px; }
+.empty-welcome-recent-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empty-welcome-recent-dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.empty-welcome-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  margin-top: 18px;
+}
+.empty-welcome-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.ew-tip-icon { width: 13px; height: 13px; flex: 0 0 auto; }
+.empty-welcome-shortcuts { margin: 0; font-size: 11px; color: var(--text-tertiary); letter-spacing: .2px; }
+.ew-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 1px;
+  border: 1px solid var(--border-color);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* 无文档时置灰的菜单/工具栏按钮 */
+.no-doc-disabled { opacity: .4; pointer-events: none; }
+
 .pane-spinner {
   width: 30px;
   height: 30px;
@@ -1888,6 +2104,90 @@ body.is-resizing .split-fold-btn {
 
 [data-theme="dark"] .cm-s-material-darker .CodeMirror-gutters {
   background: var(--bg-primary);
+}
+
+/* ====== 源码模式区块折叠（CodeMirror fold addon）======
+   不加载 foldgutter.css：它把 .CodeMirror-foldmarker 写成蓝色 ↔，箭头也是字符小三角。
+   展开/折叠符号统一走 :root 的 --tm-disclosure（与文件目录 .tree-arrow、大纲
+   .outline-toggle 同款 Lucide chevron-right）：右指 = 已折叠，下指 = 已展开。
+   addon 生成的 gutter div 是空节点，只能用 CSS mask 复用同一路径 + currentColor 上色。 */
+.CodeMirror-foldgutter {
+  width: 18px;
+  text-align: center;
+  user-select: none;
+}
+.CodeMirror-foldgutter-open,
+.CodeMirror-foldgutter-folded {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 100%;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: .72; /* 常驻可见但不高对比，hover 才提亮到主题色 */
+  transition: opacity .12s ease, color .12s ease;
+}
+.CodeMirror-foldgutter-open::after,
+.CodeMirror-foldgutter-folded::after {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask: var(--tm-disclosure) center / 14px 14px no-repeat;
+  mask: var(--tm-disclosure) center / 14px 14px no-repeat;
+  transition: transform .15s ease;
+}
+/* 可折叠 = 当前展开：箭头向下（同 .tree-folder.expanded > .tree-row > .tree-arrow svg） */
+.CodeMirror-foldgutter-open::after { transform: rotate(90deg); }
+/* 已折叠：箭头向右并用主题色强调 */
+.CodeMirror-foldgutter-folded { opacity: 1; color: var(--accent-color); }
+.CodeMirror-foldgutter-folded::after { transform: rotate(0deg); }
+.CodeMirror-gutter-elt:hover .CodeMirror-foldgutter-open,
+.CodeMirror-gutter-elt:hover .CodeMirror-foldgutter-folded,
+.CodeMirror-foldgutter:hover .CodeMirror-foldgutter-open { opacity: 1; }
+.CodeMirror-foldgutter-open:hover,
+.CodeMirror-foldgutter-folded:hover { color: var(--accent-color); }
+
+/* 折叠后的占位：主题色胶囊 + chevron + 折叠行数，与普通正文一眼可分 */
+.CodeMirror-foldmarker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  margin: 0 6px;
+  border: 1px solid var(--accent-color);
+  border-radius: 5px;
+  background: var(--accent-subtle);
+  color: var(--accent-color);
+  font-family: inherit;
+  font-size: .82em;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+}
+.CodeMirror-foldmarker:hover {
+  background: var(--accent-color);
+  color: var(--bg-primary);
+  border-color: var(--accent-color);
+}
+.tm-fold-chevron {
+  display: block;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  background-color: currentColor;
+  -webkit-mask: var(--tm-disclosure) center / 12px 12px no-repeat;
+  mask: var(--tm-disclosure) center / 12px 12px no-repeat;
+}
+/* 折叠所在行：淡主题底 + 左侧竖条（:has 为渐进增强，不支持时胶囊本身仍醒目）。
+   用 background/box-shadow 而非 border/padding，避免改变 CM 行高影响遮罩与滚动同步。 */
+.CodeMirror-code > div:has(.CodeMirror-foldmarker) {
+  background-color: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--accent-color);
 }
 
 .resizer {
@@ -2396,7 +2696,13 @@ body.is-resizing-row .outline-sidebar { transition: none !important; }
 
 /* Tables */
 .preview-content table {
-  width: 100%;
+  /* 2026-11-13 修复「阅读模式表格右侧一大片空白」：display:block 的 table 会让
+     thead/tbody 生成匿名表格盒，该盒按内容 shrink-to-fit；而 table 元素自身仍是
+     width:100% 的块级盒并带 1px 外框 → 网格只占左侧一小截，右侧留下一整片带边框的
+     空白（真机实测：外框 1092px / 可见网格 593px / 空白 498px）。
+     width:max-content 让外层盒贴合网格（窄表按内容宽，与 VS Code / GitHub 一致）；
+     max-width:100% + overflow-x:auto 仍保证宽表可横向滚动、不撑破预览区。 */
+  width: max-content;
   max-width: 100%;
   /* 2026-07 二轮优化（跟随参考图）：直角 + 均匀 1px 网格 + 浅灰表头，去圆角卡片与斑马纹。
      separate + 表级外框 1px：外框 1px、内部网格线只画右/下缘（相邻格共享 1px 不叠双线），
@@ -5841,24 +6147,28 @@ body.tree-dragging {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 4px;
   flex-shrink: 0;
   /* 跟随标题颜色：默认与 .outline-item（--text-secondary）同色；
-     hover/active 时标题变主题色，三角（fill currentColor）一并跟随 */
+     hover/active 时标题变主题色，chevron（stroke currentColor）一并跟随 */
   color: inherit;
   transition: transform 0.15s, color 0.15s, background-color 0.15s;
 }
 .outline-toggle svg {
-  /* 等宽高渲染：与方阵 viewBox 配合，让旋转 -90° 后外框仍是 12×12，不会出现视觉变大/比例变化 */
-  width: 12px;
-  height: 12px;
+  /* 与文件目录 .tree-arrow 完全同款：Lucide chevron-right（24×24 / stroke 2）。
+     方阵 viewBox，旋转 90° 后外框尺寸不变，不会视觉变大/比例变形 */
+  width: 14px;
+  height: 14px;
   display: block;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
 }
-/* 展开 = 向下（默认）；折叠 = 向右（旋转 -90°），与下拉框箭头、面板 chevron 语义一致 */
+/* 展开 = 向下（默认 rotate(90deg)）；折叠 = 向右（rotate(0)），语义与文件目录
+   .tree-folder.expanded、下拉框箭头、面板 chevron 一致，不再使用实心小三角 */
 .outline-toggle.collapsed svg {
-  transform: rotate(-90deg);
+  transform: rotate(0deg);
 }
 
 .outline-toggle:hover {

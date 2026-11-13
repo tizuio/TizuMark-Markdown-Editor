@@ -87,12 +87,13 @@ function renderOutlineHtml(tree, opts) {
       html += `<div class="outline-item level-${node.level}" data-id="${node.id}" data-line="${node.line}">`;
       // 始终输出 toggle 占位：无子节点项加 outline-toggle--hidden（隐藏且不可点击），
       // 保留与有子节点项一致的宽度，使各级标签起始位置对齐，避免同级标题因
-      // 有无小三角而视觉错位（见 styles.css .outline-toggle--hidden）。
+      // 有无展开箭头而视觉错位（见 styles.css .outline-toggle--hidden）。
       const toggleCls = hasChildren ? 'outline-toggle' : 'outline-toggle outline-toggle--hidden';
-// 大纲 toggle 用实心等腰小三角（fill currentColor）。viewBox 与 CSS 渲染都采用方阵（12×12），
-// 展开时三角位于下半部指向下，折叠态旋转 -90° 后图形尺寸容器不变，避免旋转导致视觉变大/比例变形。
-// 形状：底边较长、高较短的扁平等腰三角形（底 9 / 高 4），避免过于尖锐
-html += `<span class="${toggleCls}"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M1.5 4 L10.5 4 L6 8 Z"/></svg></span>`;
+      // 与文件目录 .tree-arrow 的 CHEVRON 完全同款（Lucide chevron-right / stroke 2 /
+      // currentColor）：展开态由 CSS 旋转 90° 指向下，折叠态转回 0° 指向右。
+      // 不再用实心等腰小三角；常量放函数体内，单独 eval 方法体时也能取到。
+      const DISCLOSURE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>';
+      html += `<span class="${toggleCls}">${DISCLOSURE}</span>`;
       html += `<span class="outline-label">${escapeHtml(node.text)}</span>`;
       html += '</div>';
       if (hasChildren) {

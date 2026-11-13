@@ -3,7 +3,6 @@
 // 因此方法内的 this 仍指向编辑器实例，模块之间可继续用 this.xxx() 互调。
 (function () {
   'use strict';
-  const { Tab } = TMConst;
 
   const mixin = {
       getDefaultShortcuts() {
@@ -64,6 +63,14 @@
           // 可在「自定义快捷键」中绑定（避免占用 Ctrl+F 等高频键）。
           addTableRow: { key: '', label: '表格插入行' },
           addTableColumn: { key: '', label: '表格插入列' },
+          // 源码模式区块折叠（标题章节 / 围栏与公式 / 长段落）：方括号键在全局派发里
+          // 按 e.code 归一化（按 Shift 时方括号键的 e.key 会变成花括号，不归一化匹配不上）。
+          // 注意：本方法体由 shortcut-*-registration 用「数花括号」的 extractMethod 单独
+          // eval，方法体内（含注释）不能出现不配对的花括号字符，否则整批用例解析失败。
+          foldBlock: { key: 'Ctrl+Shift+[', label: '折叠当前区块' },
+          unfoldBlock: { key: 'Ctrl+Shift+]', label: '展开当前区块' },
+          foldAll: { key: 'Ctrl+Alt+[', label: '折叠全部区块' },
+          unfoldAll: { key: 'Ctrl+Alt+]', label: '展开全部区块' },
         };
       },
       getShortcutPresets() {
@@ -410,7 +417,7 @@
         const groups = [
           { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'exportPDF', 'closeToTray'] },
           { key: 'search', ids: ['find', 'crossSearch', 'fileSearch'] },
-          { key: 'tabView', ids: ['nextTab', 'prevTab', 'toggleView', 'toggleSidebar', 'toggleTheme'] },
+          { key: 'tabView', ids: ['nextTab', 'prevTab', 'toggleView', 'toggleSidebar', 'toggleTheme', 'foldBlock', 'unfoldBlock', 'foldAll', 'unfoldAll'] },
           { key: 'format', ids: ['bold', 'italic', 'strikethrough', 'inlineCode', 'highlight', 'insertSuperscript', 'insertSubscript', 'moveLineUp', 'moveLineDown', 'insertLineBelow', 'insertLineAbove'] },
           { key: 'insert', ids: ['insertLink', 'insertImage', 'insertTable', 'addTableRow', 'addTableColumn', 'insertUl', 'insertOl', 'insertTask', 'insertHr', 'codeBlock', 'blockquote', 'insertMathBlock', 'insertMermaid', 'insertToc'] },
           { key: 'heading', ids: ['insertH1', 'insertH2', 'insertH3', 'insertH4', 'insertH5', 'insertH6'] },
@@ -792,6 +799,11 @@
           // Eclipse/VS Code 风格：在当前行下方/上方插入空行，光标移到新行行首
           insertLineBelow: () => this.insertLineBelow(),
           insertLineAbove: () => this.insertLineAbove(),
+          // 源码模式区块折叠（非源码模式下各方法自带守卫，静默短路）
+          foldBlock: () => this.toggleFoldAtCursor(),
+          unfoldBlock: () => this.unfoldAtCursor(),
+          foldAll: () => this.foldAllBlocks(),
+          unfoldAll: () => this.unfoldAllBlocks(),
         };
   
         // Global actions (work anywhere via document keydown handler)
@@ -809,11 +821,13 @@
           crossSearch: () => this.openCrossSearchDialog(),
           fileSearch: () => this.openFileSearchDialog(),
           nextTab: () => {
+            if (!this.tabs.length) return;
             const next = (this.activeTabIndex + 1) % this.tabs.length;
             this.switchTab(next);
           },
           closeToTray: () => this.hideToTray(),
           prevTab: () => {
+            if (!this.tabs.length) return;
             const prev = this.activeTabIndex > 0 ? this.activeTabIndex - 1 : this.tabs.length - 1;
             this.switchTab(prev);
           },
@@ -868,12 +882,23 @@
         // （焦点/事件到达问题），都能通过全局捕获通道稳定触发，且不会在非编辑场景误触。
         // 命中即 stopPropagation（见 document keydown 监听），事件不再冒泡到 CM，不会重复执行。
         this.globalShortcutLookup = {};
+        // 允许 0 标签：依赖当前文档的快捷键在空态下静默短路；新建 / 打开 / 视图 /
+        // 侧边栏 / 主题 / 跨文件搜索等始终放行。清单定义在此方法体内而非模块顶层：
+        // shortcut-default-registration 用 extractMethod 单独 eval 方法体，顶层常量不可见。
+        const docFreeActions = [
+          'openFile', 'newFile', 'toggleView', 'toggleSidebar', 'toggleTheme',
+          'crossSearch', 'fileSearch', 'closeToTray',
+        ];
         const registerGlobal = (action, fn, editorOnly) => {
           const key = s[action]?.key;
           if (!key) return;
-          this.globalShortcutLookup[key] = editorOnly
-            ? () => { if (this.cm && this.cm.hasFocus()) fn(); }
-            : fn;
+          const requiresDoc = !docFreeActions.includes(action);
+          this.globalShortcutLookup[key] = () => {
+            // hasDoc 由 app.js 提供；桩实例没有该方法时降级为不做空态守卫（不影响既有测试）
+            if (requiresDoc && typeof this.hasDoc === 'function' && !this.hasDoc()) return;
+            if (editorOnly && !(this.cm && this.cm.hasFocus())) return;
+            fn();
+          };
         };
         for (const [action, fn] of Object.entries(globalMap)) registerGlobal(action, fn, false);
         for (const [action, fn] of Object.entries(editorMap)) registerGlobal(action, fn, true);
@@ -956,6 +981,10 @@
         let baseKey;
         if (e.code && /^Key[A-Za-z]$/.test(e.code)) baseKey = e.code.slice(3).toUpperCase();
         else if (e.code && /^Digit[0-9]$/.test(e.code)) baseKey = e.code.slice(5);
+        // 源码折叠的 Ctrl+Shift+[ / ]：按 Shift 时 e.key 会变成 '{' / '}'，
+        // 用物理键位还原成 '[' / ']'，才能与 getDefaultShortcuts 登记的键串匹配。
+        else if (e.code === 'BracketLeft') baseKey = '[';
+        else if (e.code === 'BracketRight') baseKey = ']';
         else baseKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
         const gParts = [];
         if (e.ctrlKey || e.metaKey) gParts.push('Ctrl');

@@ -3,9 +3,107 @@
 // 因此方法内的 this 仍指向编辑器实例，模块之间可继续用 this.xxx() 互调。
 (function () {
   'use strict';
-  const { Tab, dialogSave } = TMConst;
+  const { Tab, dialogSave, DOC_REQUIRED_BUTTON_IDS } = TMConst;
 
   const mixin = {
+      // 零标签状态的唯一刷新入口：由 updateTabBar() 调用，而 addTab / closeTab /
+      // closeAllTabs / closeOtherTabs / reorderTab 全都经过它，不会漏状态。
+      _applyEmptyState() {
+        const empty = this.tabs.length === 0;
+        const welcome = document.getElementById('empty-welcome');
+        if (welcome) {
+          welcome.classList.toggle('hidden', !empty);
+          welcome.setAttribute('aria-hidden', empty ? 'false' : 'true');
+          if (empty) this._renderEmptyWelcome();
+        }
+        if (this.cm) {
+          const ro = this.cm.getOption && this.cm.getOption('readOnly');
+          if (empty) {
+            if (ro !== 'nocursor') {
+              this.cm.setValue('');
+              this.cm.setOption('readOnly', 'nocursor');
+            }
+          } else if (ro) {
+            this.cm.setOption('readOnly', false);
+          }
+        }
+        if (empty && this.preview) this.preview.innerHTML = '';
+        for (const id of DOC_REQUIRED_BUTTON_IDS) {
+          const el = document.getElementById(id);
+          if (!el) continue;
+          el.classList.toggle('no-doc-disabled', empty);
+          if (empty) el.setAttribute('aria-disabled', 'true');
+          else el.removeAttribute('aria-disabled');
+        }
+      },
+      // 空态欢迎页（方案 B）：大图标 + 新建/打开 + 最近文件 + 拖放与快捷键提示。
+      // 文案用 t() 动态取，切语言时 applyLanguage() 会再调一次 _applyEmptyState() 刷新。
+      // 图标串定义在方法体内（部分测试会单独 eval 方法体，模块顶层常量不在其作用域）。
+      _renderEmptyWelcome() {
+        const setText = (id, key) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = this.t(key);
+        };
+        const FILE_ICON = '<span class="ew-recent-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg></span>';
+        setText('empty-welcome-title', 'emptyWelcomeTitle');
+        setText('empty-welcome-hint', 'emptyWelcomeHint');
+        // 只写 label span，避免 textContent 覆盖掉按钮里的 SVG 图标
+        setText('btn-empty-new-label', 'emptyWelcomeNew');
+        setText('btn-empty-open-label', 'emptyWelcomeOpen');
+        setText('empty-welcome-drop-label', 'emptyWelcomeDrop');
+        // 键位（Ctrl+N / Ctrl+O 等）包成 <kbd>，其余字符原样保留，textContent 与译文逐字一致
+        const shortcutEl = document.getElementById('empty-welcome-shortcuts');
+        if (shortcutEl) {
+          const text = this.t('emptyWelcomeShortcuts');
+          const keyRe = /([A-Za-z]+(?:\+[A-Za-z0-9]+)+)/g;
+          shortcutEl.replaceChildren();
+          let last = 0;
+          let m;
+          while ((m = keyRe.exec(text)) !== null) {
+            if (m.index > last) shortcutEl.appendChild(document.createTextNode(text.slice(last, m.index)));
+            const kbd = document.createElement('kbd');
+            kbd.className = 'ew-kbd';
+            kbd.textContent = m[0];
+            shortcutEl.appendChild(kbd);
+            last = m.index + m[0].length;
+          }
+          if (last < text.length) shortcutEl.appendChild(document.createTextNode(text.slice(last)));
+        }
+        const newBtn = document.getElementById('btn-empty-new');
+        if (newBtn) newBtn.onclick = () => this.newFile();
+        const openBtn = document.getElementById('btn-empty-open');
+        if (openBtn) openBtn.onclick = () => this.openFile();
+
+        const wrap = document.getElementById('empty-welcome-recent');
+        const listEl = document.getElementById('empty-welcome-recent-list');
+        if (!wrap || !listEl) return;
+        const recent = (this._recentFiles || []).slice(0, 5);
+        listEl.replaceChildren();
+        if (recent.length === 0) {
+          wrap.classList.add('hidden');
+          return;
+        }
+        wrap.classList.remove('hidden');
+        setText('empty-welcome-recent-title', 'emptyWelcomeRecent');
+        for (const p of recent) {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'empty-welcome-recent-item';
+          item.innerHTML = FILE_ICON; // 静态常量，不含文件名/路径
+          const name = p.split(/[/\\]/).pop() || p;
+          const nameEl = document.createElement('span');
+          nameEl.className = 'empty-welcome-recent-name';
+          nameEl.textContent = name;
+          const dirEl = document.createElement('span');
+          dirEl.className = 'empty-welcome-recent-dir';
+          dirEl.textContent = p.slice(0, Math.max(0, p.length - name.length)).replace(/[/\\]$/, '');
+          item.append(nameEl, dirEl);
+          item.title = p;
+          item.onclick = () => this.openFilePath(p);
+          listEl.appendChild(item);
+        }
+      },
+
       async ensureTabLoaded(tab) {
         if (!tab) return;
         if (tab._loaded || !tab.filePath) { tab._loaded = true; return; }
@@ -42,13 +140,20 @@
         this._largeFileNoticeDismissed = false;
         this._previewFocusLine = 0;
         this.previewWindow = null;
+        // 空态（tabs=[] / activeTabIndex=-1）下 CM 被置为只读；建立第一个标签时先解除，
+        // 否则 setValue 虽能写入，用户随后却无法编辑。
+        if (this.cm && this.cm.getOption && this.cm.getOption('readOnly')) {
+          this.cm.setOption('readOnly', false);
+        }
         this._beginPaneLoad();
         try {
           const oldTab = this.activeTab;
-          oldTab.content = this.cm.getValue();
-          oldTab.cursorPos = this.cm.getCursor();
-          oldTab.scrollPos = { top: this.cm.getScrollInfo().top, left: this.cm.getScrollInfo().left };
-          oldTab.previewScrollTop = this.preview.scrollTop;
+          if (oldTab) {
+            oldTab.content = this.cm.getValue();
+            oldTab.cursorPos = this.cm.getCursor();
+            oldTab.scrollPos = { top: this.cm.getScrollInfo().top, left: this.cm.getScrollInfo().left };
+            oldTab.previewScrollTop = this.preview.scrollTop;
+          }
   
           this.activeTabIndex = index;
           const newTab = this.activeTab;
@@ -151,9 +256,9 @@
         if (this._externalQueue) this._externalQueue = this._externalQueue.filter(t => t !== tab);
         this.tabs.splice(removeIndex, 1);
         if (this.tabs.length === 0) {
-          this.tabs.push(new Tab(`${this.t('untitled')}${this.untitledCounter++}`));
-          this.activeTabIndex = 0;
-          this.cm.setValue('');
+          // 允许 0 标签：-1 是「无活动文档」哨兵。清空编辑器 / 预览 / 只读统一交给
+          // updateTabBar() 末尾的 _applyEmptyState()，避免重复 setValue 触发 CM 事件。
+          this.activeTabIndex = -1;
         } else {
           if (removeIndex < this.activeTabIndex) {
             this.activeTabIndex--;
@@ -430,18 +535,17 @@
           nameSpan.textContent = tab.name;
           tabEl.appendChild(nameSpan);
   
-          if (this.tabs.length > 1) {
-            const closeBtn = document.createElement('span');
-            closeBtn.className = 'tab-close';
-            closeBtn.textContent = '\u00d7';
-            closeBtn.setAttribute('role', 'button');
-            closeBtn.setAttribute('aria-label', this.t('closeAria'));
-            closeBtn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              this.closeTab(i);
-            });
-            tabEl.appendChild(closeBtn);
-          }
+          // 允许关闭所有标签页：单标签也要显示 ×（原来只在 tabs.length > 1 时渲染）。
+          const closeBtn = document.createElement('span');
+          closeBtn.className = 'tab-close';
+          closeBtn.textContent = '\u00d7';
+          closeBtn.setAttribute('role', 'button');
+          closeBtn.setAttribute('aria-label', this.t('closeAria'));
+          closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.closeTab(i);
+          });
+          tabEl.appendChild(closeBtn);
   
           tabEl.addEventListener('click', () => {
             if (this._suppressClick) { this._suppressClick = false; return; }
@@ -464,6 +568,8 @@
         if (addBtn) tabBar.appendChild(addBtn);
         // Refresh scroll arrows after tabs change
         if (this.updateTabScrollArrows) this.updateTabScrollArrows();
+        // 空态显隐、CM 只读、按钮置灰统一在此收敛
+        this._applyEmptyState();
       },
       updateTabDisplay() {
         const tabs = document.querySelectorAll('.tab');
@@ -519,11 +625,9 @@
             if (!ok) return;
           }
         }
-        this.tabs = [new Tab(`${this.t('untitled')}${this.untitledCounter++}`)];
-        this.activeTabIndex = 0;
-        this.cm.setValue('');
+        this.tabs = [];
+        this.activeTabIndex = -1;
         this.updateTabBar();
-        this.updatePreview();
         this.saveSession();
       },
     // 标签页拖拽排序（指针事件，规避 Tauri 原生 DnD 接管）

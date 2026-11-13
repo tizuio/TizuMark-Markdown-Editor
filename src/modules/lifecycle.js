@@ -3,7 +3,6 @@
 // 因此方法内的 this 仍指向编辑器实例，模块之间可继续用 this.xxx() 互调。
 (function () {
   'use strict';
-  const { Tab } = TMConst;
 
   // 笔记本合盖 / 系统睡眠会停掉 WebView2 的定时器、rAF 与 IME 的 compositionend，
   // 项目里多处「等异步链落地才复位」的一次性标志因此永久卡住 → 唤醒后编辑器无响应。
@@ -135,19 +134,15 @@
                 tab.content = tab.savedContent;
               }
               const remaining = this.tabs.filter(t => t.filePath || t.content !== '');
-              if (remaining.length === 0) {
-                this.tabs.length = 0;
-                this.tabs.push(new Tab(`${this.t('untitled')}${this.untitledCounter++}`));
-                this.activeTabIndex = 0;
-              } else {
-                this.tabs = remaining;
-                if (this.activeTabIndex >= this.tabs.length) {
-                  this.activeTabIndex = this.tabs.length - 1;
-                }
+              this.tabs = remaining;
+              if (this.tabs.length === 0) {
+                this.activeTabIndex = -1;
+              } else if (this.activeTabIndex >= this.tabs.length) {
+                this.activeTabIndex = this.tabs.length - 1;
               }
-              this.cm.setValue(this.activeTab.content);
+              if (this.activeTab) this.cm.setValue(this.activeTab.content);
               this.updateTabBar();
-              this.updatePreview();
+              if (this.activeTab) this.updatePreview();
             }
           }
           // 2. 先解析关闭行为：只有真正退出（quit）才按「退出时关闭所有标签」处理会话；

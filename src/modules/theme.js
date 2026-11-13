@@ -471,6 +471,10 @@
           container.classList.add('wysiwyg-mode');
         }
 
+        // 源码模式折叠槽：只在 edit 模式挂；离开时先展开所有折叠再卸槽，
+        // 防止折叠标记改变行高导致 WYSIWYG 遮罩 / 滚动同步错位。
+        this._syncCodeFolding();
+
         // 重新应用分屏比例/方向（合并自 PR #36 的横向宽度 + 上下分屏扩展）：
         // applyViewMode 上方清空了 editor/preview 内联 flex，此处按当前模式与 settings 还原，
         // 保证视图切换（含方向、拖拽比例）不丢失。单栏/折叠态由 applyPreviewPaneWidth 内部守卫跳过。

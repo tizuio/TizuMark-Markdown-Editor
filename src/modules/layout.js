@@ -446,7 +446,7 @@
         });
         const toggles = content.querySelectorAll('.outline-toggle:not(.outline-toggle--hidden)');
         toggles.forEach((tg) => {
-          // 通过 collapsed 类让 CSS 旋转 SVG（不再用 textContent 写 ▼/▶，否则会破坏矢量三角、变大且风格不一致）
+          // 通过 collapsed 类让 CSS 旋转 chevron（不再用 textContent 写 ▼/▶，避免符号变大、风格不一致）
           tg.classList.toggle('collapsed', !expand);
         });
         this._allOutlineExpanded = expand;
@@ -623,7 +623,7 @@
             const children = wrapper?.querySelector('.outline-children');
             if (children) {
               const isCollapsed = children.classList.toggle('collapsed');
-              // 通过 collapsed 类让 CSS 旋转 SVG（不再用 textContent 写 ▼/▶，否则会破坏矢量三角、变大且风格不一致）
+              // 通过 collapsed 类让 CSS 旋转 chevron（不再用 textContent 写 ▼/▶，避免符号变大、风格不一致）
               toggle.classList.toggle('collapsed', isCollapsed);
             }
             return;

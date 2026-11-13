@@ -115,6 +115,7 @@
         setRowLabel('set-tab-size', t('tabSize'));
         setRowLabel('set-line-wrap', t('lineWrap'));
         setRowLabel('set-line-numbers', t('lineNumbers'));
+        setRowLabel('set-code-folding', t('codeFolding'));
         setRowLabel('set-preview-font-size', t('previewFontSize'));
         setRowLabel('set-line-height', t('lineHeight'));
         // 编辑器 / 预览 分组的标题条用各自分组内稳定控件锚定（字号滑块已移入「自定义字体」分组，
@@ -531,6 +532,8 @@
         if (this._outlineFilterSelect) this._outlineFilterSelect.applyI18n(t);
         // 自定义字体区（空状态 + 编辑/预览字体下拉的「跟随方案」）随语言刷新
         this.renderCustomFontSettings();
+        // 空态欢迎页文案用 t() 动态取，切语言时重新渲染（若当前有文档则只是幂等显隐）
+        if (this._applyEmptyState) this._applyEmptyState();
       },
   };
 
