@@ -180,3 +180,28 @@ test('cache: 无缓存路径时点「立即安装」→ 失败提示，不发起
     assert.ok(toasts.includes(ed.t('updateFailed')));
   } finally { cleanup(w); }
 });
+
+// 回归（2026-11-14，用户截图）：「已是最新版本」弹窗上方恒显「安装包已下载」。
+// 根因：本应用无全局 .hidden 规则，styles.css 只给 checking/available/latest 三个
+// 状态块定义了 .hidden{display:none}，唯独漏了 downloaded → classList 加了 hidden
+// 类但 CSS 不认，该块从启动起恒可见。jsdom 只断言 classList 永远发现不了这类
+// CSS 缺失，必须静态断言样式表本身。
+test('cache: styles.css 必须给更新弹窗全部四个状态块 + 进度条定义 .hidden 显隐规则', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
+  const ids = [
+    'update-state-checking', 'update-state-available', 'update-state-downloaded', 'update-state-latest',
+    'update-progress-wrap', // .update-progress 是 display:flex，漏规则会让 available 态恒显 0% 进度条
+  ];
+  for (const id of ids) {
+    const re = new RegExp('#' + id + '\\.hidden\\s*[,\\{]');
+    assert.match(css, re, `#${id} 缺少 .hidden 显隐规则（会恒显示）`);
+  }
+  // 显隐规则组必须是 display:none（防止改成 visibility 等占位写法）
+  assert.match(
+    css,
+    /#update-state-checking\.hidden,\s*#update-state-available\.hidden,\s*#update-state-downloaded\.hidden,\s*#update-state-latest\.hidden,\s*#update-progress-wrap\.hidden\s*\{\s*display:\s*none/i,
+    '状态块与进度条的 .hidden 规则应合并为一组 display:none'
+  );
+});

@@ -8331,7 +8331,13 @@ select option {
 #update-progress-text { font-size: calc(var(--ui-font-size) * 0.9231); color: var(--text-secondary); min-width: 40px; text-align: right; }
 #update-state-checking.hidden,
 #update-state-available.hidden,
-#update-state-latest.hidden { display: none; }
+#update-state-downloaded.hidden,
+#update-state-latest.hidden,
+#update-progress-wrap.hidden { display: none; }
+/* 本应用无全局 .hidden 规则（显隐必须逐选择器显式定义），更新弹窗四个状态块
+   缺一不可：曾漏掉 downloaded → 弹「已是最新版本」时上方恒显「安装包已下载」。
+   进度条同理：.update-progress 是 display:flex，漏写 #update-progress-wrap.hidden
+   会让「发现新版本」态恒显一条 0% 进度条。 */
 
 #update-state-latest { padding: 8px 0 4px; }
 .update-latest-card {
