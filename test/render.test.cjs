@@ -148,3 +148,26 @@ test('render: 明文 javascript: 链接被拦截', async () => {
   const html = render('<a href="javascript:alert(1)">x</a>');
   assert.ok(!html.includes('javascript:'), '明文 javascript: 必须被拦截');
 });
+
+// ---- 行首行内公式的 HTML 块陷阱 ----
+// guardMathBlocks 把行首 $…$ 换成 <!--MATHBLOCK_N--> 占位注释后，CommonMark 把行首
+// HTML 注释解析为 HTML 块（type 2），整行不再做内联解析 → 该行后续的 **加粗** /
+// 斜体 / 链接全部字面化（用户 MOT 笔记实测）。占位符包 <span> 后回到段落上下文。
+test('render: 行首行内公式不吞并该行其余内联语法（HTML 块陷阱）', async () => {
+  const html = render('$4.5 / 8.33 = 0.54$，雷达在**加粗**——测试', { softBreaks: false });
+  assert.ok(/<strong[\s>]/.test(html), '行首公式之后的 **加粗** 必须正常渲染');
+  assert.ok(html.includes('<p'), '该行应渲染为段落而非 HTML 块');
+  assert.ok(html.includes('$4.5 / 8.33 = 0.54$'), '公式须还原为公式文本（交给 KaTeX 渲染）');
+});
+
+test('render: 行内公式在行中时行为不变（span 包裹零副作用）', async () => {
+  const html = render('前文 $x=1$，雷达在**加粗**——测试', { softBreaks: false });
+  assert.ok(/<strong[\s>]/.test(html), '行中公式的粗体应正常渲染');
+  assert.ok(html.includes('$x=1$'), '公式须还原为公式文本');
+});
+
+test('render: 列表项内行首行内公式同样不吞内联语法', async () => {
+  const html = render('- $x=1$ 列表内**加粗**', { softBreaks: false });
+  assert.ok(/<li[\s>]/.test(html), '应渲染为列表项');
+  assert.ok(/<strong[\s>]/.test(html), '列表项内行首公式后的粗体必须正常渲染');
+});
