@@ -1128,7 +1128,13 @@ function restoreMathBlocks(html, placeholders) {
       const wrapped = '<span class="math-display" data-source-line="' + ph.line + '">' + escaped + '</span>';
       result = result.split(marker).join(wrapped);
     } else {
-      // 行内数学：占位符是 <!--MATHBLOCK_N-->，直接恢复
+      // 行内数学：占位符是 <!--MATHBLOCK_N-->（guardMathBlocks 发射时包在 <span> 内，见
+      // inlineMathPlaceholder 注释——span 只服务于 remark 解析阶段，防行首注释被解析为
+      // HTML 块吞掉整行内联语法），restore 时连同包裹 span 一并剥掉，最终输出与历史版本
+      // 逐字节一致（下游 KaTeX/大纲 slug/WYSIWYG 均不受影响）。先剥带 span 的完整形态，
+      // 再兜底替换裸标记（rehype-raw 重序列化等极端情况下 span 与注释可能分离）。
+      const wrappedMarker = '<span><!--MATHBLOCK_' + idx + '--></span>';
+      result = result.split(wrappedMarker).join(escaped);
       const marker = '<!--MATHBLOCK_' + idx + '-->';
       result = result.split(marker).join(escaped);
     }

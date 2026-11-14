@@ -158,12 +158,15 @@ test('render: 行首行内公式不吞并该行其余内联语法（HTML 块陷�
   assert.ok(/<strong[\s>]/.test(html), '行首公式之后的 **加粗** 必须正常渲染');
   assert.ok(html.includes('<p'), '该行应渲染为段落而非 HTML 块');
   assert.ok(html.includes('$4.5 / 8.33 = 0.54$'), '公式须还原为公式文本（交给 KaTeX 渲染）');
+  // span 包裹只服务于 remark 解析阶段，restore 时须剥掉（最终输出与历史版本一致）
+  assert.ok(!/<span>\$4\.5 \/ 8\.33 = 0\.54\$<\/span>/.test(html), '还原后不应残留包裹 span');
 });
 
-test('render: 行内公式在行中时行为不变（span 包裹零副作用）', async () => {
+test('render: 行内公式在行中时行为不变（还原输出与历史版本逐字节一致）', async () => {
   const html = render('前文 $x=1$，雷达在**加粗**——测试', { softBreaks: false });
   assert.ok(/<strong[\s>]/.test(html), '行中公式的粗体应正常渲染');
   assert.ok(html.includes('$x=1$'), '公式须还原为公式文本');
+  assert.ok(!/<span>\$x=1\$<\/span>/.test(html), '行中公式还原后同样不应残留包裹 span');
 });
 
 test('render: 列表项内行首行内公式同样不吞内联语法', async () => {
