@@ -148,3 +148,45 @@ test('render: 明文 javascript: 链接被拦截', async () => {
   const html = render('<a href="javascript:alert(1)">x</a>');
   assert.ok(!html.includes('javascript:'), '明文 javascript: 必须被拦截');
 });
+
+// ---- 标题 id 一致性：预览侧（unified 管线）必须与大纲侧（extractHeadings）同源 ----
+// 背景：标题含行内公式时，公式在管线前被 guardMathBlocks 换成 <!--MATHBLOCK_N--> 占位注释，
+// 若 slug 计算丢弃注释内容，预览 id 会缺失公式文本（标题-尾 ≠ 大纲的 标题-emc2-尾），
+// 点击大纲 querySelector('#id') 落空 → 预览跳转失败。
+const Outline = require('../src/modules/outline.js');
+// 复刻 app.js/layout.js 的 headingToId（与 outline.test.cjs 同一套）
+function headingToId(text) {
+  let id = '';
+  for (const ch of text) {
+    if (/[\p{L}\p{N}]/u.test(ch)) id += ch.toLowerCase();
+    else if (ch === ' ' || ch === '-' || ch === '_') id += '-';
+  }
+  return id.replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
+test('render: 标题含行内公式时 heading id 与大纲侧一致', async () => {
+  const md = '## 标题 $E=mc^2$ 尾\n\n正文';
+  const h2 = new JSDOM(render(md)).window.document.querySelector('h2');
+  const outlineId = Outline.extractHeadings(md, { headingToId })[0].id;
+  assert.strictEqual(h2.id, outlineId, `预览 id(${h2.id}) 必须与大纲 id(${outlineId}) 一致，否则大纲点击跳转失败`);
+  assert.strictEqual(h2.id, '标题-emc2-尾');
+});
+
+test('render: 纯公式标题的 heading id 与大纲侧一致', async () => {
+  const md = '## $E=mc^2$';
+  const h2 = new JSDOM(render(md)).window.document.querySelector('h2');
+  const outlineId = Outline.extractHeadings(md, { headingToId })[0].id;
+  assert.strictEqual(h2.id, outlineId, `预览 id(${h2.id}) 必须与大纲 id(${outlineId}) 一致`);
+  assert.strictEqual(h2.id, 'emc2');
+});
+
+test('render: 重复含公式标题的去重后缀与大纲侧一致', async () => {
+  const md = '## 标题 $E=mc^2$ 尾\n\n## 标题 $E=mc^2$ 尾\n\n## 其他 $x+1$ 题';
+  const doc = new JSDOM(render(md)).window.document;
+  const h2s = doc.querySelectorAll('h2');
+  const outlineIds = Outline.extractHeadings(md, { headingToId }).map((h) => h.id);
+  assert.strictEqual(h2s.length, 3);
+  assert.strictEqual(h2s[0].id, outlineIds[0]);
+  assert.strictEqual(h2s[1].id, outlineIds[1]);
+  assert.strictEqual(h2s[2].id, outlineIds[2]);
+});
