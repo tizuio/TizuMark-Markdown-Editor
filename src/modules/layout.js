@@ -78,6 +78,7 @@
         const filesChevron = document.getElementById('files-chevron');
         const outlineChevron = document.getElementById('outline-chevron');
         const btnAllFolders = document.getElementById('btn-all-folders');
+        const btnLocateFile = document.getElementById('btn-locate-file');
         const btnAllOutline = document.getElementById('btn-all-outline');
         if (filesChevron) {
           filesChevron.addEventListener('click', () => this.togglePanel('files'));
@@ -122,6 +123,9 @@
             const anyExpanded = !!(treeEl && treeEl.querySelector('.tree-node.tree-folder.expanded'));
             this.toggleAllFolders(!anyExpanded);
           });
+        }
+        if (btnLocateFile) {
+          btnLocateFile.addEventListener('click', () => this.locateActiveFile());
         }
         if (btnAllOutline) {
           btnAllOutline.addEventListener('click', () => {

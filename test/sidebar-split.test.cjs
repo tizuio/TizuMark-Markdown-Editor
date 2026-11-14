@@ -878,3 +878,67 @@ test('sidebar: 吸附把手一键开关侧边栏并同步骑缝/左缘两态', a
     assert.strictEqual(btn.style.left, '0px', 'jsdom offsetWidth=0 → left 钳制为 0px（真实环境为 width-10 骑缝）');
   } finally { cleanup(w); }
 });
+
+// 回归：当前打开文档在折叠目录中时不会自动高亮（用户反馈「有时不定位高亮」），
+// 新增「定位当前文档」按钮：展开父级目录、高亮并滚动到可视区。
+test('sidebar-split: 定位当前文档展开父目录并高亮滚动', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const tree = {
+      '/root': [
+        { name: 'a', path: '/root/a', is_dir: true, mtime: 1, size: 0 },
+        { name: 'f.md', path: '/root/f.md', is_dir: false, mtime: 1, size: 1 },
+      ],
+      '/root/a': [{ name: 'b.md', path: '/root/a/b.md', is_dir: false, mtime: 1, size: 1 }],
+    };
+    w.TauriApi.listDir = async ({ path }) => tree[path] || [];
+    ed.workspaceFolder = '/root';
+    // 展开目录时会写会话，这里只关心定位行为
+    ed.saveSession = () => {};
+    await ed.renderFolderTree();
+
+    // 记录 scrollIntoView 调用（jsdom 未实现）
+    const scrolled = [];
+    w.Element.prototype.scrollIntoView = function () { scrolled.push(this); };
+
+    // 当前文件位于折叠目录 a 内：节点尚未渲染 → 无高亮
+    ed.tabs = [{ filePath: '/root/a/b.md', name: 'b.md' }];
+    ed.activeTabIndex = 0;
+    ed.highlightTreeActiveFile();
+    assert.strictEqual(w.document.querySelector('#folder-tree .tree-row.active'), null, '折叠目录内的文件不应被高亮');
+
+    // 点击「定位当前文档」
+    const btn = w.document.getElementById('btn-locate-file');
+    assert.ok(btn, '文件面板标题栏应有 #btn-locate-file 定位按钮');
+    btn.dispatchEvent(new w.Event('click', { bubbles: true }));
+    await delay(60);
+
+    const folderNode = w.document.querySelector('#folder-tree .tree-node[data-path="/root/a"]');
+    assert.ok(folderNode.classList.contains('expanded'), '定位后父目录应展开');
+    const row = w.document.querySelector('#folder-tree .tree-node[data-path="/root/a/b.md"] > .tree-row');
+    assert.ok(row, '定位后应渲染出目标文件');
+    assert.ok(row.classList.contains('active'), '目标文件应高亮');
+    assert.ok(scrolled.includes(row), '目标文件应滚动到可视区');
+  } finally { cleanup(w); }
+});
+
+test('sidebar-split: 文件树高亮忽略路径大小写与斜杠差异', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    w.TauriApi.listDir = async () => ([
+      { name: 'a.md', path: 'C:\\Work\\docs\\a.md', is_dir: false, mtime: 1, size: 1 },
+    ]);
+    ed.workspaceFolder = 'C:\\Work';
+    await ed.renderFolderTree();
+    // 同一文件经由其他入口打开时可能写成小写/正斜杠
+    ed.tabs = [{ filePath: 'c:/work/docs/A.MD', name: 'A.MD' }];
+    ed.activeTabIndex = 0;
+    ed.highlightTreeActiveFile();
+    // 反斜杠在 CSS 属性选择器里是转义符，这里改用 dataset 直接比对
+    const node = Array.from(w.document.querySelectorAll('#folder-tree .tree-node'))
+      .find((n) => n.dataset.path === 'C:\\Work\\docs\\a.md');
+    assert.ok(node, '应渲染目标文件节点');
+    const row = node.querySelector('.tree-row');
+    assert.ok(row.classList.contains('active'), '路径写法不同也应高亮同一文件');
+  } finally { cleanup(w); }
+});
