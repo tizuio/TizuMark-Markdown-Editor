@@ -124,7 +124,9 @@ test('mixed inline backtick math on one line stays inline (no display delimiter)
 
 test('standard non-backtick `$E=mc^2$` still renders as math text', async () => {
   const html = render('标准写法 $E=mc^2$ 兼容');
-  assert.ok(/标准写法 \$E=mc\^2\$ 兼容/.test(html), 'unchanged behavior for plain $...$');
+  // 行内公式占位符现包 <span>（防行首 HTML 块陷阱，见 unified-renderer.js inlineMathPlaceholder），
+  // 故公式文本外会有中性 span 包裹，不再与前后文字紧邻
+  assert.ok(/标准写法 (<span>)?\$E=mc\^2\$(<\/span>)? 兼容/.test(html), 'unchanged behavior for plain $...$');
   assert.ok(!/<code/.test(html), 'not wrapped in code');
 });
 

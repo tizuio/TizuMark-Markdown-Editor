@@ -223,6 +223,16 @@ function isAtBlockStart(content, i) {
 
 // Guard math blocks: $$...$$ → <!--MATHBLOCK_N--> and $...$ → <!--MATHBLOCK_N-->
 
+// 行内公式占位符必须包 <span>：裸 <!--MATHBLOCK_N--> 若落在「块内容开头」（段落行首、
+// 列表项标记后、引用前缀后），CommonMark 会把行首 HTML 注释解析为 HTML 块（type 2），
+// 该行整行进入原始 HTML —— 后续的 **加粗**/斜体/链接全部不再解析（用户 MOT 笔记实测：
+// 行首 $4.5/8.33=0.54$ 后的粗体失效）。<span> 开标签后同行还有占位符内容，不满足
+// type-7「标签独占一行」条件，行落到段落上下文，内联解析正常进行；行中场景 span 为
+// 中性内联元素，零副作用。restoreMathBlocks 按标记字符串替换，占位符本体不变。
+function inlineMathPlaceholder(idx) {
+  return '<span><!--MATHBLOCK_' + idx + '--></span>';
+}
+
 // 行内 $...$ 允许前后带空格，但前后都带空格时容易误把 "$ 100 $" "$ or $" 这类货币/短词当成数学。
 // 用简单启发式判断 inner 是否像数学：含反斜杠、下标/上标、花括号、运算符/关系符等。
 function looksLikeMath(inner) {
@@ -393,7 +403,7 @@ function guardMathBlocks(content) {
       if (inner !== null && looksLikeInlineLatexMath(inner)) {
         const idx = placeholders.length;
         placeholders.push({ text: '$' + inner + '$', display: false });
-        result += '<!--MATHBLOCK_' + idx + '-->';
+        result += inlineMathPlaceholder(idx);
         i = j;
       } else {
         result += '\\(';
@@ -492,7 +502,7 @@ function guardMathBlocks(content) {
             const mathBlock = content.substring(start, i);
             const idx = placeholders.length;
             placeholders.push({ text: mathBlock, display: false });
-            result += '<!--MATHBLOCK_' + idx + '-->';
+            result += inlineMathPlaceholder(idx);
             foundEnd = true;
             break;
           }
@@ -1118,7 +1128,13 @@ function restoreMathBlocks(html, placeholders) {
       const wrapped = '<span class="math-display" data-source-line="' + ph.line + '">' + escaped + '</span>';
       result = result.split(marker).join(wrapped);
     } else {
-      // 行内数学：占位符是 <!--MATHBLOCK_N-->，直接恢复
+      // 行内数学：占位符是 <!--MATHBLOCK_N-->（guardMathBlocks 发射时包在 <span> 内，见
+      // inlineMathPlaceholder 注释——span 只服务于 remark 解析阶段，防行首注释被解析为
+      // HTML 块吞掉整行内联语法），restore 时连同包裹 span 一并剥掉，最终输出与历史版本
+      // 逐字节一致（下游 KaTeX/大纲 slug/WYSIWYG 均不受影响）。先剥带 span 的完整形态，
+      // 再兜底替换裸标记（rehype-raw 重序列化等极端情况下 span 与注释可能分离）。
+      const wrappedMarker = '<span><!--MATHBLOCK_' + idx + '--></span>';
+      result = result.split(wrappedMarker).join(escaped);
       const marker = '<!--MATHBLOCK_' + idx + '-->';
       result = result.split(marker).join(escaped);
     }
