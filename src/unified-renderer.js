@@ -65,9 +65,24 @@ function remarkSourceLine() {
 }
 
 // ---- rehype plugin: assign stable slug ids to headings (for in-doc anchor links) ----
-function getTextContent(node) {
+// 本次 renderMarkdown 调用的 math 占位符表（guardMathBlocks 产物，含原始公式文本）。
+// processor 是复用单例，rehypeHeadingIds 无法按次传参，由 renderMarkdown 在
+// processSync 前后设置/恢复（保存旧值防嵌套渲染重入互相覆盖）。
+// 标题内的行内公式在管线中是 <!--MATHBLOCK_N--> 占位注释，slug 计算必须还原其原文，
+// 否则预览侧 heading id 缺失公式文本（如 `## 标题 $E=mc^2$ 尾` 产出 id="标题-尾"），
+// 与大纲侧（原始 markdown 提取，id="标题-emc2-尾"）对不上 → 点击大纲跳转失败。
+let _currentMathPlaceholders = null;
+
+function getTextContent(node, placeholders) {
   if (node.type === 'text') return node.value;
-  if (node.children) return node.children.map(getTextContent).join('');
+  // math 占位注释 → 用占位符保存的原始数学文本（含 $ 定界符）参与 slug；
+  // 定界符本身非字母数字，slugify 时与大纲侧一样被剥掉，两侧结果一致。
+  if (node.type === 'comment' && placeholders) {
+    const m = /^MATHBLOCK_(\d+)$/.exec(node.value || '');
+    const ph = m ? placeholders[Number(m[1])] : null;
+    if (ph) return ph.text || '';
+  }
+  if (node.children) return node.children.map((child) => getTextContent(child, placeholders)).join('');
   return '';
 }
 
@@ -89,10 +104,11 @@ function slugifyHeading(text) {
 
 function rehypeHeadingIds() {
   return (tree) => {
+    const placeholders = _currentMathPlaceholders;
     const used = new Map();
     visit(tree, 'element', (node) => {
       if (!/^h[1-6]$/.test(node.tagName)) return;
-      const text = getTextContent(node);
+      const text = getTextContent(node, placeholders);
       if (!text) return;
       let slug = slugifyHeading(text) || 'section';
       if (used.has(slug)) {
@@ -1866,7 +1882,16 @@ function renderMarkdown(content, options) {
   // 5. Unified pipeline（processor 复用单例，见 getUnifiedProcessor 注释）
   let html;
   try {
-    html = getUnifiedProcessor(softBreaks).processSync(processed).toString();
+    // rehypeHeadingIds 的 slug 计算需要本次调用的 math 占位符原文（标题含行内公式时
+    // 占位注释的文本必须参与 slug，与大纲侧 id 对齐）。经模块级变量按次注入，
+    // 保存/恢复防嵌套渲染（如 md2 单元格重入 renderMarkdown）互相覆盖。
+    const prevMathPlaceholders = _currentMathPlaceholders;
+    _currentMathPlaceholders = placeholders;
+    try {
+      html = getUnifiedProcessor(softBreaks).processSync(processed).toString();
+    } finally {
+      _currentMathPlaceholders = prevMathPlaceholders;
+    }
   } catch (e) {
     // Fallback: return raw content wrapped in <pre>
     console.error('Unified rendering error:', e);
