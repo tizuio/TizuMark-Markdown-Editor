@@ -1977,7 +1977,23 @@
     #pdf-print-root h1, #pdf-print-root h2, #pdf-print-root h3 { page-break-after: avoid; }
     #pdf-print-root blockquote, #pdf-print-root table, #pdf-print-root img,
     #pdf-print-root .math-display, #pdf-print-root .alert, #pdf-print-root .mermaid-container { page-break-inside: avoid; }
-    #pdf-print-root p, #pdf-print-root li { orphans: 3; widows: 3; }`;
+    #pdf-print-root p, #pdf-print-root li { orphans: 3; widows: 3; }
+    /* ===== 纸面目录页（TOC，2026-11-17）：追加在末尾，不改动上方任何规则体 =====
+       .pdf-toc-end 的 page-break-after 保证目录后正文从新页开始（目录页数自然流动）；
+       点线引导 span 吸收页码宽度差（000 占位 → 真实数字不引起行回排，两遍分页一致）。
+       目录标题「目录」用 div 实现，不进 PDF 书签。 */
+    #pdf-print-root .pdf-toc-page { margin: 0; }
+    #pdf-print-root .pdf-toc-title { font-size: 1.6em; font-weight: 600; text-align: center; margin: 0.4em 0 1.2em; page-break-after: avoid; }
+    #pdf-print-root .pdf-toc-item { margin: 0.25em 0; page-break-inside: avoid; }
+    #pdf-print-root .pdf-toc-level-1 { padding-left: 0; font-weight: 600; }
+    #pdf-print-root .pdf-toc-level-2 { padding-left: 14px; }
+    #pdf-print-root .pdf-toc-level-3 { padding-left: 28px; }
+    #pdf-print-root .pdf-toc-level-4 { padding-left: 42px; }
+    #pdf-print-root .pdf-toc-level-5 { padding-left: 56px; }
+    #pdf-print-root .pdf-toc-level-6 { padding-left: 70px; }
+    #pdf-print-root .pdf-toc-link { display: flex; align-items: baseline; text-decoration: none; color: inherit; }
+    #pdf-print-root .pdf-toc-leader { flex: 1; border-bottom: 1px dotted #999; margin: 0 4px; min-width: 12px; }
+    #pdf-print-root .pdf-toc-num { font-variant-numeric: tabular-nums; }`;
           document.head.appendChild(printStyle);
 
           // 展开所有滚动/裁切容器（与长图 / DOCX 同一口径），否则打印只出可视区那一屏
@@ -1993,20 +2009,49 @@
           await new Promise(r => setTimeout(r, 80));
 
           // A4 = 8.27 × 11.69 英寸；1.5cm ≈ 0.59 英寸（与原 @page margin 保持一致）
+          const pdfDims = {
+            pageWidth: 8.27,
+            pageHeight: 11.69,
+            marginTop: 0.59,
+            marginBottom: 0.59,
+            marginLeft: 0.59,
+            marginRight: 0.59,
+          };
+          // ===== 纸面目录页（TOC）：两遍打印（设计文档 2026-11-17 第二阶段）=====
+          // 第一遍 CDP outlineOnly 不落盘，Rust 解析书签大纲回「标题→页码」数组 →
+          // 填真实页码（占位 000 → 数字，点线吸收宽度差，几何不变，两遍分页一致）→
+          // 第二遍正常打印落盘（产物 = 目录页 + 书签大纲）。
+          // CDP 不可用（老运行时）：第一遍回 viaCdp=false → 移除目录页走原生单遍，
+          // 行为 = 现状，绝不出「有目录页但无页码」的半成品。
+          const tocEntries = this._pdfTocEntries(this.settings.pdfTocMaxLevel || 6);
+          let tocPageEl = null;
+          if (tocEntries.length) {
+            const tocShell = document.createElement('div');
+            tocShell.innerHTML = this._buildPdfTocHtml(tocEntries);
+            tocPageEl = tocShell.firstElementChild; // .pdf-toc-page
+            printRoot.insertBefore(tocPageEl, printRoot.firstChild);
+            // 目录标签的行内公式 KaTeX 渲染：与大纲面板同款（layout.js processMath 守卫同款）
+            if (typeof RenderPost !== 'undefined' && RenderPost.processMath) {
+              try { RenderPost.processMath(tocPageEl); } catch (_e) { /* 渲染失败保持原文 */ }
+            }
+          }
           // 返回结构 PdfPrintOutcome { viaCdp, outlinePages }：viaCdp=true 时产物自带
           // 书签大纲（CDP generateDocumentOutline）。防御式访问——测试桩 / 旧运行时
           // resolve 的值可能没有字段，不得因此报错。
-          const printOutcome = await TauriApi.printToPdf({
-            options: {
-              path: targetPath,
-              pageWidth: 8.27,
-              pageHeight: 11.69,
-              marginTop: 0.59,
-              marginBottom: 0.59,
-              marginLeft: 0.59,
-              marginRight: 0.59,
-            },
-          });
+          if (tocPageEl) {
+            const r1 = await TauriApi.printToPdf({
+              options: { path: targetPath, outlineOnly: true, ...pdfDims },
+            });
+            if (r1 && r1.viaCdp && Array.isArray(r1.outlinePages)) {
+              this._fillPdfTocPageNumbers(tocPageEl, printRoot, r1.outlinePages);
+              await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+            } else {
+              tocPageEl.remove(); // CDP 不可用：移除目录页，回退原生单遍
+              await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+            }
+          } else {
+            await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+          }
           pdfExported = true;
           this.setStatus(`${this.t('exportedPDF')}: ${targetPath}`);
         } catch (e) {

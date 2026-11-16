@@ -11,8 +11,11 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { buildEnv, cleanup, delay } = require('./helpers/app-env.cjs');
 
+// 与既有 export 测试同款：应用内保存对话框返回固定路径，否则 exportPDF 选路径后提前 return
+const pdfSaveInvoke = (cmd) => (cmd === 'plugin:dialog|save' ? '/tmp/out.pdf' : null);
+
 async function makeEnv() {
-  const { w, getInitErr } = await buildEnv({ captureInitErr: true });
+  const { w, getInitErr } = await buildEnv({ invokeImpl: pdfSaveInvoke, captureInitErr: true });
   await delay(300); // 等模块装配与编辑器初始化
   return { w, ed: w.editor, getInitErr };
 }
@@ -78,6 +81,112 @@ test('toc: html 含锚点链接 / 占位页码 / 层级类名；label 干净且�
     );
     assert.ok(!/\*\*/.test(html2), 'label 不残留 markdown 标记（extractHeadings 已剥离）');
     assert.match(html2, /\$E=mc\^2\$/, '端到端仍保留 $...$ 供 processMath 渲染');
+  } finally { cleanup(w); }
+});
+
+// ===== Task 7：exportPDF 两遍打印接线 =====
+
+// 带标题的文档环境：preview DOM 三个标题（id a/b/c）与 markdown 同源（headingToId 打桩），
+// 保证 _fillPdfTocPageNumbers 的 id 映射成立。
+async function makeTocEditor(w, ed) {
+  ed.showConfirmDialog = async () => true;
+  ed.activeTab.name = 'NOTE.md';
+  ed.activeTab.content = '# A\nx\n## B\ny\n# C\n';
+  ed.headingToId = (t) => ({ A: 'a', B: 'b', C: 'c' }[t] || t);
+  ed.preview.innerHTML = '<h1 id="a">A</h1><p>x</p><h2 id="b">B</h2><p>y</p><h1 id="c">C</h1>';
+}
+
+test('toc-wiring: CDP 可用 → 两遍打印（第一遍 outlineOnly，第二遍页码已填充）', async () => {
+  const { w, ed, getInitErr } = await makeEnv();
+  try {
+    assert.strictEqual(getInitErr(), null);
+    await makeTocEditor(w, ed);
+    const calls = [];
+    w.TauriApi.printToPdf = async ({ options }) => {
+      const root = w.document.getElementById('pdf-print-root');
+      const toc = root ? root.querySelector('.pdf-toc-page') : null;
+      calls.push({
+        options,
+        hasToc: !!toc,
+        tocNums: toc ? [...toc.querySelectorAll('.pdf-toc-num')].map((e) => e.textContent) : null,
+      });
+      return { viaCdp: true, outlinePages: [0, 4, 9] };
+    };
+    await ed.exportPDF();
+    assert.strictEqual(calls.length, 2, '两遍打印');
+    assert.strictEqual(calls[0].options.outlineOnly, true, '第一遍只要大纲');
+    assert.strictEqual(calls[0].options.path, calls[1].options.path, '两遍同一目标路径');
+    assert.strictEqual(calls[1].options.outlineOnly, undefined, '第二遍正式落盘');
+    assert.strictEqual(calls[0].tocNums.join(','), '000,000,000', '第一遍仍是占位页码');
+    assert.strictEqual(calls[1].tocNums.join(','), '1,5,10', '第二遍前已填充真实页码（0/4/9 → 1/5/10）');
+    assert.ok(calls[0].hasToc && calls[1].hasToc, '两遍都带目录页');
+  } finally { cleanup(w); }
+});
+
+test('toc-wiring: CDP 不可用（viaCdp:false）→ 目录页移除后回退单遍落盘', async () => {
+  const { w, ed, getInitErr } = await makeEnv();
+  try {
+    assert.strictEqual(getInitErr(), null);
+    await makeTocEditor(w, ed);
+    const calls = [];
+    w.TauriApi.printToPdf = async ({ options }) => {
+      const root = w.document.getElementById('pdf-print-root');
+      calls.push({ options, hasToc: !!(root && root.querySelector('.pdf-toc-page')) });
+      return { viaCdp: false };
+    };
+    const toasts = [];
+    ed.showToast = (msg, type) => toasts.push({ msg, type });
+    await ed.exportPDF();
+    assert.strictEqual(calls.length, 2, '第一遍 outlineOnly 探测 + 第二遍回退落盘');
+    assert.strictEqual(calls[0].options.outlineOnly, true);
+    assert.strictEqual(calls[0].hasToc, true, '第一遍打印态里有目录页');
+    assert.strictEqual(calls[1].hasToc, false, '回退前目录页已移除（老运行时不出半成品）');
+    assert.strictEqual(calls[1].options.outlineOnly, undefined);
+    assert.ok(toasts.some((t) => t.type === 'success'), '回退路径导出仍算成功');
+  } finally { cleanup(w); }
+});
+
+test('toc-wiring: 无标题文档 → 单遍打印、无 outlineOnly、无目录页', async () => {
+  const { w, ed, getInitErr } = await makeEnv();
+  try {
+    assert.strictEqual(getInitErr(), null);
+    ed.showConfirmDialog = async () => true;
+    ed.activeTab.name = 'NOTE.md';
+    ed.activeTab.content = '没有标题的正文';
+    ed.preview.innerHTML = '<p>正文</p>';
+    const calls = [];
+    w.TauriApi.printToPdf = async ({ options }) => {
+      const root = w.document.getElementById('pdf-print-root');
+      calls.push({ options, hasToc: !!(root && root.querySelector('.pdf-toc-page')) });
+      return { viaCdp: true, outlinePages: [] };
+    };
+    await ed.exportPDF();
+    assert.strictEqual(calls.length, 1, '无目录需求 → 单遍（书签由 Rust 侧顺带生成）');
+    assert.strictEqual(calls[0].options.outlineOnly, undefined);
+    assert.strictEqual(calls[0].hasToc, false, '无标题不插空目录页');
+  } finally { cleanup(w); }
+});
+
+test('toc-wiring: 两遍之间清空标签 → 不抛未捕获异常，finally 清理无残留', async () => {
+  const { w, ed, getInitErr } = await makeEnv();
+  try {
+    assert.strictEqual(getInitErr(), null);
+    await makeTocEditor(w, ed);
+    const calls = [];
+    w.TauriApi.printToPdf = async ({ options }) => {
+      calls.push(options);
+      if (options.outlineOnly) {
+        // 第一遍返回前清空标签（模拟用户中途关文档）
+        ed.activeTab = null;
+      }
+      return { viaCdp: true, outlinePages: [0, 4, 9] };
+    };
+    await ed.exportPDF();
+    assert.strictEqual(calls.length, 2, '填充页码不依赖 activeTab，流程走完');
+    assert.strictEqual(w.document.getElementById('pdf-print-root'), null, 'print-root 已清理');
+    assert.strictEqual(w.document.getElementById('tm-pdf-print-style'), null, '打印样式已清理');
+    assert.strictEqual(w.document.getElementById('tm-export-overlay'), null, '导出遮罩已收尾');
+    assert.ok(!w.document.documentElement.classList.contains('pdf-printing'), '打印态类已摘除');
   } finally { cleanup(w); }
 });
 
