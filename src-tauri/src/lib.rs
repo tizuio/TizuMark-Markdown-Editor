@@ -1530,6 +1530,30 @@ struct PdfPrintOptions {
     margin_bottom: f64,
     margin_left: f64,
     margin_right: f64,
+    // 仅出大纲（两遍打印的第一遍）：CDP 打印只取内存字节解析书签页码，**不落盘**。
+    // serde 缺省 false —— 旧调用方（前端单遍导出 / 测试桩）不带此字段，行为不变。
+    #[serde(default)]
+    outline_only: Option<bool>,
+}
+
+// CDP Page.printToPDF 的 JSON 参数（纯函数，#[test] 静态断言防漂移）。
+// 页面尺寸 / 四边边距与 PrintSettings 完全同值（英寸）；printBackground / 关页眉页脚
+// 与现有原生路径口径一致；generateDocumentOutline 让 Chromium 从 h1–h6 自动生成
+// PDF 书签大纲（WebView2Feedback#4466：原生 PrintSettings 至今无此属性，只能走 CDP）。
+fn build_cdp_print_params(opts: &PdfPrintOptions) -> String {
+    serde_json::json!({
+        "paperWidth": opts.page_width,
+        "paperHeight": opts.page_height,
+        "marginTop": opts.margin_top,
+        "marginBottom": opts.margin_bottom,
+        "marginLeft": opts.margin_left,
+        "marginRight": opts.margin_right,
+        "printBackground": true,
+        "displayHeaderFooter": false,
+        "generateDocumentOutline": true,
+        "preferCSSPageSize": false,
+    })
+    .to_string()
 }
 
 // PDF 导出：直接用 WebView2 的 PrintToPdf 落盘，不经过系统打印对话框、也不经过浏览器下载流程。
@@ -1674,6 +1698,32 @@ async fn print_to_pdf(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_build_cdp_print_params_outline_and_layout() {
+        let opts = PdfPrintOptions {
+            path: "C:/tmp/a.pdf".into(),
+            page_width: 8.27,
+            page_height: 11.69,
+            margin_top: 0.59,
+            margin_bottom: 0.59,
+            margin_left: 0.59,
+            margin_right: 0.59,
+            outline_only: None,
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
+        assert_eq!(v["generateDocumentOutline"], true);
+        assert_eq!(v["printBackground"], true);
+        assert_eq!(v["displayHeaderFooter"], false);
+        assert_eq!(v["preferCSSPageSize"], false);
+        assert_eq!(v["paperWidth"], 8.27);
+        assert_eq!(v["paperHeight"], 11.69);
+        assert_eq!(v["marginTop"], 0.59);
+        assert_eq!(v["marginBottom"], 0.59);
+        assert_eq!(v["marginLeft"], 0.59);
+        assert_eq!(v["marginRight"], 0.59);
+    }
 
     #[test]
     fn test_files_from_args_skips_exe() {
