@@ -9,6 +9,8 @@
   // Promise.allSettled 等最慢的一张，一挂就是「遮罩撤了、文件没写」）。
   const REMOTE_IMAGE_TIMEOUT_MS = 8000;
   const EXPORT_FRAME_TIMEOUT_MS = 200;
+  // HTML 转义（TOC 目录页 label 等纯文本插槽用；与 app 内其他内联转义同口径）
+  const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), ms);
     Promise.resolve(promise).then(
@@ -1805,6 +1807,44 @@
       // 样式就是当前文档那一套（同一个文档、同一份 styles.css），与阅读模式天然一致。
       // 2026-10-26 用户要求**彻底移除**系统打印回退（PrintToPdf 落盘失败——如目标 PDF 被
       // 占用——时回退会突然弹出系统打印对话框，体验割裂）：失败就明确报错。
+      //
+      // ===== PDF 纸面目录页（TOC）纯函数三件套（设计文档 2026-11-17-pdf-outline-design.md）=====
+      // 两遍打印：第一遍 CDP outlineOnly 拿「标题→页码」数组 → 填进目录占位 → 第二遍落盘。
+      // 条目文案用 extractHeadings 的干净文本（$...$ 原文保留，打印 DOM 内由 processMath
+      // 渲染公式——与大纲面板 5ed6273 同款口径）；PDF 书签文案仍是 KaTeX 双层 DOM 的杂乱
+      // 文本（已知限制，书签跳转不受影响）。
+      _pdfTocEntries(maxLevel) {
+        if (!Outline || !this.activeTab) return [];
+        const headings = Outline.extractHeadings(this.activeTab.content || '', {
+          headingToId: (t) => this.headingToId(t),
+        });
+        // 深度过滤（设置面板 pdfTocMaxLevel，默认 6=全量）+ 空id剔除（纯符号标题
+        // headingToId 产空串，锚点不存在会让目录条目跳转落空）
+        return headings.filter((h) => h.level <= maxLevel && h.id);
+      },
+      _buildPdfTocHtml(entries) {
+        const items = entries.map((e) =>
+          `<div class="pdf-toc-item pdf-toc-level-${e.level}">`
+          + `<a class="pdf-toc-link" href="#${e.id}">`
+          + `<span class="pdf-toc-label">${escapeHtml(e.text)}</span>`
+          + '<span class="pdf-toc-leader"></span>'
+          + `<span class="pdf-toc-num" data-toc-num="${e.id}">000</span>`
+          + '</a></div>'
+        ).join('');
+        return `<div class="pdf-toc-page"><div class="pdf-toc-title">${escapeHtml(this.t('pdfTocTitle'))}</div>${items}<div class="pdf-toc-end"></div></div>`;
+      },
+      _fillPdfTocPageNumbers(tocEl, printRoot, pages) {
+        // 打印根里的 h1–h6 文档序 zip 大纲页码数组（outlinePages 按大纲顺序 = 文档顺序）；
+        // 页数不足（Chromium 跳过个别标题等）缺页条目留空——宁缺勿串。
+        const nums = new Map();
+        const headings = printRoot.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach((h, i) => {
+          if (i < pages.length && h.id) nums.set(h.id, String(pages[i] + 1));
+        });
+        tocEl.querySelectorAll('[data-toc-num]').forEach((el) => {
+          el.textContent = nums.get(el.getAttribute('data-toc-num')) || '';
+        });
+      },
       async exportPDF() {
         if (!this.activeTab) return;
         // 能力分流（2026-10-26 用户四轮要求）：**弹确认框之前**先检测运行时是否支持
