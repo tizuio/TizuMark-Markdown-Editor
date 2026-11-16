@@ -1589,8 +1589,7 @@ async fn print_to_pdf(
         }
         return Ok(PdfPrintOutcome {
             via_cdp: true,
-            // Task 3 接入 parse_pdf_outline_pages（lopdf 解析书签大纲页码）
-            outline_pages: None,
+            outline_pages: parse_pdf_outline_pages(&bytes),
         });
     }
     if outline_only {
@@ -1812,6 +1811,58 @@ fn native_print_to_pdf(
     }
 }
 
+// 解析 PDF 书签大纲树：返回每条大纲条目的目标页序号（0-based，按大纲顺序）。
+// 用途：CDP generateDocumentOutline 产出的书签 → 前端纸面目录页的「标题→页码」映射
+// （设计文档 2026-11-17-pdf-outline-design.md 第二阶段）。
+// 任一环节失败（非 PDF / 结构不合预期 / 条目解析不到页）整体返回 None——调用方降级为
+// 无页码目录（条目仍可点击），绝不因解析失败让导出失败。上限 10000 条防环。
+fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
+    use std::collections::HashMap;
+    let doc = lopdf::Document::load_mem(bytes).ok()?;
+    // 页对象引用 → 页序号（0-based）：get_pages 按文档树序返回 1-based 页号
+    let page_index: HashMap<lopdf::ObjectId, u32> =
+        doc.get_pages().into_iter().map(|(k, v)| (v, k - 1)).collect();
+    let catalog_ref = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+    let outlines_ref = doc
+        .get_object(catalog_ref)
+        .ok()?
+        .as_dict()
+        .ok()?
+        .get(b"Outlines")
+        .ok()?
+        .as_reference()
+        .ok()?;
+    let mut first = doc
+        .get_object(outlines_ref)
+        .ok()?
+        .as_dict()
+        .ok()?
+        .get(b"First")
+        .ok()?
+        .as_reference()
+        .ok()?;
+    let mut pages = Vec::new();
+    for _ in 0..10000 {
+        let item = doc.get_object(first).ok()?;
+        let dict = item.as_dict().ok()?;
+        // /Dest 直接数组（Chromium 产出形态）；/A 动作字典 → /D 数组兜底
+        let dest = if let Ok(o) = dict.get(b"Dest") {
+            o.clone()
+        } else {
+            dict.get(b"A").ok()?.as_dict().ok()?.get(b"D").ok()?.clone()
+        };
+        let arr = dest.as_array().ok()?;
+        let pref = arr.first()?.as_reference().ok()?;
+        pages.push(*page_index.get(&pref)?);
+        let next = dict.get(b"Next").ok().and_then(|o| o.as_reference().ok());
+        match next {
+            Some(n) => first = n,
+            None => break,
+        }
+    }
+    Some(pages)
+}
+
 // 非 Windows 平台暂无 PrintToPdf / CDP 等价能力：明确报错，让前端回退系统打印
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
@@ -1850,6 +1901,68 @@ mod tests {
         assert_eq!(v["marginBottom"], 0.59);
         assert_eq!(v["marginLeft"], 0.59);
         assert_eq!(v["marginRight"], 0.59);
+    }
+
+    #[test]
+    fn test_parse_pdf_outline_pages_round_trip() {
+        use lopdf::{Dictionary as LDict, Document as LDoc, Object as LObj};
+        let mut doc = LDoc::with_version("1.4");
+        let pages_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let mut page_ids = Vec::new();
+        for _ in 0..3 {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                // 注意：get_pages 经 PageTreeIter 识别页，页对象必须带 /Type /Page
+                d.set("Type", LObj::Name(b"Page".to_vec()));
+                d.set("Parent", LObj::Reference(pages_id));
+            }
+            page_ids.push(id);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(pages_id).unwrap() {
+            d.set("Type", LObj::Name(b"Pages".to_vec()));
+            d.set("Kids", LObj::Array(page_ids.iter().map(|id| LObj::Reference(*id)).collect()));
+            d.set("Count", 3);
+        }
+        let catalog_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        // 大纲 3 条，目标页 0 / 2 / 1（乱序——验证页码映射来自 /Dest 引用而非条目顺序）
+        let dests = [0usize, 2, 1];
+        let mut item_ids = Vec::new();
+        for t in ["a", "b", "c"] {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Title", LObj::String(t.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+            }
+            item_ids.push(id);
+        }
+        for (i, id) in item_ids.iter().enumerate() {
+            if let LObj::Dictionary(d) = doc.get_object_mut(*id).unwrap() {
+                d.set("Dest", LObj::Array(vec![
+                    LObj::Reference(page_ids[dests[i]]),
+                    LObj::Name(b"XYZ".to_vec()),
+                    LObj::Integer(0), LObj::Integer(792), LObj::Integer(0),
+                ]));
+                if i + 1 < item_ids.len() {
+                    d.set("Next", LObj::Reference(item_ids[i + 1]));
+                }
+            }
+        }
+        let outlines_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        if let LObj::Dictionary(d) = doc.get_object_mut(outlines_id).unwrap() {
+            d.set("Type", LObj::Name(b"Outlines".to_vec()));
+            d.set("First", LObj::Reference(item_ids[0]));
+            d.set("Last", LObj::Reference(item_ids[2]));
+            d.set("Count", 3);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(catalog_id).unwrap() {
+            d.set("Type", LObj::Name(b"Catalog".to_vec()));
+            d.set("Pages", LObj::Reference(pages_id));
+            d.set("Outlines", LObj::Reference(outlines_id));
+        }
+        doc.trailer.set("Root", LObj::Reference(catalog_id));
+        let mut buf = Vec::new();
+        doc.save_to(&mut buf).unwrap();
+        assert_eq!(parse_pdf_outline_pages(&buf), Some(vec![0, 2, 1]));
+        assert_eq!(parse_pdf_outline_pages(b"not a pdf"), None);
     }
 
     #[test]

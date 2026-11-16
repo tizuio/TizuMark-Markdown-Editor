@@ -39,6 +39,8 @@ encoding_rs = "0.8"
 regex = "1"
 # 系统字体枚举（fontdb 纯 Rust，跨平台：Windows 目录+macOS+Linux fontconfig）
 fontdb = "0.24"
+# PDF 书签大纲解析（print_to_pdf CDP 产物 → 标题→页码映射，见 parse_pdf_outline_pages）
+lopdf = "0.35"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # 补充扫描注册表指向的字体文件（企业批量安装到任意路径的字体），仅 Windows
