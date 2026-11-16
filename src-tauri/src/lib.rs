@@ -1567,13 +1567,141 @@ fn build_cdp_print_params(opts: &PdfPrintOptions) -> String {
 // 展开滚动容器），样式天然就是阅读模式那一套，不存在「两套 CSS 漂移」；调用返回即表示文件
 // 已落盘，全程无 UI、无气泡、无下载目录残留。
 //
-// 失败面：旧版 WebView2 运行时没有 ICoreWebView2_7::PrintToPdf。此时返回错误，前端据此
-// 回退到原来的系统打印路径，不会让 PDF 导出整个不可用。
+// 失败面：CDP 主路径任一环节失败（运行时过旧 / 调用失败 / 超时）都在 **Rust 内部**自动
+// 回退原生 ICoreWebView2_7::PrintToPdf（2026-11-17 书签大纲重做：generateDocumentOutline
+// 只有 CDP Page.printToPDF 支持，原生 PrintSettings 至今无此属性，见 WebView2Feedback#4466）。
+// outline_only（两遍打印第一遍）拿不到 CDP 字节时直接回 via_cdp=false——原生路径无法
+// 「打印不落盘」，前端据此移除目录页走原生单遍，老运行时行为 = 现状。
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn print_to_pdf(
     window: tauri::WebviewWindow,
     options: PdfPrintOptions,
+) -> Result<PdfPrintOutcome, String> {
+    let outline_only = options.outline_only.unwrap_or(false);
+    // CDP 主路径：Some=拿到内存 PDF 字节；None=运行时过旧 / 调用失败 / 超时等任一环失败
+    if let Some(bytes) = cdp_print_to_pdf_bytes(&window, &options) {
+        // outline_only（第一遍）：只解析大纲**不落盘**（前端拿页码填目录占位后发起第二遍
+        // 正式落盘）；普通打印：字节直接写目标文件，语义与原生路径一致（返回即已落盘）。
+        if !outline_only {
+            std::fs::write(&options.path, &bytes)
+                .map_err(|e| format!("写入 PDF 失败（{}）: {e}", options.path))?;
+        }
+        return Ok(PdfPrintOutcome {
+            via_cdp: true,
+            // Task 3 接入 parse_pdf_outline_pages（lopdf 解析书签大纲页码）
+            outline_pages: None,
+        });
+    }
+    if outline_only {
+        return Ok(PdfPrintOutcome { via_cdp: false, outline_pages: None });
+    }
+    // CDP 不可用：原样回退现有原生 PrintToPdf（书签缺失但导出不失败，行为 = 现状）
+    native_print_to_pdf(&window, options)?;
+    Ok(PdfPrintOutcome { via_cdp: false, outline_pages: None })
+}
+
+// PDF 导出结果。via_cdp=true 表示 CDP 主路径成功（产物自带书签大纲）；
+// outline_pages=书签大纲树解析出的各条目目标页序号（0-based，按大纲顺序），
+// None=非 CDP 路径 / 解析失败（前端降级为无页码目录或维持现状，绝不因此报错）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PdfPrintOutcome {
+    via_cdp: bool,
+    outline_pages: Option<Vec<u32>>,
+}
+
+// CDP 主路径：CallDevToolsProtocolMethod("Page.printToPDF") 拿内存字节。
+// 任一环节失败都返回 None（调用方回退原生路径），绝不在此抛错让导出失败。
+// 关键：回调在 webview UI 线程触发，recv_timeout 必须在 with_webview 闭包**外**等——
+// 闭包内阻塞会卡死 UI 事件循环，回调永远不来（与原生 PrintToPdf 同一骨架）。
+#[cfg(target_os = "windows")]
+fn cdp_print_to_pdf_bytes(
+    window: &tauri::WebviewWindow,
+    opts: &PdfPrintOptions,
+) -> Option<Vec<u8>> {
+    use std::sync::mpsc::channel;
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_3, ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
+    };
+    use windows::core::{Interface, PCWSTR};
+    use base64::Engine as _;
+
+    let (tx, rx) = channel::<Option<Vec<u8>>>();
+    let params = build_cdp_print_params(opts);
+    window
+        .with_webview(move |platform| {
+            let tx_cb = tx.clone();
+            let core = match unsafe { platform.controller().CoreWebView2() } {
+                Ok(c) => c,
+                Err(_) => {
+                    let _ = tx.send(None);
+                    return;
+                }
+            };
+            unsafe {
+                // DefaultBackgroundColor 置白与原生路径同款（CDP 打印管线是否消费控制器
+                // 背景色未证实；置白无害，灰圈风险归零），回调里恢复。
+                let controller2 = platform.controller().cast::<ICoreWebView2Controller2>().ok();
+                let mut orig_bg = COREWEBVIEW2_COLOR { A: 255, R: 245, G: 245, B: 245 };
+                if let Some(c2) = controller2.clone() {
+                    let _ = c2.DefaultBackgroundColor(&mut orig_bg);
+                    let _ = c2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                        A: 255, R: 255, G: 255, B: 255,
+                    });
+                }
+                let core3 = match core.cast::<ICoreWebView2_3>() {
+                    Ok(c) => c,
+                    Err(_) => {
+                        let _ = tx.send(None);
+                        return;
+                    }
+                };
+                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                    move |hr, ret_json| {
+                        if let Some(c2) = controller2.clone() {
+                            let _ = c2.SetDefaultBackgroundColor(orig_bg);
+                        }
+                        let bytes = if hr.is_ok() {
+                            (|| -> Option<Vec<u8>> {
+                                // 返回 JSON 形如 {"data": "<base64>"}；任何一步不合预期按失败回退
+                                // （PCWSTR 的 to_string 走 Display 实现，非 unsafe）
+                                let s = ret_json.to_string();
+                                let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+                                let b64 = v.get("data")?.as_str()?;
+                                base64::engine::general_purpose::STANDARD.decode(b64).ok()
+                            })()
+                        } else {
+                            None
+                        };
+                        let _ = tx_cb.send(bytes);
+                        Ok(())
+                    },
+                ));
+                let method: Vec<u16> =
+                    "Page.printToPDF".encode_utf16().chain(std::iter::once(0)).collect();
+                let params_w: Vec<u16> =
+                    params.encode_utf16().chain(std::iter::once(0)).collect();
+                if core3
+                    .CallDevToolsProtocolMethod(PCWSTR(method.as_ptr()), PCWSTR(params_w.as_ptr()), &handler)
+                    .is_err()
+                {
+                    let _ = tx.send(None);
+                }
+            }
+        })
+        .ok()?; // dispatch 失败 → None → 回退
+    // 超长文档分页渲染可能要十几秒；180s 只兜异常挂死，超时按失败回退
+    rx.recv_timeout(std::time::Duration::from_secs(180)).unwrap_or(None)
+}
+
+// 原生回退路径：ICoreWebView2_7::PrintToPdf 直接落盘（2026-10-25 起的主路径，现为
+// CDP 不可用时的回退）。原实现整体搬移，行为不变。
+#[cfg(target_os = "windows")]
+fn native_print_to_pdf(
+    window: &tauri::WebviewWindow,
+    opts: PdfPrintOptions,
 ) -> Result<(), String> {
     use std::sync::mpsc::channel;
     use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -1584,8 +1712,7 @@ async fn print_to_pdf(
     use windows::core::{Interface, PCWSTR};
 
     let (tx, rx) = channel::<Result<(), String>>();
-    let path = options.path.clone();
-    let opts = options;
+    let path = opts.path.clone();
 
     window
         .with_webview(move |platform| {
@@ -1685,13 +1812,13 @@ async fn print_to_pdf(
     }
 }
 
-// 非 Windows 平台暂无 PrintToPdf 等价能力：明确报错，让前端回退系统打印
+// 非 Windows 平台暂无 PrintToPdf / CDP 等价能力：明确报错，让前端回退系统打印
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn print_to_pdf(
     _window: tauri::WebviewWindow,
     _options: PdfPrintOptions,
-) -> Result<(), String> {
+) -> Result<PdfPrintOutcome, String> {
     Err("当前平台暂不支持 PrintToPdf，回退系统打印".to_string())
 }
 
