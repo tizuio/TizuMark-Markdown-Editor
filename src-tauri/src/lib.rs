@@ -1622,7 +1622,7 @@ fn cdp_print_to_pdf_bytes(
     use std::sync::mpsc::channel;
     use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
     use webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_3, ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
+        ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
     };
     use windows::core::{Interface, PCWSTR};
     use base64::Engine as _;
@@ -1640,8 +1640,13 @@ fn cdp_print_to_pdf_bytes(
                 }
             };
             unsafe {
+                // CDP 调用先于置白：cast 失败（极老运行时）时直接退出，控制器背景未被
+                // 改动，无需恢复（与原生路径的退出时恢复不变式一致——2026-10-27 审查口径）。
+                // CallDevToolsProtocolMethod 声明在基础接口 ICoreWebView2 上，无需 _3 cast
+                //（多一次 cast 只会多一条失败路径、误杀老但可用的运行时）。
                 // DefaultBackgroundColor 置白与原生路径同款（CDP 打印管线是否消费控制器
-                // 背景色未证实；置白无害，灰圈风险归零），回调里恢复。
+                // 背景色未证实；置白无害，灰圈风险归零）。恢复路径：① 完成回调里恢复；
+                // ② 同步调用失败（下方 is_err 分支）立即恢复。
                 let controller2 = platform.controller().cast::<ICoreWebView2Controller2>().ok();
                 let mut orig_bg = COREWEBVIEW2_COLOR { A: 255, R: 245, G: 245, B: 245 };
                 if let Some(c2) = controller2.clone() {
@@ -1650,16 +1655,10 @@ fn cdp_print_to_pdf_bytes(
                         A: 255, R: 255, G: 255, B: 255,
                     });
                 }
-                let core3 = match core.cast::<ICoreWebView2_3>() {
-                    Ok(c) => c,
-                    Err(_) => {
-                        let _ = tx.send(None);
-                        return;
-                    }
-                };
+                let controller2_cb = controller2.clone();
                 let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
                     move |hr, ret_json| {
-                        if let Some(c2) = controller2.clone() {
+                        if let Some(c2) = controller2_cb.clone() {
                             let _ = c2.SetDefaultBackgroundColor(orig_bg);
                         }
                         let bytes = if hr.is_ok() {
@@ -1682,10 +1681,14 @@ fn cdp_print_to_pdf_bytes(
                     "Page.printToPDF".encode_utf16().chain(std::iter::once(0)).collect();
                 let params_w: Vec<u16> =
                     params.encode_utf16().chain(std::iter::once(0)).collect();
-                if core3
+                if core
                     .CallDevToolsProtocolMethod(PCWSTR(method.as_ptr()), PCWSTR(params_w.as_ptr()), &handler)
                     .is_err()
                 {
+                    // 同步失败：完成回调不会触发，这里立即恢复白底
+                    if let Some(c2) = controller2.clone() {
+                        let _ = c2.SetDefaultBackgroundColor(orig_bg);
+                    }
                     let _ = tx.send(None);
                 }
             }
@@ -1817,6 +1820,7 @@ fn native_print_to_pdf(
 // 任一环节失败（非 PDF / 结构不合预期 / 条目解析不到页）整体返回 None——调用方降级为
 // 无页码目录（条目仍可点击），绝不因解析失败让导出失败。上限 10000 条防环。
 fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
+    use lopdf::Object;
     use std::collections::HashMap;
     let doc = lopdf::Document::load_mem(bytes).ok()?;
     // 页对象引用 → 页序号（0-based）：get_pages 按文档树序返回 1-based 页号
@@ -1832,7 +1836,7 @@ fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
         .ok()?
         .as_reference()
         .ok()?;
-    let mut first = doc
+    let first = doc
         .get_object(outlines_ref)
         .ok()?
         .as_dict()
@@ -1841,9 +1845,20 @@ fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
         .ok()?
         .as_reference()
         .ok()?;
+    // pre-order DFS（显式栈）：书签树是**嵌套**的——h2/h3 挂在父项 /First 子链上而非顶层
+    // /Next 平铺（Chromium generateDocumentOutline 的产出形态）。访问顺序 = 父 → 子链 →
+    // 兄弟 = DOM 文档序，与前端打印根 h1–h6 顺序一一对应。栈里先压兄弟再压子（LIFO 保证
+    // 子链先于兄弟访问）。
+    let mut stack = vec![first];
     let mut pages = Vec::new();
-    for _ in 0..10000 {
-        let item = doc.get_object(first).ok()?;
+    let mut visits = 0usize;
+    while let Some(cur) = stack.pop() {
+        visits += 1;
+        if visits > 10000 {
+            // 结构异常（环 / 超大树）：整体视为解析失败，调用方降级，绝不输出错位页码
+            return None;
+        }
+        let item = doc.get_object(cur).ok()?;
         let dict = item.as_dict().ok()?;
         // /Dest 直接数组（Chromium 产出形态）；/A 动作字典 → /D 数组兜底
         let dest = if let Ok(o) = dict.get(b"Dest") {
@@ -1854,10 +1869,11 @@ fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
         let arr = dest.as_array().ok()?;
         let pref = arr.first()?.as_reference().ok()?;
         pages.push(*page_index.get(&pref)?);
-        let next = dict.get(b"Next").ok().and_then(|o| o.as_reference().ok());
-        match next {
-            Some(n) => first = n,
-            None => break,
+        if let Ok(n) = dict.get(b"Next").and_then(Object::as_reference) {
+            stack.push(n);
+        }
+        if let Ok(f) = dict.get(b"First").and_then(Object::as_reference) {
+            stack.push(f);
         }
     }
     Some(pages)
@@ -1963,6 +1979,81 @@ mod tests {
         doc.save_to(&mut buf).unwrap();
         assert_eq!(parse_pdf_outline_pages(&buf), Some(vec![0, 2, 1]));
         assert_eq!(parse_pdf_outline_pages(b"not a pdf"), None);
+    }
+
+    #[test]
+    fn test_parse_pdf_outline_pages_nested_tree_document_order() {
+        // Chromium generateDocumentOutline 产出**嵌套**书签树：h2/h3 挂在父项 /First 子链上，
+        // 不是顶层 /Next 平铺。解析必须 pre-order（父 → 子链 → 兄弟），顺序 = DOM 文档序：
+        //   item1(h1, p0) ─ First → item1a(h2, p1) ─ Next → item1b(h2, p2)
+        //   item1 ─ Next → item2(h1, p3)
+        // 期望 [0, 1, 2, 3]；只走顶层链会得 [0, 3]（历史 bug，页码整体错位）。
+        use lopdf::{Dictionary as LDict, Document as LDoc, Object as LObj};
+        let mut doc = LDoc::with_version("1.4");
+        let pages_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let mut page_ids = Vec::new();
+        for _ in 0..4 {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Type", LObj::Name(b"Page".to_vec()));
+                d.set("Parent", LObj::Reference(pages_id));
+            }
+            page_ids.push(id);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(pages_id).unwrap() {
+            d.set("Type", LObj::Name(b"Pages".to_vec()));
+            d.set("Kids", LObj::Array(page_ids.iter().map(|id| LObj::Reference(*id)).collect()));
+            d.set("Count", 4);
+        }
+        let catalog_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let dest_of = |p: usize| LObj::Array(vec![
+            LObj::Reference(page_ids[p]),
+            LObj::Name(b"XYZ".to_vec()),
+            LObj::Integer(0), LObj::Integer(792), LObj::Integer(0),
+        ]);
+        let mk_item = |doc: &mut LDoc, title: &str, p: usize| {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Title", LObj::String(title.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+                d.set("Dest", dest_of(p));
+            }
+            id
+        };
+        let item1 = mk_item(&mut doc, "h1-a", 0);
+        let item1a = mk_item(&mut doc, "h2-a1", 1);
+        let item1b = mk_item(&mut doc, "h2-a2", 2);
+        let item2 = mk_item(&mut doc, "h1-b", 3);
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1a).unwrap() {
+            d.set("Parent", LObj::Reference(item1));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1b).unwrap() {
+            d.set("Parent", LObj::Reference(item1));
+            d.set("Prev", LObj::Reference(item1a));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1a).unwrap() {
+            d.set("Next", LObj::Reference(item1b));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1).unwrap() {
+            d.set("First", LObj::Reference(item1a));
+            d.set("Last", LObj::Reference(item1b));
+            d.set("Next", LObj::Reference(item2));
+        }
+        let outlines_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        if let LObj::Dictionary(d) = doc.get_object_mut(outlines_id).unwrap() {
+            d.set("Type", LObj::Name(b"Outlines".to_vec()));
+            d.set("First", LObj::Reference(item1));
+            d.set("Last", LObj::Reference(item2));
+            d.set("Count", 4);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(catalog_id).unwrap() {
+            d.set("Type", LObj::Name(b"Catalog".to_vec()));
+            d.set("Pages", LObj::Reference(pages_id));
+            d.set("Outlines", LObj::Reference(outlines_id));
+        }
+        doc.trailer.set("Root", LObj::Reference(catalog_id));
+        let mut buf = Vec::new();
+        doc.save_to(&mut buf).unwrap();
+        assert_eq!(parse_pdf_outline_pages(&buf), Some(vec![0, 1, 2, 3]));
     }
 
     #[test]

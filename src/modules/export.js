@@ -1810,38 +1810,55 @@
       //
       // ===== PDF 纸面目录页（TOC）纯函数三件套（设计文档 2026-11-17-pdf-outline-design.md）=====
       // 两遍打印：第一遍 CDP outlineOnly 拿「标题→页码」数组 → 填进目录占位 → 第二遍落盘。
-      // 条目文案用 extractHeadings 的干净文本（$...$ 原文保留，打印 DOM 内由 processMath
-      // 渲染公式——与大纲面板 5ed6273 同款口径）；PDF 书签文案仍是 KaTeX 双层 DOM 的杂乱
-      // 文本（已知限制，书签跳转不受影响）。
-      _pdfTocEntries(maxLevel) {
-        if (!Outline || !this.activeTab) return [];
-        const headings = Outline.extractHeadings(this.activeTab.content || '', {
-          headingToId: (t) => this.headingToId(t),
+      // 数据源 = 打印根 DOM 标题（审查修复轮的关键决定）：PDF 书签大纲同样派生自 DOM
+      // h1–h6，两者文档序天然一一对应——页码 zip 不需要文本/id 匹配，数学标题（KaTeX
+      // 双层 DOM 污染 textContent）不会产生 id 失配或死锚点。label 取标题 innerHTML：
+      // 公式/加粗在打印 DOM 里已是渲染态，目录观感与正文一致（无需再走 processMath）。
+      // PDF 书签文案仍是 KaTeX 双层 DOM 的杂乱文本（已知限制，书签跳转不受影响）。
+      _pdfTocEntries(printRoot, maxLevel) {
+        if (!printRoot) return [];
+        const out = [];
+        printRoot.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h) => {
+          const level = Number(h.tagName[1]);
+          if (level > maxLevel || !h.id) return;
+          // label 复用标题渲染态 HTML；内部 <a> unwrap（目录条目本身是 <a>，嵌套非法）
+          const clone = h.cloneNode(true);
+          clone.querySelectorAll('a').forEach((a) => {
+            const parent = a.parentNode;
+            while (a.firstChild) parent.insertBefore(a.firstChild, a);
+            a.remove();
+          });
+          out.push({ level, id: h.id, html: clone.innerHTML });
         });
-        // 深度过滤（设置面板 pdfTocMaxLevel，默认 6=全量）+ 空id剔除（纯符号标题
-        // headingToId 产空串，锚点不存在会让目录条目跳转落空）
-        return headings.filter((h) => h.level <= maxLevel && h.id);
+        return out;
       },
       _buildPdfTocHtml(entries) {
         const items = entries.map((e) =>
           `<div class="pdf-toc-item pdf-toc-level-${e.level}">`
           + `<a class="pdf-toc-link" href="#${e.id}">`
-          + `<span class="pdf-toc-label">${escapeHtml(e.text)}</span>`
+          + `<span class="pdf-toc-label">${e.html}</span>`
           + '<span class="pdf-toc-leader"></span>'
           + `<span class="pdf-toc-num" data-toc-num="${e.id}">000</span>`
           + '</a></div>'
         ).join('');
         return `<div class="pdf-toc-page"><div class="pdf-toc-title">${escapeHtml(this.t('pdfTocTitle'))}</div>${items}<div class="pdf-toc-end"></div></div>`;
       },
-      _fillPdfTocPageNumbers(tocEl, printRoot, pages) {
-        // 打印根里的 h1–h6 文档序 zip 大纲页码数组（outlinePages 按大纲顺序 = 文档顺序）；
-        // 页数不足（Chromium 跳过个别标题等）缺页条目留空——宁缺勿串。
-        const nums = new Map();
+      _fillPdfTocPageNumbers(tocPageEl, printRoot, pages) {
+        // 打印根 h1–h6 文档序 zip 大纲页码数组（outlinePages pre-order = DOM 文档序）。
+        // 严格对齐守卫：大纲条目数 ≠ DOM 标题数（Chromium 跳过个别标题等结构异常）或
+        // 数组缺失（Rust 解析失败）→ 页码全部留空——部分错位比缺失更危险，宁缺勿串；
+        // 目录页保留（条目锚点仍可点击），与设计规格 §B.2 降级语义一致。
+        const blank = () => {
+          tocPageEl.querySelectorAll('[data-toc-num]').forEach((el) => { el.textContent = ''; });
+        };
+        if (!Array.isArray(pages)) return blank();
         const headings = printRoot.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        if (headings.length !== pages.length) return blank();
+        const nums = new Map();
         headings.forEach((h, i) => {
-          if (i < pages.length && h.id) nums.set(h.id, String(pages[i] + 1));
+          if (h.id) nums.set(h.id, String(pages[i] + 1));
         });
-        tocEl.querySelectorAll('[data-toc-num]').forEach((el) => {
+        tocPageEl.querySelectorAll('[data-toc-num]').forEach((el) => {
           el.textContent = nums.get(el.getAttribute('data-toc-num')) || '';
         });
       },
@@ -1993,7 +2010,8 @@
     #pdf-print-root .pdf-toc-level-6 { padding-left: 70px; }
     #pdf-print-root .pdf-toc-link { display: flex; align-items: baseline; text-decoration: none; color: inherit; }
     #pdf-print-root .pdf-toc-leader { flex: 1; border-bottom: 1px dotted #999; margin: 0 4px; min-width: 12px; }
-    #pdf-print-root .pdf-toc-num { font-variant-numeric: tabular-nums; }`;
+    #pdf-print-root .pdf-toc-num { font-variant-numeric: tabular-nums; }
+    #pdf-print-root .pdf-toc-end { page-break-after: always; }`;
           document.head.appendChild(printStyle);
 
           // 展开所有滚动/裁切容器（与长图 / DOCX 同一口径），否则打印只出可视区那一屏
@@ -2023,17 +2041,13 @@
           // 第二遍正常打印落盘（产物 = 目录页 + 书签大纲）。
           // CDP 不可用（老运行时）：第一遍回 viaCdp=false → 移除目录页走原生单遍，
           // 行为 = 现状，绝不出「有目录页但无页码」的半成品。
-          const tocEntries = this._pdfTocEntries(this.settings.pdfTocMaxLevel || 6);
+          const tocEntries = this._pdfTocEntries(printRoot, this.settings.pdfTocMaxLevel || 6);
           let tocPageEl = null;
           if (tocEntries.length) {
             const tocShell = document.createElement('div');
             tocShell.innerHTML = this._buildPdfTocHtml(tocEntries);
             tocPageEl = tocShell.firstElementChild; // .pdf-toc-page
             printRoot.insertBefore(tocPageEl, printRoot.firstChild);
-            // 目录标签的行内公式 KaTeX 渲染：与大纲面板同款（layout.js processMath 守卫同款）
-            if (typeof RenderPost !== 'undefined' && RenderPost.processMath) {
-              try { RenderPost.processMath(tocPageEl); } catch (_e) { /* 渲染失败保持原文 */ }
-            }
           }
           // 返回结构 PdfPrintOutcome { viaCdp, outlinePages }：viaCdp=true 时产物自带
           // 书签大纲（CDP generateDocumentOutline）。防御式访问——测试桩 / 旧运行时
@@ -2042,7 +2056,9 @@
             const r1 = await TauriApi.printToPdf({
               options: { path: targetPath, outlineOnly: true, ...pdfDims },
             });
-            if (r1 && r1.viaCdp && Array.isArray(r1.outlinePages)) {
+            if (r1 && r1.viaCdp) {
+              // 填页码（大纲解析失败/数量不齐时内部全空——目录保留、条目仍可点击，
+              // 设计规格 §B.2 降级语义）。fill 不依赖 activeTab，中途关文档不影响流程。
               this._fillPdfTocPageNumbers(tocPageEl, printRoot, r1.outlinePages);
               await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
             } else {
