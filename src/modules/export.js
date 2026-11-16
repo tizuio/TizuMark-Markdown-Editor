@@ -1953,7 +1953,10 @@
           await new Promise(r => setTimeout(r, 80));
 
           // A4 = 8.27 × 11.69 英寸；1.5cm ≈ 0.59 英寸（与原 @page margin 保持一致）
-          await TauriApi.printToPdf({
+          // 返回结构 PdfPrintOutcome { viaCdp, outlinePages }：viaCdp=true 时产物自带
+          // 书签大纲（CDP generateDocumentOutline）。防御式访问——测试桩 / 旧运行时
+          // resolve 的值可能没有字段，不得因此报错。
+          const printOutcome = await TauriApi.printToPdf({
             options: {
               path: targetPath,
               pageWidth: 8.27,
