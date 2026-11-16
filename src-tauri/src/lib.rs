@@ -2057,6 +2057,51 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // 真机管线验证：本机 Edge（与 WebView2 同一 Chromium 打印管线）跑 CDP
+    // generateDocumentOutline 产出真实 PDF，验证解析器对 xref stream / 对象流格式的兼容性。
+    // 手动跑：cargo test test_parse_real_chromium_pdf -- --ignored（fixture 由
+    // .superpowers/.../fixture/verify-chromium-pdf.mjs 生成）
+    fn test_parse_real_chromium_pdf() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../.superpowers/sdd/2026-11-17-pdf-toc-bookmarks/fixture/chromium-outline.pdf"
+        );
+        let bytes = std::fs::read(path).expect("fixture 缺失：先跑 verify-chromium-pdf.mjs");
+        let pages = parse_pdf_outline_pages(&bytes)
+            .expect("真实 Chromium 产物应可解析出大纲页码");
+        // 页面布局：p1 目录；p2 h1-a、h2-a1；p3 h3-a1a；p4 h1-b（0-based：1,1,2,3）
+        assert_eq!(pages, vec![1, 1, 2, 3], "pre-order 应得 DOM 文档序页码");
+
+        // 内部锚点 → 可点击 PDF 跳转链接（/Annots /Link）——目录条目跳转的管线证据
+        let doc = lopdf::Document::load_mem(&bytes).unwrap();
+        let page1_ref = *doc.get_pages().values().next().unwrap();
+        let page1_obj = doc.get_object(page1_ref).unwrap().as_dict().unwrap();
+        let annots = page1_obj.get(b"Annots").expect("目录页应含链接注解（内部锚点转跳转）");
+        let arr = annots.as_array().unwrap();
+        assert!(
+            arr.len() >= 4,
+            "目录页 4 个条目应转成 ≥4 个 /Link 注解，实际 {}",
+            arr.len()
+        );
+        for a in arr {
+            let dict = doc
+                .get_object(a.as_reference().expect("注解应为引用"))
+                .unwrap()
+                .as_dict()
+                .unwrap();
+            assert_eq!(
+                dict.get(b"Subtype").unwrap().as_name().unwrap(),
+                b"Link",
+                "注解应为 /Link"
+            );
+            assert!(
+                dict.has(b"Dest") || dict.has(b"A"),
+                "链接注解应有跳转目标（/Dest 或 /A）"
+            );
+        }
+    }
+
+    #[test]
     fn test_files_from_args_skips_exe() {
         let argv = vec![
             "C:\\Program Files\\TizuMark\\TizuMark.exe".to_string(),
