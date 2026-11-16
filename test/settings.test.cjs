@@ -99,6 +99,28 @@ test('settings: loadSettings 残留旧版 fontScheme 字段被自愈清除', asy
   } finally { cleanup(w); }
 });
 
+test('settings: pdfTocMaxLevel 默认 6（PDF 目录收录深度到 h6）', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    const d = ed.defaultSettings();
+    assert.strictEqual(d.pdfTocMaxLevel, 6, '默认收录 h1–h6（2026-11-17 用户确认的深度规格）');
+  } finally { cleanup(w); }
+});
+
+test('settings: pdfTocMaxLevel 合法值加载 / 越界与类型错位回退默认', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocMaxLevel: 4 }));
+    assert.strictEqual(ed.loadSettings().pdfTocMaxLevel, 4, '合法值 3~6 原样加载');
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocMaxLevel: 9 }));
+    assert.strictEqual(ed.loadSettings().pdfTocMaxLevel, 6, '越界数字回退默认 6');
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocMaxLevel: 2 }));
+    assert.strictEqual(ed.loadSettings().pdfTocMaxLevel, 6, '低于下限（2 < 3）回退默认 6');
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocMaxLevel: 'abc' }));
+    assert.strictEqual(ed.loadSettings().pdfTocMaxLevel, 6, '字符串类型错位回退默认 6');
+  } finally { cleanup(w); }
+});
+
 test('settings: loadSettings 坏 JSON 回退默认', async () => {
   const { w, ed } = await makeEditor();
   try {
