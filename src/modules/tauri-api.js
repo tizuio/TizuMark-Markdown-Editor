@@ -21,6 +21,8 @@
     'list_dir', 'search_files', 'ensure_dir', 'app_data_dir', 'list_system_fonts', 'read_bundled_file',
     'read_bundled_image_as_base64', 'fetch_image_as_base64', 'save_image_to_assets',
     'watch_folder', 'stop_watch', 'search_in_files', 'generate_toc',
+    // 多窗口撕离（tab-tearoff-window）：枚举分离编辑器窗口 label（退出协调用）
+    'list_editor_windows',
     'get_cli_args', 'quit_app', 'open_devtools', 'set_window_behavior',
     'set_close_to_tray_shortcut',
     'reveal_in_folder',
@@ -105,6 +107,36 @@
     const ns = getNs('window');
     if (!ns || typeof ns.getCurrentWindow !== 'function') return null;
     return ns.getCurrentWindow();
+  };
+
+  // 多窗口撕离：新建分离编辑器窗口（label=editor-<n>，webviewWindow.WebviewWindow）。
+  // url 用相对路径（同源 index.html + label 参数，dev 为 http://localhost:1420、打包为 tauri://localhost，
+  // 相对解析两种 base 均成立）；几何由调用方按 cascadeGeometry 传入。
+  // 命名空间缺失（浏览器环境）resolve null；tauri://error 同样 resolve null 不抛（调用方降级为撕离失败）。
+  api.createEditorWindow = function (label, geometry) {
+    const ns = getNs('webviewWindow');
+    if (!ns || typeof ns.WebviewWindow !== 'function') return Promise.resolve(null);
+    const g = geometry || {};
+    return new Promise((resolve) => {
+      let win;
+      try {
+        win = new ns.WebviewWindow(label, {
+          url: 'index.html?label=' + encodeURIComponent(label),
+          x: g.x, y: g.y, width: g.width, height: g.height,
+          minWidth: 800, minHeight: 600,
+          decorations: false, visible: true, backgroundColor: '#f5f5f5',
+        });
+      } catch (e) {
+        console.error('[TauriApi] createEditorWindow error:', e);
+        resolve(null);
+        return;
+      }
+      win.once('tauri://created', () => resolve(win));
+      win.once('tauri://error', (e) => {
+        console.error('[TauriApi] createEditorWindow tauri://error:', e);
+        resolve(null);
+      });
+    });
   };
 
   // path.resourceDir：命名空间缺失时返回 null（调用方 || '' 兜底）

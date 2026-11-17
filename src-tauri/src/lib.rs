@@ -77,6 +77,20 @@ fn quit_app(app: tauri::AppHandle) {
     exit_app(app);
 }
 
+// 多窗口撕离（tab-tearoff-window）：枚举分离编辑器窗口 label（editor-<n>，除 main 外全部，
+// 升序）。退出协调用：主窗口 quit 前逐窗请求保存收口。前端 tauri-api.js COMMANDS 已含本命令名
+// （契约测试双向校验）。
+#[tauri::command]
+fn list_editor_windows(app: tauri::AppHandle) -> Vec<String> {
+    let mut labels: Vec<String> = app
+        .webview_windows()
+        .into_keys()
+        .filter(|l| l != "main")
+        .collect();
+    labels.sort();
+    labels
+}
+
 // 路径安全校验：拒绝写入/创建到系统关键目录或越界路径。
 // 编辑器需读写用户任意选中的文件，故不做全盘 scope 限制，
 // 仅在此拦截危险目标（启动目录、系统目录等持久化/RCE 向量）。
@@ -1429,7 +1443,11 @@ fn heading_to_id(text: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 分离编辑器窗口（editor-*）几何由前端建窗时显式级联传入（multi-window.cascadeGeometry），
+        // 不纳入 window-state 的按 label 存取——label 编号复用空位，残留状态会张冠李戴。
+        .plugin(tauri_plugin_window_state::Builder::default()
+            .with_filter(|label: &str| !label.starts_with("editor-"))
+            .build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -1480,6 +1498,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             get_cli_args,
+            list_editor_windows,
             set_window_behavior,
             set_close_to_tray_shortcut,
             quit_app,
