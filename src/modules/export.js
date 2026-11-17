@@ -2266,19 +2266,44 @@
           for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
           const blob = new Blob([bytes], { type: mime });
           const url = URL.createObjectURL(blob);
-          this._imageURLCache.set(dataUri, url);
-          // 容量上限：超限 revoke 最旧 Blob URL，防止长会话多图内存持续增长（历史 bug：只增不减）
-          if (this._imageURLCache.size > this._imageURLCacheMax) {
-            const oldestKey = this._imageURLCache.keys().next().value;
-            const oldestUrl = this._imageURLCache.get(oldestKey);
-            this._imageURLCache.delete(oldestKey);
-            if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
-              URL.revokeObjectURL(oldestUrl);
+          // 容量上限（2026-11-18 重做）：超限淘汰最久未用的「未被 DOM 引用」Blob URL。
+          // ⚠️ ① 必须在插入本条**之前**淘汰旧条目——新 blob 尚未挂上 <img>（调用方拿到
+          // 返回值后才赋 src），若放进候选集会被当成「未使用」当场 revoke，正在处理的
+          // 图立刻裂图。② 不能无脑 revoke 队首（最旧）项——blob URL 直接挂在 <img src>
+          // 上，阅读模式整篇一次过、图多于上限时先处理的图必然排在淘汰队首，revoke 即
+          // 裂图（真机 80 图实测前 16 张全挂 = 80-64；实时预览逐块渲染、存活 blob < 64
+          // 所以没事，与用户「阅读模式有些图显示不出来、实时预览正常」完全吻合，且每轮
+          // 重渲染轮换挂哪一批 = 「有些图」时好时坏）。软上限：扫 LRU 序淘汰第一条未被
+          // 当前文档 <img> 引用的旧条目；全被引用则本次不淘汰（缓存临时超限）——被引用
+          // 的 blob 由 re-render 重建 src 释放引用、beforeunload 全量 revoke 兜底，不泄漏。
+          if (this._imageURLCache.size >= this._imageURLCacheMax) {
+            let oldestKey = null;
+            let oldestUrl = null;
+            for (const k of this._imageURLCache.keys()) {
+              const u = this._imageURLCache.get(k);
+              if (!this._isBlobUrlInUse(u)) { oldestKey = k; oldestUrl = u; break; }
+            }
+            if (oldestKey !== null) {
+              this._imageURLCache.delete(oldestKey);
+              if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
+                URL.revokeObjectURL(oldestUrl);
+              }
             }
           }
+          this._imageURLCache.set(dataUri, url);
           return url;
         } catch (e) {
           return dataUri;
+        }
+      },
+      // blob URL 是否仍被当前文档的 <img> 引用（淘汰保护：引用中的 URL revoke 即裂图）。
+      // blob URL 不含引号/反斜杠，可直接内插属性选择器；无 document（jsdom 部分场景）/异常时按未引用处理。
+      _isBlobUrlInUse(url) {
+        try {
+          if (typeof document === 'undefined' || !document.querySelector || !url) return false;
+          return !!document.querySelector('img[src="' + url + '"]');
+        } catch (_) {
+          return false;
         }
       },
   };
