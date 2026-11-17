@@ -71,6 +71,7 @@
         previewScrollTop: t.previewScrollTop || 0,
         fileMeta: t.fileMeta || null,
         pendingExternalChange: !!t.pendingExternalChange,
+        _loadError: !!t._loadError,
         _loaded: true,
       },
     };

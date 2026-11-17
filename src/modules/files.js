@@ -86,9 +86,20 @@
           this.hideLoading();
         }
       },
+      // 会话键：主窗口固定键；分离编辑器窗口按 label 拆键（同源 localStorage 全窗口共享，
+      // 不拆则多窗口 saveSession 互相覆盖）。_detachedLabel 由 app.js boot 分离分支设置；
+      // 测试可直接注入。boot 参数与键口径见 multi-window.js / 设计文档定案 4。
+      sessionKey() {
+        if (this._detachedLabel) return 'tizumark-session-' + this._detachedLabel;
+        const boot = (window.TMMultiWindow && window.TMMultiWindow.parseBootParams)
+          ? window.TMMultiWindow.parseBootParams(window.location.search)
+          : null;
+        if (boot && boot.detached) return 'tizumark-session-' + boot.label;
+        return 'tizumark-session';
+      },
       loadSession() {
         try {
-          const raw = localStorage.getItem('tizumark-session');
+          const raw = localStorage.getItem(this.sessionKey());
           if (!raw) return null;
           const data = JSON.parse(raw);
           if (!data || data.version !== 2) return null;
@@ -120,8 +131,31 @@
             workspaceFolder: this.workspaceFolder || null,
             expandedFolders: this.expandedFolders ? Array.from(this.expandedFolders) : [],
           };
-          localStorage.setItem('tizumark-session', JSON.stringify(data));
+          localStorage.setItem(this.sessionKey(), JSON.stringify(data));
         } catch (e) { /* ignore */ }
+      },
+      // 分离窗口 boot：从交接负载重建 Tab（内容/未保存态已随迁，不读盘）。
+      // 口径对齐 restoreSession：kind 经 classifyFile 归一（防图片被当文本读）、
+      // 源窗口的加载失败态（_loadError）在此可见化；光标/滚动/预览滚动原样带回。
+      restoreDetachedTab(st) {
+        st = st || {};
+        const fallbackName = st.filePath ? st.filePath.split(/[/\\]/).pop() : `${this.t('untitled')}0`;
+        const tab = new Tab(st.name || fallbackName, st.content || '', st.filePath, st.kind || 'markdown');
+        if (tab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
+          tab.kind = window.FileTypes.classifyFile(tab.filePath);
+        }
+        tab.savedContent = st.savedContent != null ? st.savedContent : (st.content || '');
+        tab.cursorPos = st.cursorPos || { line: 0, ch: 0 };
+        tab.scrollPos = st.scrollPos || { top: 0, left: 0 };
+        tab.previewScrollTop = st.previewScrollTop || 0;
+        tab.fileMeta = st.fileMeta || null;
+        tab.pendingExternalChange = !!st.pendingExternalChange;
+        tab._loaded = true; // 内容已随迁，不再读盘
+        tab._loadError = !!st._loadError;
+        if (tab._loadError && tab.filePath) {
+          this.reportError('E_NOT_FOUND', { context: { path: tab.filePath }, params: { name: tab.name }, error: new Error('handoff carried _loadError') });
+        }
+        return tab;
       },
       async restoreSession() {
         const session = this.loadSession();
