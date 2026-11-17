@@ -532,3 +532,229 @@ test('S91 引用层级回退无回归：无回退块/空行分隔/引用后普�
 });
 
 
+
+// 回归（2026-11-15，用户文件场景）：convertDefLists 在 remark 解析前逐行改写源文本，
+// 原先无围栏状态跟踪 → 代码块内 ": " 行被误改写成 <dl> 字面文本：
+//   顶格合法围栏：代码块内容被换成转义的 <dl><dt> 标记（bash 命令被毁）；
+//   围栏行写歪（行首 4 空格/不可见空白）：内容炸成真正的定义列表结构、引号丢失。
+test('deflist 预处理不进入围栏：顶格合法围栏内 ": " 行原样保留', () => {
+  const md = [
+    '```bash',
+    ': "${KRG_CUTOFF:?请先确认截止时间并配置 KRG_SCOPE}"',
+    ': "${KRG_ACTOR:?请先确认操作者}"',
+    'read -r -p x KRG_START_TIME',
+    '```',
+  ].join('\n');
+  const html = renderMarkdown(md, {});
+  assert.ok(/language-bash/.test(html), '应渲染为 bash 代码块');
+  // 代码内容逐字保留（HTML 转义后 : 与引号仍在），绝不能出现 dl 标记（含转义形式）
+  assert.ok(html.includes(': &quot;${KRG_CUTOFF:?') || html.includes(': "${KRG_CUTOFF:?'),
+    '": " 行应原样留在代码块内');
+  assert.ok(html.includes('read -r -p x KRG_START_TIME'), 'read 命令应原样保留');
+  assert.ok(!/&#x3C;dl|<dl[\s>]/.test(html), '不应出现任何 dl 标记（含转义形式）');
+});
+
+test('deflist 预处理不进入围栏：歪围栏（4 空格缩进）不炸成定义列表', () => {
+  const md = [
+    '前文段落。',
+    '',
+    '    ```bash',
+    ': "${KRG_CUTOFF:?请先确认截止时间并配置 KRG_SCOPE}"',
+    ': "${KRG_ACTOR:?请先确认操作者}"',
+    'read -r -p x KRG_START_TIME',
+    '```',
+  ].join('\n');
+  const html = renderMarkdown(md, {});
+  // 围栏失效是 CommonMark 语义（缩进代码块），但 ": " 行绝不能被改写成 dl 结构
+  assert.ok(!/&#x3C;dl|<dl[\s>]/.test(html), '不应出现任何 dl 定义列表（含转义形式）');
+  assert.ok(html.includes('read -r -p x KRG_START_TIME'), 'read 命令应保留为普通文本');
+  assert.ok(html.includes('KRG_CUTOFF'), 'KRG_CUTOFF 内容不应丢失');
+});
+
+test('deflist 正常转换不回归：围栏外术语+定义仍转 dl', () => {
+  const md = 'some term\n: definition A\n: definition B\n';
+  const html = renderMarkdown(md, {});
+  assert.ok(/<dl[\s>]/.test(html), '围栏外 deflist 仍应正常转换');
+  assert.ok(html.includes('<dd'), '定义项应保留');
+});
+
+// 回归（2026-11-15 代码块保真审计）：解析前文本级改写器对围栏的感知补齐。
+// 审计发现两处真缺陷：
+//   ① extractAbbreviations 无围栏跟踪 → 代码块内 *[ABC]: def 字面量行被偷走（行清空
+//      + 注入 abbr-data），代码内容被毁；
+//   ② convertAlerts / guardMathBlocks 只认 ``` 不认 ~~~ → 波浪线围栏内的 > [!NOTE]
+//      与 $$...$$ 字面量被误转成提示块/数学占位符。
+test('缩写定义行在围栏内不提取（字面量保留）', () => {
+  const md = '```bash\n*[ABC]: 缩写定义\n[^1]: 脚注定义\necho ok\n```';
+  const html = renderMarkdown(md, {});
+  assert.ok(html.includes('*[ABC]: 缩写定义'), '缩写定义行应原样留在代码块内');
+  assert.ok(!html.includes('abbr-data'), '不应注入 abbr-data（围栏内不提取缩写）');
+  // 围栏外缩写仍正常工作
+  const html2 = renderMarkdown('*[ABC]: 缩写定义\n\n正文提及 ABC 缩写。', {});
+  assert.ok(html2.includes('abbr-data'), '围栏外缩写提取不回归');
+});
+
+test('波浪线围栏 ~~~ 内 callout/数学/缩写字面量全部保留', () => {
+  const inner = [
+    '> [!NOTE]',
+    '> [!TIP] 提示文字',
+    '*[ABC]: 缩写定义',
+    '$$',
+    'x = 1',
+    '$$',
+  ].join('\n');
+  const html = renderMarkdown('~~~text\n' + inner + '\n~~~', {});
+  const m = html.match(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/);
+  assert.ok(m, '应渲染出代码块');
+  const text = m[1].replace(/&#x3C;/g, '<').replace(/&#x26;/g, '&').replace(/&quot;/g, '"');
+  assert.strictEqual(text.replace(/\n$/, ''), inner, '~~~ 围栏内内容必须逐字一致');
+  assert.ok(!html.includes('alert-') || !html.includes('ALERTBLOCK'), '不应出现提示块占位');
+  assert.ok(!html.includes('math-placeholder'), '不应出现数学占位');
+});
+
+test('围栏字符感知：``` 块内的 ~~~ 字面量不翻转状态', () => {
+  // ``` 块里出现 ~~~（markdown 示例常见）：deflist/缩写跟踪不能被 ~~~ 误翻转，
+  // 否则其后的 ": " 行会在"伪围栏外"被改写成定义列表。
+  const md = [
+    '```markdown',
+    '~~~python',
+    'print(1)',
+    '~~~',
+    '',
+    'term',
+    ': definition inside code',
+    '```',
+  ].join('\n');
+  const html = renderMarkdown(md, {});
+  assert.ok(!/<dl[\s>]|&#x3C;dl/.test(html), '代码块内 ": " 行不得被改写成定义列表');
+  assert.ok(html.includes(': definition inside code'), '": " 行应保留在代码块内');
+  assert.ok(html.includes('~~~python'), '~~~ 字面量应保留');
+});
+
+// ============================================================
+// 宽松删除线（relaxStrikethrough，2026-11-17「预览放宽」方案）
+// 用户报告：闭合 ~~ 左侧是空白、或左侧是标点且右侧不是空白/标点（全/半角）时，
+// remark-gfm flanking 规则拒绝配对、预览原样显示 ~~。方案：恰好 2 波浪配对成功
+// 且内容非空 → 改写成 <del> 原生 HTML；remark 本来就能渲染的形态一律不动。
+// ============================================================
+
+// 从渲染 HTML 中提取 <del> 的可见文本（无 del 时返回 null）
+function delTexts(html) {
+  const out = [];
+  const re = /<del[^>]*>([\s\S]*?)<\/del>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) out.push(m[1]);
+  return out;
+}
+
+test('宽松删除线：闭合前空格的配对改写为 <del>', () => {
+  const html = renderMarkdown('~~测试 ~~你好', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 1, '应改写出一个 <del>');
+  assert.strictEqual(dels[0], '测试 ', '划线内容 = 「测试 」');
+  assert.ok(html.includes('你好'), '后续文字保留');
+  assert.ok(!/~~/.test(html), '不应残留 ~~ 字面量');
+});
+
+test('宽松删除线：闭合前全角标点、右侧字母 → 改写', () => {
+  const html = renderMarkdown('~~测试，~~你好', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 1);
+  assert.strictEqual(dels[0], '测试，');
+  assert.ok(!/~~/.test(html));
+});
+
+test('宽松删除线：闭合前半角标点/括号、右侧字母 → 改写', () => {
+  for (const src of ['~~测试,~~你好', '~~测试。~~你好', '~~测试、~~你好', '~~测试（）~~你好', '~~测试()~~你好']) {
+    const html = renderMarkdown(src, {});
+    assert.strictEqual(delTexts(html).length, 1, src + ' 应改写出一个 <del>');
+    assert.ok(!/~~/.test(html), src + ' 不应残留 ~~');
+  }
+});
+
+test('宽松删除线：开侧失败（字母+标点+~~）同样改写', () => {
+  // 「测试~~，~~你好」：opener 后是标点、前是字母 → left-flanking 失败
+  const html = renderMarkdown('测试~~，~~你好', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 1);
+  assert.strictEqual(dels[0], '，');
+  assert.ok(!/~~/.test(html));
+});
+
+test('宽松删除线：remark 原生可渲染的形态一律不动（保持管线原路径）', () => {
+  const cases = [
+    ['~~测试~~你好', '测试'],
+    ['~~测试~~ 你好', '测试'],
+    ['~~测试~~，你好', '测试'],
+    ['~~测试~~（你好）', '测试'],
+    ['~~测试，~~ 你好', '测试，'],
+    ['~~测试(~~ 你好', '测试('],
+  ];
+  for (const [src, expected] of cases) {
+    const html = renderMarkdown(src, {});
+    const dels = delTexts(html);
+    assert.strictEqual(dels.length, 1, src + ' 应由 remark-gfm 原生渲染出 <del>');
+    assert.strictEqual(dels[0], expected, src + ' 划线内容不符');
+    assert.ok(!/~~/.test(html), src + ' 不应残留 ~~');
+  }
+});
+
+test('宽松删除线：3+ 波浪绝不参与配对（围栏语义/字面量）', () => {
+  // singleTilde:false 口径：长度不等的 run 不配对，保持字面量
+  const html = renderMarkdown('~~测试~~~你好', {});
+  assert.strictEqual(delTexts(html).length, 0, '~~ 与 ~~~ 不应配对');
+  assert.ok(html.includes('~~测试~~~你好') || /~~测试~~/.test(html), '波浪应原样保留');
+});
+
+test('宽松删除线：代码块内一字不动', () => {
+  for (const fence of ['```', '~~~']) {
+    const md = fence + 'bash\n: "${VAR:?msg}"  # ~~测试，~~你好\n' + fence;
+    const html = renderMarkdown(md, {});
+    assert.strictEqual(delTexts(html).length, 0, fence + ' 围栏内不得出现 <del>');
+    const m = html.match(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/);
+    assert.ok(m, fence + ' 应渲染出代码块');
+    const text = m[1].replace(/&#x3C;/g, '<').replace(/&#x26;/g, '&').replace(/&quot;/g, '"');
+    assert.ok(text.includes('~~测试，~~你好'), fence + ' 围栏内波浪字面量应逐字保留');
+  }
+});
+
+test('宽松删除线：歪围栏（行首 4 空格）内的波浪也不动', () => {
+  const md = '    ```bash\n    ~~测试，~~你好\n    ```';
+  const html = renderMarkdown(md, {});
+  assert.strictEqual(delTexts(html).length, 0, '缩进围栏内不得出现 <del>');
+});
+
+test('宽松删除线：行内代码内的波浪不动', () => {
+  const html = renderMarkdown('代码 `~~测试，~~你好` 保持原样', {});
+  assert.strictEqual(delTexts(html).length, 0, '行内代码内不得出现 <del>');
+  assert.ok(html.includes('~~测试，~~你好'), '行内代码内容应逐字保留');
+});
+
+test('宽松删除线：改写后内容仍走 remark 行内解析（粗体/行内代码生效）', () => {
+  const html = renderMarkdown('~~测试**加粗**，~~你好', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 1, '应改写出一个 <del>');
+  assert.ok(/<strong(\s[^>]*)?>加粗<\/strong>/.test(dels[0]), '<del> 内的粗体应正常渲染');
+});
+
+test('宽松删除线：一行多对混合（可渲染 + 不可渲染）', () => {
+  const html = renderMarkdown('~~正常~~与~~异常，~~混排', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 2, '两对都应渲染出 <del>');
+  assert.strictEqual(dels[0], '正常');
+  assert.strictEqual(dels[1], '异常，');
+  assert.ok(!/~~/.test(html));
+});
+
+test('宽松删除线：行尾闭合（后无字符）不误改写（remark 原生渲染）', () => {
+  const html = renderMarkdown('这是一段~~测试，~~', {});
+  const dels = delTexts(html);
+  assert.strictEqual(dels.length, 1, '行尾闭合是合法 right-flanking，remark 原生渲染');
+  assert.strictEqual(dels[0], '测试，');
+});
+
+test('宽松删除线：无波浪内容零开销快速返回（幂等不变）', () => {
+  const md = '普通文本，没有波浪线。\n\n第二段。\n';
+  assert.strictEqual(renderMarkdown(md, {}), renderMarkdown(md, {}), '重复渲染结果一致');
+  assert.ok(renderMarkdown(md, {}).includes('普通文本'), '普通文本正常渲染');
+});

@@ -273,6 +273,7 @@ function guardMathBlocks(content) {
   let inDoubleBacktick = false;
   let inCodeBlock = false;
   let codeFenceCount = 0;
+  let fenceChar = ''; // 开栏字符：'`' 或 '~'（同字符才能关栏，同 extractFootnotes 口径）
   let inCodeTag = false;
 
   while (i < len) {
@@ -297,13 +298,43 @@ function guardMathBlocks(content) {
         if (!inCodeBlock) {
           inCodeBlock = true;
           codeFenceCount = btCount;
+          fenceChar = '`';
           result += content.substring(i, i + btCount);
           i += btCount;
           continue;
-        } else if (btCount >= codeFenceCount) {
+        } else if (fenceChar === '`' && btCount >= codeFenceCount) {
           inCodeBlock = false;
+          fenceChar = '';
           result += content.substring(i, i + btCount);
           i += btCount;
+          continue;
+        }
+      }
+    }
+
+    // Track tilde fences (~~~，行首判定)：原实现只认反引号围栏，~~~ 代码块内的
+    // $$...$$ 会被误判成数学块占位、代码内容被毁（2026-11-15 代码块保真审计）。
+    // 行首 = 全部前导字符是空格的行头；同字符同长度口径关栏，``` 块内的 ~~~ 字面量不翻转。
+    if (content[i] === '~' && (i === 0 || (() => {
+      let j = i - 1;
+      while (j >= 0 && content[j] === ' ') j--;
+      return j < 0 || content[j] === '\n' || content[j] === '\r';
+    })())) {
+      let tdCount = 1;
+      while (i + tdCount < len && content[i + tdCount] === '~') tdCount++;
+      if (tdCount >= 3) {
+        if (!inCodeBlock) {
+          inCodeBlock = true;
+          codeFenceCount = tdCount;
+          fenceChar = '~';
+          result += content.substring(i, i + tdCount);
+          i += tdCount;
+          continue;
+        } else if (fenceChar === '~' && tdCount >= codeFenceCount) {
+          inCodeBlock = false;
+          fenceChar = '';
+          result += content.substring(i, i + tdCount);
+          i += tdCount;
           continue;
         }
       }
@@ -757,10 +788,21 @@ function convertAlerts(content) {
   const alertBlocks = [];
   let i = 0;
   let inCodeBlock = false;
+  let fenceCh = '';
   while (i < lines.length) {
     const line = lines[i];
-    if (line.trim().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      // 围栏字符感知（同 extractFootnotes）：``` 块只能被 ``` 关、~~~ 块只能被 ~~~ 关，
+      // 否则代码块内容里的另一种围栏字面量会把状态翻转错（如 markdown 示例代码块）。
+      // 同时支持 ~~~ 波浪线围栏：原先只认 ```，~~~ 代码块内的 > [!NOTE] 字面量会被误转成提示块。
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        fenceCh = trimmed[0];
+      } else if (trimmed.startsWith(fenceCh)) {
+        inCodeBlock = false;
+        fenceCh = '';
+      }
       result.push(line);
       i++;
       continue;
@@ -833,12 +875,40 @@ function restoreAlerts(html, alertBlocks) {
 
 // Convert definition lists
 // 为 <dl>/<dt>/<dd> 添加 data-source-line，确保滚动同步能映射到这些元素
+// 注意：本函数在 remark 解析【之前】对源文本做行级改写，必须有围栏状态跟踪——
+// 否则代码块内以 ": " 开头的行（bash 的 : "${VAR:?msg}" 参数展开等）会被误改写成
+// <dl> 字面文本，顶格合法围栏的内容被毁（代码块里出现转义的 <dl><dt> 标记），
+// 围栏行写歪（行首 >3 空格/不可见空白）时更会把内容炸成真正的定义列表结构。
+// 围栏判定按 trim：行首缩进超过 3 空格（CommonMark 中已是缩进代码块）或夹带
+// 不间断空格时围栏本会失效，这里仍视其为围栏边界，宁可漏改写也不误改写。
 function convertDefLists(content) {
   const lines = content.split('\n');
   const result = [];
   let i = 0;
+  let inCodeBlock = false;
+  let fenceCh = '';
   while (i < lines.length) {
     const line = lines[i];
+    const t = line.trim();
+    if (t.startsWith('```') || t.startsWith('~~~')) {
+      // 围栏字符感知（同 extractFootnotes）：``` 块只能被 ``` 关、~~~ 只能被 ~~~ 关，
+      // 防止代码块内的另一种围栏字面量把状态翻转错。
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        fenceCh = t[0];
+      } else if (t.startsWith(fenceCh)) {
+        inCodeBlock = false;
+        fenceCh = '';
+      }
+      result.push(line);
+      i++;
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      i++;
+      continue;
+    }
     const trimmed = line.trim();
     // Check if next line starts with ": " (definition)
     if (i + 1 < lines.length) {
@@ -1065,13 +1135,149 @@ function renderCellContent(text) {
   return result;
 }
 
+// ============================================================
+// 宽松删除线预处理（2026-11-17 用户确认「预览放宽」方案）
+//
+// GitHub GFM 对删除线闭合 ~~ 有 flanking 要求：闭合侧左侧是空白，或左侧是标点
+// 且右侧不是空白/标点时，remark-gfm 拒绝配对、原样显示 ~~（如「~~测试，~~你好」
+// 「~~测试 ~~你好」「测试~~，~~你好」）。用户要求应用内预览放宽：恰好 2 波浪
+// 左右配对成功、内容非空即改写成 <del> 原生 HTML，预览/导出统一渲染。
+//
+// 口径：
+// - 围栏跟踪（trim 判定 + 字符感知，同 convertDefLists）：代码块内一字不动。
+// - 行内代码 span（反引号 run 配对）内的波浪不动。
+// - 配对 = 同一行内两个「恰好 2 个波浪」的 run（run 是连续波浪的极大匹配；
+//   3+ 波浪是围栏语义/字面量绝不参与，与 remark-gfm singleTilde:false 口径一致）。
+// - 两侧 flanking 全部通过（remark 本来就会渲染）→ 不动，保持 remark 原生路径。
+// - 任一侧 flanking 失败 → 整对改写为 <del>内容</del>（行内 HTML 原样放行，
+//   内容仍走 remark 行内解析，粗体/链接等照常生效）。
+// - 单行处理：跨行配对不受影响，仍按 GitHub 行为。
+// ============================================================
+function _strikeIsWS(ch) { return ch === undefined || /\s/.test(ch); }
+function _strikeIsPunct(ch) {
+  // CommonMark 口径：Unicode P（标点）+ S（符号）类都算「标点」，覆盖全角标点
+  return ch !== undefined && /[\p{P}\p{S}]/u.test(ch);
+}
+function relaxStrikeLine(line) {
+  // 先定位行内代码 span（反引号 run 等长配对），span 内的波浪不参与
+  const codeSpans = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '`') {
+      let n = 0;
+      while (i + n < line.length && line[i + n] === '`') n++;
+      let j = i + n, close = -1;
+      while (j < line.length) {
+        if (line[j] === '`') {
+          let m = 0;
+          while (j + m < line.length && line[j + m] === '`') m++;
+          if (m === n) { close = j; j += m; break; }
+          j += m;
+        } else j++;
+      }
+      codeSpans.push([i, close === -1 ? line.length : close + n]);
+      i = close === -1 ? line.length : close + n;
+    } else i++;
+  }
+  const inCode = (pos) => {
+    for (const [s, e] of codeSpans) if (pos >= s && pos < e) return true;
+    return false;
+  };
+
+  // 收集所有「恰好 2 波浪」run 的起点（极大匹配，行内代码内跳过）
+  const runs = [];
+  i = 0;
+  while (i < line.length) {
+    if (line[i] === '~' && !inCode(i)) {
+      let n = 0;
+      while (i + n < line.length && line[i + n] === '~') n++;
+      if (n === 2) runs.push(i);
+      i += n;
+    } else i++;
+  }
+  if (runs.length < 2) return line;
+
+  // 左到右配对，flanking 失败的对改写成 <del>
+  let result = '';
+  let copied = 0;
+  let k = 0;
+  while (k + 1 < runs.length) {
+    const openS = runs[k];
+    const closeS = runs[k + 1];
+    const inner = line.slice(openS + 2, closeS);
+    if (inner.length > 0) {
+      const beforeOpen = openS > 0 ? line[openS - 1] : undefined;
+      const afterOpen = line[openS + 2];
+      const beforeClose = inner[inner.length - 1];
+      const afterClose = closeS + 2 < line.length ? line[closeS + 2] : undefined;
+      // opener left-flanking：后非空白，且（后非标点 或 前是空白/标点/行首）
+      const openLF = !_strikeIsWS(afterOpen) &&
+        (!_strikeIsPunct(afterOpen) || _strikeIsWS(beforeOpen) || _strikeIsPunct(beforeOpen));
+      // closer right-flanking：前非空白，且（前非标点 或 后是空白/标点/行尾）
+      const closeRF = !_strikeIsWS(beforeClose) &&
+        (!_strikeIsPunct(beforeClose) || _strikeIsWS(afterClose) || _strikeIsPunct(afterClose));
+      if (!openLF || !closeRF) {
+        result += line.slice(copied, openS) + '<del>' + inner + '</del>';
+        copied = closeS + 2;
+        k += 2;
+        continue;
+      }
+    }
+    k += 1; // 这一对留给 remark 原生处理（或无法配对），继续尝试后续对
+  }
+  if (copied === 0) return line;
+  result += line.slice(copied);
+  return result;
+}
+function relaxStrikethrough(content) {
+  if (!content || content.indexOf('~~') === -1) return content;
+  const lines = content.split('\n');
+  let inCodeBlock = false;
+  let fenceCh = '';
+  const out = lines.map((line) => {
+    const t = line.trim();
+    if (t.startsWith('```') || t.startsWith('~~~')) {
+      // 围栏字符感知（同 convertDefLists）：``` 只能被 ``` 关、~~~ 只能被 ~~~ 关
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        fenceCh = t[0];
+      } else if (t.startsWith(fenceCh)) {
+        inCodeBlock = false;
+        fenceCh = '';
+      }
+      return line;
+    }
+    if (inCodeBlock) return line;
+    return relaxStrikeLine(line);
+  });
+  return out.join('\n');
+}
+
 // Extract abbreviations and hide from output
 function extractAbbreviations(content) {
   const abbrs = [];
   const lines = content.split('\n');
   const result = [];
+  // 围栏状态跟踪：缩写定义行（*[ABBR]: def）只在围栏外提取。
+  // 无跟踪时代码块内的字面量会被偷走（行清空 + 注入 abbr-data），代码内容被毁。
+  // 围栏判定按 trim（同 convertDefLists）：歪围栏（行首 >3 空格/不可见空白）也视为边界。
+  let inCodeBlock = false;
+  let abbrFenceCh = '';
   for (const line of lines) {
-    if (line.startsWith('*[')) {
+    const t = line.trim();
+    if (t.startsWith('```') || t.startsWith('~~~')) {
+      // 围栏字符感知（同 convertDefLists）：``` 只能被 ``` 关、~~~ 只能被 ~~~ 关
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        abbrFenceCh = t[0];
+      } else if (t.startsWith(abbrFenceCh)) {
+        inCodeBlock = false;
+        abbrFenceCh = '';
+      }
+      result.push(line);
+      continue;
+    }
+    if (!inCodeBlock && line.startsWith('*[')) {
       const bracketEnd = line.indexOf(']: ');
       if (bracketEnd !== -1) {
         const term = line.substring(2, bracketEnd);
@@ -1862,6 +2068,10 @@ function renderMarkdown(content, options) {
   // 4.7 守卫 Obsidian 图片嵌入 ![[图片路径]]（仅图片扩展名），转为占位注释
   const wikiImgResult = guardWikilinkImages(processed);
   processed = wikiImgResult.content;
+
+  // 4.8 宽松删除线：把 remark-gfm flanking 规则拒绝的合法 2 波浪配对改写成 <del>
+  //（详见 relaxStrikethrough 注释；代码块/行内代码不动，跨行配对仍按 GitHub 行为）
+  processed = relaxStrikethrough(processed);
 
   // 5. Unified pipeline（processor 复用单例，见 getUnifiedProcessor 注释）
   let html;
