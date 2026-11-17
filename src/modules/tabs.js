@@ -252,12 +252,17 @@
   
         const removeIndex = this.tabs.indexOf(tab);
         if (removeIndex === -1) return;
-  
+
+        await this._removeTabNoPrompt(tab, removeIndex);
+      },
+      // 移除 tab 的统一尾部（closeTab 保存询问后与 detachTabToWindow 撕离成功后共用）：
+      // 外部队列剔除 / 索引调整 / 空态哨兵 / 重建活动 tab / 落会话。
+      // 空态口径不变：允许 0 标签，-1 是「无活动文档」哨兵，清空交给 updateTabBar() 末尾
+      // 的 _applyEmptyState()，避免重复 setValue 触发 CM 事件。
+      async _removeTabNoPrompt(tab, removeIndex) {
         if (this._externalQueue) this._externalQueue = this._externalQueue.filter(t => t !== tab);
         this.tabs.splice(removeIndex, 1);
         if (this.tabs.length === 0) {
-          // 允许 0 标签：-1 是「无活动文档」哨兵。清空编辑器 / 预览 / 只读统一交给
-          // updateTabBar() 末尾的 _applyEmptyState()，避免重复 setValue 触发 CM 事件。
           this.activeTabIndex = -1;
         } else {
           if (removeIndex < this.activeTabIndex) {
@@ -274,6 +279,51 @@
           this.updatePreview();
         }
         this.saveSession();
+      },
+      // 撕离 tab 到独立编辑器窗口（设计：docs/superpowers/specs/2026-11-18-tab-tearoff-window-design.md）。
+      // 状态随迁走 localStorage 交接键（未保存修改与未命名 tab 均可迁——savedContent 一并写入，
+      // isModified 语义在新窗口原样成立）；源窗口移除本 tab。
+      // 失败口径：建窗失败 → 保留 tab、清交接键、E_WINDOW 报错——任何路径不静默丢内容。
+      async detachTabToWindow(index) {
+        if (index < 0 || index >= this.tabs.length) return false;
+        const tab = this.tabs[index];
+        if (!tab) return false;
+        if (!tab._loaded && tab.filePath) await this.ensureTabLoaded(tab);
+
+        const labels = await Promise.resolve(
+          typeof TauriApi.listEditorWindows === 'function' ? TauriApi.listEditorWindows() : []
+        ).catch(() => []);
+        const label = TMMultiWindow.nextEditorLabel(labels);
+        // 级联槽位 = 既有 editor 窗口数 + 1：首个撕离窗即得 28px 偏移，不与主窗口完全重叠
+        const slot = labels.filter(l => TMMultiWindow.isDetachedLabel(l)).length + 1;
+        // 主窗口几何（物理像素）÷ scaleFactor 换算逻辑像素——WebviewWindow 建窗选项是逻辑像素，
+        // 混用会在缩放屏（125%/150%）上错位；浏览器环境/取失败回退默认基几何。
+        let base = { x: 100, y: 100, width: 1200, height: 800 };
+        try {
+          const win = TauriApi.currentWindow();
+          if (win && typeof win.innerPosition === 'function') {
+            const pos = await win.innerPosition();
+            const size = await win.outerSize();
+            const scale = (typeof win.scaleFactor === 'function') ? await win.scaleFactor() : 1;
+            base = {
+              x: pos.x / scale, y: pos.y / scale,
+              width: size.width / scale, height: size.height / scale,
+            };
+          }
+        } catch (_) { /* 降级默认几何 */ }
+        const geometry = TMMultiWindow.cascadeGeometry(base, slot);
+
+        // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回
+        TMMultiWindow.writeHandoff(label, tab, localStorage);
+        const created = await TauriApi.createEditorWindow(label, geometry);
+        if (!created) {
+          TMMultiWindow.clearHandoff(label, localStorage);
+          this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
+          return false;
+        }
+        const removeIndex = this.tabs.indexOf(tab);
+        if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
+        return true;
       },
       // ---- 标签页拖拽排序 ----
       reorderTab(from, to) {
