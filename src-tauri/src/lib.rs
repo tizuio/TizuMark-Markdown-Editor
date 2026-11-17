@@ -1530,6 +1530,34 @@ struct PdfPrintOptions {
     margin_bottom: f64,
     margin_left: f64,
     margin_right: f64,
+    // 仅出大纲（两遍打印的第一遍）：CDP 打印只取内存字节解析书签页码，**不落盘**。
+    // serde 缺省 false —— 旧调用方（前端单遍导出 / 测试桩）不带此字段，行为不变。
+    #[serde(default)]
+    outline_only: Option<bool>,
+    // 用户设置「导出 PDF 生成目录」开关（前端设置面板）。缺省 true（生成书签大纲）；
+    // false = 完全升级前行为（无书签、无目录页），CDP 参数不带 generateDocumentOutline。
+    #[serde(default)]
+    generate_outline: Option<bool>,
+}
+
+// CDP Page.printToPDF 的 JSON 参数（纯函数，#[test] 静态断言防漂移）。
+// 页面尺寸 / 四边边距与 PrintSettings 完全同值（英寸）；printBackground / 关页眉页脚
+// 与现有原生路径口径一致；generateDocumentOutline 让 Chromium 从 h1–h6 自动生成
+// PDF 书签大纲（WebView2Feedback#4466：原生 PrintSettings 至今无此属性，只能走 CDP）。
+fn build_cdp_print_params(opts: &PdfPrintOptions) -> String {
+    serde_json::json!({
+        "paperWidth": opts.page_width,
+        "paperHeight": opts.page_height,
+        "marginTop": opts.margin_top,
+        "marginBottom": opts.margin_bottom,
+        "marginLeft": opts.margin_left,
+        "marginRight": opts.margin_right,
+        "printBackground": true,
+        "displayHeaderFooter": false,
+        "generateDocumentOutline": opts.generate_outline.unwrap_or(true),
+        "preferCSSPageSize": false,
+    })
+    .to_string()
 }
 
 // PDF 导出：直接用 WebView2 的 PrintToPdf 落盘，不经过系统打印对话框、也不经过浏览器下载流程。
@@ -1543,13 +1571,148 @@ struct PdfPrintOptions {
 // 展开滚动容器），样式天然就是阅读模式那一套，不存在「两套 CSS 漂移」；调用返回即表示文件
 // 已落盘，全程无 UI、无气泡、无下载目录残留。
 //
-// 失败面：旧版 WebView2 运行时没有 ICoreWebView2_7::PrintToPdf。此时返回错误，前端据此
-// 回退到原来的系统打印路径，不会让 PDF 导出整个不可用。
+// 失败面：CDP 主路径任一环节失败（运行时过旧 / 调用失败 / 超时）都在 **Rust 内部**自动
+// 回退原生 ICoreWebView2_7::PrintToPdf（2026-11-17 书签大纲重做：generateDocumentOutline
+// 只有 CDP Page.printToPDF 支持，原生 PrintSettings 至今无此属性，见 WebView2Feedback#4466）。
+// outline_only（两遍打印第一遍）拿不到 CDP 字节时直接回 via_cdp=false——原生路径无法
+// 「打印不落盘」，前端据此移除目录页走原生单遍，老运行时行为 = 现状。
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn print_to_pdf(
     window: tauri::WebviewWindow,
     options: PdfPrintOptions,
+) -> Result<PdfPrintOutcome, String> {
+    let outline_only = options.outline_only.unwrap_or(false);
+    // CDP 主路径：Some=拿到内存 PDF 字节；None=运行时过旧 / 调用失败 / 超时等任一环失败
+    if let Some(bytes) = cdp_print_to_pdf_bytes(&window, &options) {
+        // outline_only（第一遍）：只解析大纲**不落盘**（前端拿页码填目录占位后发起第二遍
+        // 正式落盘）；普通打印：字节直接写目标文件，语义与原生路径一致（返回即已落盘）。
+        if !outline_only {
+            std::fs::write(&options.path, &bytes)
+                .map_err(|e| format!("写入 PDF 失败（{}）: {e}", options.path))?;
+        }
+        return Ok(PdfPrintOutcome {
+            via_cdp: true,
+            // 用户关闭生成目录时 CDP 产物本身无大纲，跳过解析
+            outline_pages: if options.generate_outline.unwrap_or(true) {
+                parse_pdf_outline_pages(&bytes)
+            } else {
+                None
+            },
+        });
+    }
+    if outline_only {
+        return Ok(PdfPrintOutcome { via_cdp: false, outline_pages: None });
+    }
+    // CDP 不可用：原样回退现有原生 PrintToPdf（书签缺失但导出不失败，行为 = 现状）
+    native_print_to_pdf(&window, options)?;
+    Ok(PdfPrintOutcome { via_cdp: false, outline_pages: None })
+}
+
+// PDF 导出结果。via_cdp=true 表示 CDP 主路径成功（产物自带书签大纲）；
+// outline_pages=书签大纲树解析出的各条目目标页序号（0-based，按大纲顺序），
+// None=非 CDP 路径 / 解析失败（前端降级为无页码目录或维持现状，绝不因此报错）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PdfPrintOutcome {
+    via_cdp: bool,
+    outline_pages: Option<Vec<u32>>,
+}
+
+// CDP 主路径：CallDevToolsProtocolMethod("Page.printToPDF") 拿内存字节。
+// 任一环节失败都返回 None（调用方回退原生路径），绝不在此抛错让导出失败。
+// 关键：回调在 webview UI 线程触发，recv_timeout 必须在 with_webview 闭包**外**等——
+// 闭包内阻塞会卡死 UI 事件循环，回调永远不来（与原生 PrintToPdf 同一骨架）。
+#[cfg(target_os = "windows")]
+fn cdp_print_to_pdf_bytes(
+    window: &tauri::WebviewWindow,
+    opts: &PdfPrintOptions,
+) -> Option<Vec<u8>> {
+    use std::sync::mpsc::channel;
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
+    };
+    use windows::core::{Interface, PCWSTR};
+    use base64::Engine as _;
+
+    let (tx, rx) = channel::<Option<Vec<u8>>>();
+    let params = build_cdp_print_params(opts);
+    window
+        .with_webview(move |platform| {
+            let tx_cb = tx.clone();
+            let core = match unsafe { platform.controller().CoreWebView2() } {
+                Ok(c) => c,
+                Err(_) => {
+                    let _ = tx.send(None);
+                    return;
+                }
+            };
+            unsafe {
+                // CDP 调用先于置白：cast 失败（极老运行时）时直接退出，控制器背景未被
+                // 改动，无需恢复（与原生路径的退出时恢复不变式一致——2026-10-27 审查口径）。
+                // CallDevToolsProtocolMethod 声明在基础接口 ICoreWebView2 上，无需 _3 cast
+                //（多一次 cast 只会多一条失败路径、误杀老但可用的运行时）。
+                // DefaultBackgroundColor 置白与原生路径同款（CDP 打印管线是否消费控制器
+                // 背景色未证实；置白无害，灰圈风险归零）。恢复路径：① 完成回调里恢复；
+                // ② 同步调用失败（下方 is_err 分支）立即恢复。
+                let controller2 = platform.controller().cast::<ICoreWebView2Controller2>().ok();
+                let mut orig_bg = COREWEBVIEW2_COLOR { A: 255, R: 245, G: 245, B: 245 };
+                if let Some(c2) = controller2.clone() {
+                    let _ = c2.DefaultBackgroundColor(&mut orig_bg);
+                    let _ = c2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                        A: 255, R: 255, G: 255, B: 255,
+                    });
+                }
+                let controller2_cb = controller2.clone();
+                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                    move |hr, ret_json| {
+                        if let Some(c2) = controller2_cb.clone() {
+                            let _ = c2.SetDefaultBackgroundColor(orig_bg);
+                        }
+                        let bytes = if hr.is_ok() {
+                            (|| -> Option<Vec<u8>> {
+                                // 返回 JSON 形如 {"data": "<base64>"}；任何一步不合预期按失败回退
+                                // （PCWSTR 的 to_string 走 Display 实现，非 unsafe）
+                                let s = ret_json.to_string();
+                                let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+                                let b64 = v.get("data")?.as_str()?;
+                                base64::engine::general_purpose::STANDARD.decode(b64).ok()
+                            })()
+                        } else {
+                            None
+                        };
+                        let _ = tx_cb.send(bytes);
+                        Ok(())
+                    },
+                ));
+                let method: Vec<u16> =
+                    "Page.printToPDF".encode_utf16().chain(std::iter::once(0)).collect();
+                let params_w: Vec<u16> =
+                    params.encode_utf16().chain(std::iter::once(0)).collect();
+                if core
+                    .CallDevToolsProtocolMethod(PCWSTR(method.as_ptr()), PCWSTR(params_w.as_ptr()), &handler)
+                    .is_err()
+                {
+                    // 同步失败：完成回调不会触发，这里立即恢复白底
+                    if let Some(c2) = controller2.clone() {
+                        let _ = c2.SetDefaultBackgroundColor(orig_bg);
+                    }
+                    let _ = tx.send(None);
+                }
+            }
+        })
+        .ok()?; // dispatch 失败 → None → 回退
+    // 超长文档分页渲染可能要十几秒；180s 只兜异常挂死，超时按失败回退
+    rx.recv_timeout(std::time::Duration::from_secs(180)).unwrap_or(None)
+}
+
+// 原生回退路径：ICoreWebView2_7::PrintToPdf 直接落盘（2026-10-25 起的主路径，现为
+// CDP 不可用时的回退）。原实现整体搬移，行为不变。
+#[cfg(target_os = "windows")]
+fn native_print_to_pdf(
+    window: &tauri::WebviewWindow,
+    opts: PdfPrintOptions,
 ) -> Result<(), String> {
     use std::sync::mpsc::channel;
     use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -1560,8 +1723,7 @@ async fn print_to_pdf(
     use windows::core::{Interface, PCWSTR};
 
     let (tx, rx) = channel::<Result<(), String>>();
-    let path = options.path.clone();
-    let opts = options;
+    let path = opts.path.clone();
 
     window
         .with_webview(move |platform| {
@@ -1661,19 +1823,312 @@ async fn print_to_pdf(
     }
 }
 
-// 非 Windows 平台暂无 PrintToPdf 等价能力：明确报错，让前端回退系统打印
+// 解析 PDF 书签大纲树：返回每条大纲条目的目标页序号（0-based，按大纲顺序）。
+// 用途：CDP generateDocumentOutline 产出的书签 → 前端纸面目录页的「标题→页码」映射
+// （设计文档 2026-11-17-pdf-outline-design.md 第二阶段）。
+// 任一环节失败（非 PDF / 结构不合预期 / 条目解析不到页）整体返回 None——调用方降级为
+// 无页码目录（条目仍可点击），绝不因解析失败让导出失败。上限 10000 条防环。
+fn parse_pdf_outline_pages(bytes: &[u8]) -> Option<Vec<u32>> {
+    use lopdf::Object;
+    use std::collections::HashMap;
+    let doc = lopdf::Document::load_mem(bytes).ok()?;
+    // 页对象引用 → 页序号（0-based）：get_pages 按文档树序返回 1-based 页号
+    let page_index: HashMap<lopdf::ObjectId, u32> =
+        doc.get_pages().into_iter().map(|(k, v)| (v, k - 1)).collect();
+    let catalog_ref = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+    let outlines_ref = doc
+        .get_object(catalog_ref)
+        .ok()?
+        .as_dict()
+        .ok()?
+        .get(b"Outlines")
+        .ok()?
+        .as_reference()
+        .ok()?;
+    let first = doc
+        .get_object(outlines_ref)
+        .ok()?
+        .as_dict()
+        .ok()?
+        .get(b"First")
+        .ok()?
+        .as_reference()
+        .ok()?;
+    // pre-order DFS（显式栈）：书签树是**嵌套**的——h2/h3 挂在父项 /First 子链上而非顶层
+    // /Next 平铺（Chromium generateDocumentOutline 的产出形态）。访问顺序 = 父 → 子链 →
+    // 兄弟 = DOM 文档序，与前端打印根 h1–h6 顺序一一对应。栈里先压兄弟再压子（LIFO 保证
+    // 子链先于兄弟访问）。
+    let mut stack = vec![first];
+    let mut pages = Vec::new();
+    let mut visits = 0usize;
+    while let Some(cur) = stack.pop() {
+        visits += 1;
+        if visits > 10000 {
+            // 结构异常（环 / 超大树）：整体视为解析失败，调用方降级，绝不输出错位页码
+            return None;
+        }
+        let item = doc.get_object(cur).ok()?;
+        let dict = item.as_dict().ok()?;
+        // /Dest 直接数组（Chromium 产出形态）；/A 动作字典 → /D 数组兜底
+        let dest = if let Ok(o) = dict.get(b"Dest") {
+            o.clone()
+        } else {
+            dict.get(b"A").ok()?.as_dict().ok()?.get(b"D").ok()?.clone()
+        };
+        let arr = dest.as_array().ok()?;
+        let pref = arr.first()?.as_reference().ok()?;
+        pages.push(*page_index.get(&pref)?);
+        if let Ok(n) = dict.get(b"Next").and_then(Object::as_reference) {
+            stack.push(n);
+        }
+        if let Ok(f) = dict.get(b"First").and_then(Object::as_reference) {
+            stack.push(f);
+        }
+    }
+    Some(pages)
+}
+
+// 非 Windows 平台暂无 PrintToPdf / CDP 等价能力：明确报错，让前端回退系统打印
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn print_to_pdf(
     _window: tauri::WebviewWindow,
     _options: PdfPrintOptions,
-) -> Result<(), String> {
+) -> Result<PdfPrintOutcome, String> {
     Err("当前平台暂不支持 PrintToPdf，回退系统打印".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_build_cdp_print_params_outline_and_layout() {
+    let opts = PdfPrintOptions {
+        path: "C:/tmp/a.pdf".into(),
+        page_width: 8.27,
+        page_height: 11.69,
+        margin_top: 0.59,
+        margin_bottom: 0.59,
+        margin_left: 0.59,
+        margin_right: 0.59,
+        outline_only: None,
+        generate_outline: None,
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
+    assert_eq!(v["generateDocumentOutline"], true);
+    assert_eq!(v["printBackground"], true);
+    assert_eq!(v["displayHeaderFooter"], false);
+    assert_eq!(v["preferCSSPageSize"], false);
+    assert_eq!(v["paperWidth"], 8.27);
+    assert_eq!(v["paperHeight"], 11.69);
+    assert_eq!(v["marginTop"], 0.59);
+    assert_eq!(v["marginBottom"], 0.59);
+    assert_eq!(v["marginLeft"], 0.59);
+    assert_eq!(v["marginRight"], 0.59);
+}
+
+#[test]
+fn test_build_cdp_print_params_outline_disabled() {
+    // 用户关闭「生成目录」：CDP 参数不带书签大纲（产物 = 升级前的平铺 PDF）
+    let opts = PdfPrintOptions {
+        path: "C:/tmp/a.pdf".into(),
+        page_width: 8.27,
+        page_height: 11.69,
+        margin_top: 0.59,
+        margin_bottom: 0.59,
+        margin_left: 0.59,
+        margin_right: 0.59,
+        outline_only: None,
+        generate_outline: Some(false),
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
+    assert_eq!(v["generateDocumentOutline"], false);
+}
+
+    #[test]
+    fn test_parse_pdf_outline_pages_round_trip() {
+        use lopdf::{Dictionary as LDict, Document as LDoc, Object as LObj};
+        let mut doc = LDoc::with_version("1.4");
+        let pages_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let mut page_ids = Vec::new();
+        for _ in 0..3 {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                // 注意：get_pages 经 PageTreeIter 识别页，页对象必须带 /Type /Page
+                d.set("Type", LObj::Name(b"Page".to_vec()));
+                d.set("Parent", LObj::Reference(pages_id));
+            }
+            page_ids.push(id);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(pages_id).unwrap() {
+            d.set("Type", LObj::Name(b"Pages".to_vec()));
+            d.set("Kids", LObj::Array(page_ids.iter().map(|id| LObj::Reference(*id)).collect()));
+            d.set("Count", 3);
+        }
+        let catalog_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        // 大纲 3 条，目标页 0 / 2 / 1（乱序——验证页码映射来自 /Dest 引用而非条目顺序）
+        let dests = [0usize, 2, 1];
+        let mut item_ids = Vec::new();
+        for t in ["a", "b", "c"] {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Title", LObj::String(t.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+            }
+            item_ids.push(id);
+        }
+        for (i, id) in item_ids.iter().enumerate() {
+            if let LObj::Dictionary(d) = doc.get_object_mut(*id).unwrap() {
+                d.set("Dest", LObj::Array(vec![
+                    LObj::Reference(page_ids[dests[i]]),
+                    LObj::Name(b"XYZ".to_vec()),
+                    LObj::Integer(0), LObj::Integer(792), LObj::Integer(0),
+                ]));
+                if i + 1 < item_ids.len() {
+                    d.set("Next", LObj::Reference(item_ids[i + 1]));
+                }
+            }
+        }
+        let outlines_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        if let LObj::Dictionary(d) = doc.get_object_mut(outlines_id).unwrap() {
+            d.set("Type", LObj::Name(b"Outlines".to_vec()));
+            d.set("First", LObj::Reference(item_ids[0]));
+            d.set("Last", LObj::Reference(item_ids[2]));
+            d.set("Count", 3);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(catalog_id).unwrap() {
+            d.set("Type", LObj::Name(b"Catalog".to_vec()));
+            d.set("Pages", LObj::Reference(pages_id));
+            d.set("Outlines", LObj::Reference(outlines_id));
+        }
+        doc.trailer.set("Root", LObj::Reference(catalog_id));
+        let mut buf = Vec::new();
+        doc.save_to(&mut buf).unwrap();
+        assert_eq!(parse_pdf_outline_pages(&buf), Some(vec![0, 2, 1]));
+        assert_eq!(parse_pdf_outline_pages(b"not a pdf"), None);
+    }
+
+    #[test]
+    fn test_parse_pdf_outline_pages_nested_tree_document_order() {
+        // Chromium generateDocumentOutline 产出**嵌套**书签树：h2/h3 挂在父项 /First 子链上，
+        // 不是顶层 /Next 平铺。解析必须 pre-order（父 → 子链 → 兄弟），顺序 = DOM 文档序：
+        //   item1(h1, p0) ─ First → item1a(h2, p1) ─ Next → item1b(h2, p2)
+        //   item1 ─ Next → item2(h1, p3)
+        // 期望 [0, 1, 2, 3]；只走顶层链会得 [0, 3]（历史 bug，页码整体错位）。
+        use lopdf::{Dictionary as LDict, Document as LDoc, Object as LObj};
+        let mut doc = LDoc::with_version("1.4");
+        let pages_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let mut page_ids = Vec::new();
+        for _ in 0..4 {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Type", LObj::Name(b"Page".to_vec()));
+                d.set("Parent", LObj::Reference(pages_id));
+            }
+            page_ids.push(id);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(pages_id).unwrap() {
+            d.set("Type", LObj::Name(b"Pages".to_vec()));
+            d.set("Kids", LObj::Array(page_ids.iter().map(|id| LObj::Reference(*id)).collect()));
+            d.set("Count", 4);
+        }
+        let catalog_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        let dest_of = |p: usize| LObj::Array(vec![
+            LObj::Reference(page_ids[p]),
+            LObj::Name(b"XYZ".to_vec()),
+            LObj::Integer(0), LObj::Integer(792), LObj::Integer(0),
+        ]);
+        let mk_item = |doc: &mut LDoc, title: &str, p: usize| {
+            let id = doc.add_object(LObj::Dictionary(LDict::new()));
+            if let LObj::Dictionary(d) = doc.get_object_mut(id).unwrap() {
+                d.set("Title", LObj::String(title.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+                d.set("Dest", dest_of(p));
+            }
+            id
+        };
+        let item1 = mk_item(&mut doc, "h1-a", 0);
+        let item1a = mk_item(&mut doc, "h2-a1", 1);
+        let item1b = mk_item(&mut doc, "h2-a2", 2);
+        let item2 = mk_item(&mut doc, "h1-b", 3);
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1a).unwrap() {
+            d.set("Parent", LObj::Reference(item1));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1b).unwrap() {
+            d.set("Parent", LObj::Reference(item1));
+            d.set("Prev", LObj::Reference(item1a));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1a).unwrap() {
+            d.set("Next", LObj::Reference(item1b));
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(item1).unwrap() {
+            d.set("First", LObj::Reference(item1a));
+            d.set("Last", LObj::Reference(item1b));
+            d.set("Next", LObj::Reference(item2));
+        }
+        let outlines_id = doc.add_object(LObj::Dictionary(LDict::new()));
+        if let LObj::Dictionary(d) = doc.get_object_mut(outlines_id).unwrap() {
+            d.set("Type", LObj::Name(b"Outlines".to_vec()));
+            d.set("First", LObj::Reference(item1));
+            d.set("Last", LObj::Reference(item2));
+            d.set("Count", 4);
+        }
+        if let LObj::Dictionary(d) = doc.get_object_mut(catalog_id).unwrap() {
+            d.set("Type", LObj::Name(b"Catalog".to_vec()));
+            d.set("Pages", LObj::Reference(pages_id));
+            d.set("Outlines", LObj::Reference(outlines_id));
+        }
+        doc.trailer.set("Root", LObj::Reference(catalog_id));
+        let mut buf = Vec::new();
+        doc.save_to(&mut buf).unwrap();
+        assert_eq!(parse_pdf_outline_pages(&buf), Some(vec![0, 1, 2, 3]));
+    }
+
+    #[test]
+    #[ignore] // 真机管线验证：本机 Edge（与 WebView2 同一 Chromium 打印管线）跑 CDP
+    // generateDocumentOutline 产出真实 PDF，验证解析器对 xref stream / 对象流格式的兼容性。
+    // 手动跑：cargo test test_parse_real_chromium_pdf -- --ignored（fixture 由
+    // .superpowers/.../fixture/verify-chromium-pdf.mjs 生成）
+    fn test_parse_real_chromium_pdf() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../.superpowers/sdd/2026-11-17-pdf-toc-bookmarks/fixture/chromium-outline.pdf"
+        );
+        let bytes = std::fs::read(path).expect("fixture 缺失：先跑 verify-chromium-pdf.mjs");
+        let pages = parse_pdf_outline_pages(&bytes)
+            .expect("真实 Chromium 产物应可解析出大纲页码");
+        // 页面布局：p1 目录；p2 h1-a、h2-a1；p3 h3-a1a；p4 h1-b（0-based：1,1,2,3）
+        assert_eq!(pages, vec![1, 1, 2, 3], "pre-order 应得 DOM 文档序页码");
+
+        // 内部锚点 → 可点击 PDF 跳转链接（/Annots /Link）——目录条目跳转的管线证据
+        let doc = lopdf::Document::load_mem(&bytes).unwrap();
+        let page1_ref = *doc.get_pages().values().next().unwrap();
+        let page1_obj = doc.get_object(page1_ref).unwrap().as_dict().unwrap();
+        let annots = page1_obj.get(b"Annots").expect("目录页应含链接注解（内部锚点转跳转）");
+        let arr = annots.as_array().unwrap();
+        assert!(
+            arr.len() >= 4,
+            "目录页 4 个条目应转成 ≥4 个 /Link 注解，实际 {}",
+            arr.len()
+        );
+        for a in arr {
+            let dict = doc
+                .get_object(a.as_reference().expect("注解应为引用"))
+                .unwrap()
+                .as_dict()
+                .unwrap();
+            assert_eq!(
+                dict.get(b"Subtype").unwrap().as_name().unwrap(),
+                b"Link",
+                "注解应为 /Link"
+            );
+            assert!(
+                dict.has(b"Dest") || dict.has(b"A"),
+                "链接注解应有跳转目标（/Dest 或 /A）"
+            );
+        }
+    }
 
     #[test]
     fn test_files_from_args_skips_exe() {

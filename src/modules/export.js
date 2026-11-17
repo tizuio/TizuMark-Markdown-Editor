@@ -9,6 +9,8 @@
   // Promise.allSettled 等最慢的一张，一挂就是「遮罩撤了、文件没写」）。
   const REMOTE_IMAGE_TIMEOUT_MS = 8000;
   const EXPORT_FRAME_TIMEOUT_MS = 200;
+  // HTML 转义（TOC 目录页 label 等纯文本插槽用；与 app 内其他内联转义同口径）
+  const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), ms);
     Promise.resolve(promise).then(
@@ -1805,6 +1807,61 @@
       // 样式就是当前文档那一套（同一个文档、同一份 styles.css），与阅读模式天然一致。
       // 2026-10-26 用户要求**彻底移除**系统打印回退（PrintToPdf 落盘失败——如目标 PDF 被
       // 占用——时回退会突然弹出系统打印对话框，体验割裂）：失败就明确报错。
+      //
+      // ===== PDF 纸面目录页（TOC）纯函数三件套（设计文档 2026-11-17-pdf-outline-design.md）=====
+      // 两遍打印：第一遍 CDP outlineOnly 拿「标题→页码」数组 → 填进目录占位 → 第二遍落盘。
+      // 数据源 = 打印根 DOM 标题（审查修复轮的关键决定）：PDF 书签大纲同样派生自 DOM
+      // h1–h6，两者文档序天然一一对应——页码 zip 不需要文本/id 匹配，数学标题（KaTeX
+      // 双层 DOM 污染 textContent）不会产生 id 失配或死锚点。label 取标题 innerHTML：
+      // 公式/加粗在打印 DOM 里已是渲染态，目录观感与正文一致（无需再走 processMath）。
+      // PDF 书签文案仍是 KaTeX 双层 DOM 的杂乱文本（已知限制，书签跳转不受影响）。
+      _pdfTocEntries(printRoot, maxLevel) {
+        if (!printRoot) return [];
+        const out = [];
+        printRoot.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h) => {
+          const level = Number(h.tagName[1]);
+          if (level > maxLevel || !h.id) return;
+          // label 复用标题渲染态 HTML；内部 <a> unwrap（目录条目本身是 <a>，嵌套非法）
+          const clone = h.cloneNode(true);
+          clone.querySelectorAll('a').forEach((a) => {
+            const parent = a.parentNode;
+            while (a.firstChild) parent.insertBefore(a.firstChild, a);
+            a.remove();
+          });
+          out.push({ level, id: h.id, html: clone.innerHTML });
+        });
+        return out;
+      },
+      _buildPdfTocHtml(entries) {
+        const items = entries.map((e) =>
+          `<div class="pdf-toc-item pdf-toc-level-${e.level}">`
+          + `<a class="pdf-toc-link" href="#${e.id}">`
+          + `<span class="pdf-toc-label">${e.html}</span>`
+          + '<span class="pdf-toc-leader"></span>'
+          + `<span class="pdf-toc-num" data-toc-num="${e.id}">000</span>`
+          + '</a></div>'
+        ).join('');
+        return `<div class="pdf-toc-page"><div class="pdf-toc-title">${escapeHtml(this.t('pdfTocTitle'))}</div>${items}<div class="pdf-toc-end"></div></div>`;
+      },
+      _fillPdfTocPageNumbers(tocPageEl, printRoot, pages) {
+        // 打印根 h1–h6 文档序 zip 大纲页码数组（outlinePages pre-order = DOM 文档序）。
+        // 严格对齐守卫：大纲条目数 ≠ DOM 标题数（Chromium 跳过个别标题等结构异常）或
+        // 数组缺失（Rust 解析失败）→ 页码全部留空——部分错位比缺失更危险，宁缺勿串；
+        // 目录页保留（条目锚点仍可点击），与设计规格 §B.2 降级语义一致。
+        const blank = () => {
+          tocPageEl.querySelectorAll('[data-toc-num]').forEach((el) => { el.textContent = ''; });
+        };
+        if (!Array.isArray(pages)) return blank();
+        const headings = printRoot.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        if (headings.length !== pages.length) return blank();
+        const nums = new Map();
+        headings.forEach((h, i) => {
+          if (h.id) nums.set(h.id, String(pages[i] + 1));
+        });
+        tocPageEl.querySelectorAll('[data-toc-num]').forEach((el) => {
+          el.textContent = nums.get(el.getAttribute('data-toc-num')) || '';
+        });
+      },
       async exportPDF() {
         if (!this.activeTab) return;
         // 能力分流（2026-10-26 用户四轮要求）：**弹确认框之前**先检测运行时是否支持
@@ -1937,7 +1994,24 @@
     #pdf-print-root h1, #pdf-print-root h2, #pdf-print-root h3 { page-break-after: avoid; }
     #pdf-print-root blockquote, #pdf-print-root table, #pdf-print-root img,
     #pdf-print-root .math-display, #pdf-print-root .alert, #pdf-print-root .mermaid-container { page-break-inside: avoid; }
-    #pdf-print-root p, #pdf-print-root li { orphans: 3; widows: 3; }`;
+    #pdf-print-root p, #pdf-print-root li { orphans: 3; widows: 3; }
+    /* ===== 纸面目录页（TOC，2026-11-17）：追加在末尾，不改动上方任何规则体 =====
+       .pdf-toc-end 的 page-break-after 保证目录后正文从新页开始（目录页数自然流动）；
+       点线引导 span 吸收页码宽度差（000 占位 → 真实数字不引起行回排，两遍分页一致）。
+       目录标题「目录」用 div 实现，不进 PDF 书签。 */
+    #pdf-print-root .pdf-toc-page { margin: 0; }
+    #pdf-print-root .pdf-toc-title { font-size: 1.6em; font-weight: 600; text-align: center; margin: 0.4em 0 1.2em; page-break-after: avoid; }
+    #pdf-print-root .pdf-toc-item { margin: 0.25em 0; page-break-inside: avoid; }
+    #pdf-print-root .pdf-toc-level-1 { padding-left: 0; font-weight: 600; }
+    #pdf-print-root .pdf-toc-level-2 { padding-left: 14px; }
+    #pdf-print-root .pdf-toc-level-3 { padding-left: 28px; }
+    #pdf-print-root .pdf-toc-level-4 { padding-left: 42px; }
+    #pdf-print-root .pdf-toc-level-5 { padding-left: 56px; }
+    #pdf-print-root .pdf-toc-level-6 { padding-left: 70px; }
+    #pdf-print-root .pdf-toc-link { display: flex; align-items: baseline; text-decoration: none; color: inherit; }
+    #pdf-print-root .pdf-toc-leader { flex: 1; border-bottom: 1px dotted #999; margin: 0 4px; min-width: 12px; }
+    #pdf-print-root .pdf-toc-num { font-variant-numeric: tabular-nums; }
+    #pdf-print-root .pdf-toc-end { page-break-after: always; }`;
           document.head.appendChild(printStyle);
 
           // 展开所有滚动/裁切容器（与长图 / DOCX 同一口径），否则打印只出可视区那一屏
@@ -1953,17 +2027,56 @@
           await new Promise(r => setTimeout(r, 80));
 
           // A4 = 8.27 × 11.69 英寸；1.5cm ≈ 0.59 英寸（与原 @page margin 保持一致）
-          await TauriApi.printToPdf({
-            options: {
-              path: targetPath,
-              pageWidth: 8.27,
-              pageHeight: 11.69,
-              marginTop: 0.59,
-              marginBottom: 0.59,
-              marginLeft: 0.59,
-              marginRight: 0.59,
-            },
-          });
+          const pdfDims = {
+            pageWidth: 8.27,
+            pageHeight: 11.69,
+            marginTop: 0.59,
+            marginBottom: 0.59,
+            marginLeft: 0.59,
+            marginRight: 0.59,
+          };
+          // ===== 纸面目录页（TOC）：两遍打印（设计文档 2026-11-17 第二阶段）=====
+          // 第一遍 CDP outlineOnly 不落盘，Rust 解析书签大纲回「标题→页码」数组 →
+          // 填真实页码（占位 000 → 数字，点线吸收宽度差，几何不变，两遍分页一致）→
+          // 第二遍正常打印落盘（产物 = 目录页 + 书签大纲）。
+          // CDP 不可用（老运行时）：第一遍回 viaCdp=false → 移除目录页走原生单遍，
+          // 行为 = 现状，绝不出「有目录页但无页码」的半成品。
+          // 生成目录总开关（设置面板）：关闭 = 无纸面目录页、无 PDF 书签、单遍导出，
+          // CDP 参数不带 generateDocumentOutline（产物 = 升级前行为）。
+          const tocEnabled = this.settings.pdfTocEnabled !== false;
+          const tocEntries = tocEnabled
+            ? this._pdfTocEntries(printRoot, this.settings.pdfTocMaxLevel || 6)
+            : [];
+          let tocPageEl = null;
+          if (tocEntries.length) {
+            const tocShell = document.createElement('div');
+            tocShell.innerHTML = this._buildPdfTocHtml(tocEntries);
+            tocPageEl = tocShell.firstElementChild; // .pdf-toc-page
+            printRoot.insertBefore(tocPageEl, printRoot.firstChild);
+          }
+          // 返回结构 PdfPrintOutcome { viaCdp, outlinePages }：viaCdp=true 时产物自带
+          // 书签大纲（CDP generateDocumentOutline）。防御式访问——测试桩 / 旧运行时
+          // resolve 的值可能没有字段，不得因此报错。
+          if (tocPageEl) {
+            const r1 = await TauriApi.printToPdf({
+              options: { path: targetPath, outlineOnly: true, ...pdfDims },
+            });
+            if (r1 && r1.viaCdp) {
+              // 填页码（大纲解析失败/数量不齐时内部全空——目录保留、条目仍可点击，
+              // 设计规格 §B.2 降级语义）。fill 不依赖 activeTab，中途关文档不影响流程。
+              this._fillPdfTocPageNumbers(tocPageEl, printRoot, r1.outlinePages);
+              await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+            } else {
+              tocPageEl.remove(); // CDP 不可用：移除目录页，回退原生单遍
+              await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+            }
+          } else {
+            // 无目录需求（开关关闭 / 无标题）：单遍导出；generateOutline=false 时
+            // Rust 侧 CDP 参数不带大纲（书签是目录开关的一部分，一并关闭）
+            await TauriApi.printToPdf({
+              options: { path: targetPath, generateOutline: tocEnabled, ...pdfDims },
+            });
+          }
           pdfExported = true;
           this.setStatus(`${this.t('exportedPDF')}: ${targetPath}`);
         } catch (e) {

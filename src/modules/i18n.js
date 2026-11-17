@@ -133,6 +133,8 @@
         setRowLabel('set-code-scroll', t('codeScroll'));
         setRowLabel('set-custom-bg', t('customBg'));
         setRowLabel('set-close-action', t('closeAction'));
+        setRowLabel('set-pdf-toc-depth', t('pdfTocDepth'));
+        setRowLabel('set-pdf-toc-enabled', t('pdfTocEnabled'));
         setRowLabel('set-clear-tabs-on-quit', t('clearTabsOnQuit'));
         setRowLabel('set-show-tray-icon', t('showTrayIcon'));
         setRowLabel('set-show-all-files-label', t('showAllFiles'));
@@ -184,6 +186,7 @@
         document.getElementById('confirm-dialog-cancel').textContent = t('cancel');
         // 配色方案自绘下拉：随语言刷新选项文案（optionsProvider 依赖注入 t）
         if (this._selects && this._selects.colorScheme) this._selects.colorScheme.applyI18n(t);
+        if (this._selects && this._selects.pdfTocDepth) this._selects.pdfTocDepth.applyI18n(t);
         // 三个字体 FontPicker 的 i18n（占位符/默认项/无匹配文案）；须 bind(this) 否则 t 的 this 指向 FontPicker
         for (const k of ['editor', 'preview', 'code']) {
           const p = this._fontPickers && this._fontPickers[k];
@@ -517,6 +520,7 @@
         // 自绘下拉：随语言刷新选项文案（替代原生 select，展开面板可主题化 + 完整 ARIA）
         if (this._selects && this._selects.themeMode) this._selects.themeMode.applyI18n(t);
         if (this._selects && this._selects.colorScheme) this._selects.colorScheme.applyI18n(t);
+        if (this._selects && this._selects.pdfTocDepth) this._selects.pdfTocDepth.applyI18n(t);
         if (this._selects && this._selects.language) this._selects.language.applyI18n(t);
         if (this._selects && this._selects.tabSize) this._selects.tabSize.applyI18n(t);
         if (this._selects && this._selects.lineHeight) this._selects.lineHeight.applyI18n(t);

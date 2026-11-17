@@ -43,6 +43,11 @@
           filesPanelRatio: 0.5,
           // 大纲层级过滤：0=全部，1~6=仅显示到该层级
           outlineFilterLevel: 0,
+          // PDF 导出纸面目录页收录深度：3~6（h1–h3 … h1–h6），默认 6=全量收录
+          // （2026-11-17 用户确认：深目录为默认预期，Word/Typora 的 h1–h3 作为可选）
+          pdfTocMaxLevel: 6,
+          // 导出 PDF 生成目录总开关：关闭 = 无纸面目录页、无 PDF 书签、单遍导出（升级前行为）
+          pdfTocEnabled: true,
           // 面板整体折叠：文件/大纲任一收起时，对侧占满剩余高度
           filesCollapsed: false,
           outlineCollapsed: false,
@@ -82,6 +87,10 @@
             if (typeof merged[k] !== typeof defaults[k]) {
               merged[k] = defaults[k];
             }
+          }
+          // PDF 目录收录深度仅允许 3~6（设置面板选项集），越界数字回默认 6（全量收录）
+          if (![3, 4, 5, 6].includes(merged.pdfTocMaxLevel)) {
+            merged.pdfTocMaxLevel = defaults.pdfTocMaxLevel;
           }
           return merged;
         } catch {
@@ -157,6 +166,7 @@
         document.getElementById('set-show-tray-icon').checked = s.showTrayIcon !== false;
         document.getElementById('set-show-all-files').checked = s.showAllFiles === true;
         if (this._selects && this._selects.closeAction) this._selects.closeAction.setValue(s.closeAction || 'ask', true);
+        if (this._selects && this._selects.pdfTocDepth) this._selects.pdfTocDepth.setValue(String(s.pdfTocMaxLevel || 6), true);
         if (this._selects && this._selects.imageInsertMode) this._selects.imageInsertMode.setValue(s.imageInsertMode || 'assets', true);
         if (this._selects && this._selects.imageAssetPathMode) this._selects.imageAssetPathMode.setValue(s.imageAssetPathMode || 'relative', true);
         // 框架界面字号滑块 + 预览/编辑字重滑块回填（silent，不触发 onChange 递归）
@@ -168,6 +178,7 @@
         if (efW) { efW.value = s.editorFontWeight; document.getElementById('editor-font-weight-label').textContent = s.editorFontWeight; }
         document.getElementById('settings-image-asset-path').value = s.imageAssetPath || 'assets';
         document.getElementById('set-clear-tabs-on-quit').checked = s.clearTabsOnQuit === true;
+        document.getElementById('set-pdf-toc-enabled').checked = s.pdfTocEnabled !== false;
         document.getElementById('set-custom-bg').checked = s.customBgEnabled === true;
         const cbg = document.getElementById('set-custom-bg-color');
         if (cbg) cbg.value = s.customBgColor || '#f8f7f4';
@@ -315,6 +326,8 @@
         });
         const ctoq = document.getElementById('set-clear-tabs-on-quit');
         if (ctoq) ctoq.addEventListener('change', (e) => { this.settings.clearTabsOnQuit = e.target.checked; });
+        const tocEnabled = document.getElementById('set-pdf-toc-enabled');
+        if (tocEnabled) tocEnabled.addEventListener('change', (e) => { this.settings.pdfTocEnabled = e.target.checked; });
         // 图片存储方式 / 路径：已从 radio 升级为自绘下拉（set-image-store-mode / set-image-asset-path-mode），
         // onChange 在 initSettings 里通过 Select 绑定到 this.settings.imageInsertMode / imageAssetPathMode。
   
@@ -474,6 +487,17 @@
               { value: 'minimize', label: t('closeActionMinimize') },
             ]),
             onChange: (v) => { this.settings.closeAction = v; },
+          });
+        }
+        // PDF 目录收录深度（导出纸面目录页时按层级过滤标题；选项标签 h1–hN 语言中性，无需翻译）
+        const tocHost = document.getElementById('set-pdf-toc-depth');
+        if (tocHost) {
+          this._selects.pdfTocDepth = new Select(tocHost, {
+            value: String(this.settings.pdfTocMaxLevel || 6),
+            t: this.t.bind(this),
+            ariaLabelKey: 'pdfTocDepth',
+            optionsProvider: () => ([3, 4, 5, 6].map((n) => ({ value: String(n), label: `h1–h${n}` }))),
+            onChange: (v) => { this.settings.pdfTocMaxLevel = Number(v); },
           });
         }
         // 图片存储方式 / 路径 —— 从 radio 组升级为自绘下拉，与默认视图/关闭窗口时保持视觉一致
