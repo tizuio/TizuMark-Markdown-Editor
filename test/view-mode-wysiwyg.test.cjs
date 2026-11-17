@@ -1437,7 +1437,7 @@ test('公式 guard：反斜杠转义 + 反引号状态行局部（demo.md L963 \
     }
     assert.fail('提取失败（花括号失衡）: ' + name);
   }
-  const fns = ['looksLikeMath', 'looksLikeLatexMath', 'isAtBlockStart', 'escapeHTML', 'guardMathBlocks'].map(extractFn).join('\n');
+  const fns = ['looksLikeMath', 'looksLikeLatexMath', 'isAtBlockStart', 'escapeHTML', 'inlineMathPlaceholder', 'guardMathBlocks'].map(extractFn).join('\n');
   const guard = new Function(fns + '\nreturn guardMathBlocks;')();
   // 最小复现（demo.md L963 转义表行 + 其后反引号内 $...$）：
   const repro = '| 转义写法 | 显示效果 |\n| --- | --- |\n| ``\\` `` | \\` 字面反引号 |\n\n除 `$...$` 行内公式外。';
