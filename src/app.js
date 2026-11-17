@@ -543,6 +543,13 @@ window.addEventListener('DOMContentLoaded', async () => {
       await TauriApi.onEvent('app-quit-requested', async () => {
         await window.editor.handleAppClose({ forceQuit: true });
       });
+    } else {
+      // 分离窗口：主窗口 coordinateQuit 逐窗请求收口 → 跑自身保存询问后 ready/aborted 上报
+      // （lifecycle.js handleAppClose 分离分支）；普通关 X 走 close-requested,不经此路径。
+      await TauriApi.onEvent('app-quit-request', async () => {
+        window.editor._quitRequested = true;
+        await window.editor.handleAppClose();
+      });
     }
 
     // 工作区目录树随外部文件增删自动刷新（由 Rust watch_folder 广播 folder-changed 事件）

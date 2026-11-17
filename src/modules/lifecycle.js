@@ -114,7 +114,136 @@
         return rec;
       },
 
-      async handleAppClose() {
+      // 退出协调（主窗口调用）：与全部分离编辑器窗口逐窗收口——各自跑保存询问后上报
+      // app-quit-ready / app-quit-aborted（事件定向，Rust emit_to + JS emitTo）。
+      // 全部 ready → 聚合分离会话进主键并清 editor 键/残留交接键，返回 true；
+      // 任一 aborted / 超时（默认 60s）→ 返回 false，整体不退出、主窗口保留。
+      // 分离窗口文件以主窗口 tab 恢复（重启降级无损，设计定案 4）。
+      async coordinateQuit(opts = {}) {
+        const timeoutMs = Number.isFinite(opts && opts.timeoutMs) ? opts.timeoutMs : 60000;
+        let ownLabel = null;
+        try { const w0 = TauriApi.currentWindow(); ownLabel = w0 && w0.label; } catch (_) {}
+        let labels = [];
+        try { labels = await TauriApi.listEditorWindows(); } catch (_) { labels = []; }
+        // 只协调「别的」分离窗口：自撕自建场景下排除自身，避免自己请求自己收口死锁
+        labels = (labels || []).filter(l => TMMultiWindow.isDetachedLabel(l) && l !== ownLabel);
+        if (labels.length === 0) {
+          await this._aggregateDetachedSessions();
+          return true;
+        }
+        return await new Promise((resolve) => {
+          const pending = new Set(labels);
+          let settled = false;
+          let unlistenReady = () => {};
+          let unlistenAbort = () => {};
+          const finish = (ok) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try { unlistenReady(); } catch (_) {}
+            try { unlistenAbort(); } catch (_) {}
+            resolve(ok);
+          };
+          const timer = setTimeout(() => finish(false), timeoutMs);
+          TauriApi.onEvent('app-quit-ready', (event) => {
+            const label = event && event.payload && event.payload.label;
+            pending.delete(label);
+            if (pending.size === 0) finish(true);
+          }).then((off) => { unlistenReady = off || unlistenReady; }).catch(() => {});
+          TauriApi.onEvent('app-quit-aborted', () => finish(false))
+            .then((off) => { unlistenAbort = off || unlistenAbort; }).catch(() => {});
+          for (const l of labels) {
+            try { TauriApi.emitTo(l, 'app-quit-request', { from: 'main' }); } catch (_) {}
+          }
+        }).then(async (ok) => {
+          if (!ok) return false;
+          await this._aggregateDetachedSessions();
+          return true;
+        });
+      },
+
+      // 聚合分离窗口会话进主键（saveSession 只存 filePath 等元数据；未保存内容已由各窗
+      // 在收口时落盘/丢弃，故此处只恢复「打开过哪些文件」）。失败不阻塞退出：主会话未动，
+      // 分离文件重启后由用户手动打开——绝不静默丢盘上内容。
+      async _aggregateDetachedSessions() {
+        try {
+          const SESSION_PREFIX = 'tizumark-session-editor-';
+          const keys = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k) keys.push(k);
+          }
+          const detached = [];
+          for (const k of keys) {
+            if (k.indexOf(SESSION_PREFIX) === 0) {
+              try {
+                const d = JSON.parse(localStorage.getItem(k));
+                if (d) detached.push(d);
+              } catch (_) { /* 损坏键按空会话处理 */ }
+            }
+          }
+          if (detached.length > 0) {
+            const main = this.loadSession() || { version: 2, tabs: [], emptyTabs: false, activeFilePath: null };
+            const merged = TMMultiWindow.mergeDetachedSessions(main, detached);
+            if (merged.tabs.length > 0) {
+              localStorage.setItem('tizumark-session', JSON.stringify(merged));
+            }
+          }
+          for (const k of keys) {
+            if (k.indexOf(SESSION_PREFIX) === 0 || k.indexOf(TMMultiWindow.HANDOFF_PREFIX) === 0) {
+              try { localStorage.removeItem(k); } catch (_) {}
+            }
+          }
+        } catch (e) { console.warn('aggregateDetachedSessions failed:', e); }
+      },
+
+      async handleAppClose(opts = {}) {
+        // ---------- 分离编辑器窗口：关闭只关自己（Rust 已按 label 分流 close-requested） ----------
+        // 进程生命周期由主窗口决定；退出协调时由主窗口 app-quit-request 触发收口
+        // （_quitRequested 置位 → 上报 ready/aborted 给主窗口）。
+        let ownLabel = null;
+        try { const w0 = TauriApi.currentWindow(); ownLabel = w0 && w0.label; } catch (_) {}
+        if (TMMultiWindow.isDetachedLabel(ownLabel) || this._detachedLabel) {
+          if (this._closingWindow) return; // destroy 再触发 CloseRequested 的防循环哨兵
+          this._closingWindow = true;
+          try {
+            const modified = this.tabs.filter(t => t.isModified);
+            if (modified.length > 0) {
+              const result = await this.showSaveDialog(
+                this.t('saveChanges'),
+                this.t('filesModifiedConfirm', { n: modified.length }),
+                this.t('saveAll'), this.t('discardAll'), this.t('cancel')
+              );
+              if (result === 'cancel' || result === null) {
+                this._closingWindow = false;
+                this._reportQuitAbort(ownLabel);
+                return;
+              }
+              if (result === 'save') {
+                const ok = await this.batchSaveTabs(modified);
+                if (!ok) {
+                  this._closingWindow = false;
+                  this._reportQuitAbort(ownLabel);
+                  return;
+                }
+              } else {
+                for (const tab of modified) tab.content = tab.savedContent;
+              }
+            }
+            this.saveSession();
+            if (this._quitRequested) {
+              try { TauriApi.emitTo('main', 'app-quit-ready', { label: ownLabel || this._detachedLabel }); } catch (_) {}
+            }
+            const w1 = TauriApi.currentWindow();
+            if (w1) {
+              try { await w1.destroy(); } catch (_) { try { await w1.close(); } catch (_) {} }
+            }
+          } catch (error) {
+            console.error('detached handleAppClose error:', error);
+          }
+          return;
+        }
+        // ---------- 主窗口原流程 ----------
         try {
           const appWindow = TauriApi.currentWindow();
           // 1. 处理未保存文档
@@ -147,15 +276,18 @@
           }
           // 2. 先解析关闭行为：只有真正退出（quit）才按「退出时关闭所有标签」处理会话；
           //    取消直接返回不清会话；最小化到托盘等其它行为一律保存会话。
-          const action = await this._resolveCloseAction();
+          const action = await this._resolveCloseAction(opts);
           if (!action) return; // 用户在弹框点了取消（不清会话）
           if (action === 'quit') {
             // 3a. 真正退出：按「退出时关闭所有标签」开关决定保存还是清空会话
             if (this.settings.clearTabsOnQuit) {
-              try { localStorage.removeItem('tizumark-session'); } catch (_) {}
+              try { localStorage.removeItem(this.sessionKey()); } catch (_) {}
             } else {
               this.saveSession();
             }
+            // 与分离编辑器窗口协调收口（各自保存询问）；任一取消/超时 → 整体不退、窗口保留
+            const coordinated = await this.coordinateQuit();
+            if (!coordinated) return;
             await TauriApi.quitApp();
           } else {
             // 3b. 非退出（如最小化到托盘）：不清空会话，保存后隐藏窗口
@@ -185,7 +317,19 @@
           } catch { /* 浏览器环境下降级 */ }
         }
       },
-      async _resolveCloseAction() {
+      // 取消退出协调时向主窗口上报 aborted（_quitRequested 置位才有意义,普通关窗静默）
+      _reportQuitAbort(ownLabel) {
+        if (!this._quitRequested) return;
+        try { TauriApi.emitTo('main', 'app-quit-aborted', { label: ownLabel || this._detachedLabel }); } catch (_) {}
+      },
+
+      async _resolveCloseAction(opts = {}) {
+        // 托盘「退出」（app-quit-requested）：无条件走退出路径——它必须退出，而不是尊重
+        // closeAction 可能配的「最小化」。
+        if (opts && opts.forceQuit) return 'quit';
+        // 无托盘模式：窗口隐藏后无法恢复，关 X 的旧语义就是直接退出——保持该口径
+        // （区别仅在于现在先经前端协调未保存内容，不再 Rust 直杀，见设计定案 11）。
+        if (this.settings && this.settings.showTrayIcon === false) return 'quit';
         const action = this.settings.closeAction || 'ask';
         if (action === 'quit') return 'quit';
         if (action === 'minimize') return 'minimize';

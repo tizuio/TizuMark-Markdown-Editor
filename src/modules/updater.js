@@ -313,6 +313,20 @@
         }
       },
       async installUpdate() {
+        // 多窗口口径（tab-tearoff-window）：安装重启会杀掉全部窗口——
+        // ① 分离窗口不发起安装（重启会带走主窗口未保存内容且无人协调），提示去主窗口；
+        // ② 主窗口先与分离窗口协调收口（各自保存询问），取消/超时则不装（设计定案 11）。
+        try {
+          const w0 = TauriApi.currentWindow();
+          if (w0 && TMMultiWindow.isDetachedLabel(w0.label)) {
+            this.showToast({ title: this.t('updateInMainWindow'), code: 'E_WINDOW' });
+            return;
+          }
+        } catch (_) { /* 浏览器环境降级：无窗口概念,继续 */ }
+        try {
+          const coordinated = await this.coordinateQuit();
+          if (!coordinated) return;
+        } catch (_) { /* 协调通道不可用（如非 Tauri 环境）按原流程继续 */ }
         if (!this.pendingUpdateRid) return;
         if (!this.pendingCachePath || !this.pendingCachePath.path) {
           // 没有已落盘的安装包（理论上不会：安装按钮只在「已下载」态出现）

@@ -95,6 +95,14 @@
     return ns.listen(name, cb);
   };
 
+  // event.emitTo：定向发事件给指定 label 窗口（多窗口撕离的退出协调收口通道，
+  // Rust 侧已全量 emit_to 化）。命名空间缺失（浏览器环境）resolve false。
+  api.emitTo = function (label, event, payload) {
+    const ns = getNs('event');
+    if (!ns || typeof ns.emitTo !== 'function') return Promise.resolve(false);
+    return ns.emitTo(label, event, payload);
+  };
+
   // app.getVersion：命名空间缺失时返回 null（调用方 try/catch 或判空处理）
   api.getVersion = function () {
     const ns = getNs('app');
