@@ -610,7 +610,17 @@
           escapeHtml: (t) => this.escapeHtml(t),
           maxLevel: this.settings.outlineFilterLevel || 0,
         });
-  
+
+        // 大纲标签内的行内公式 KaTeX 渲染：与预览共用同一 processMath
+        // （auto-render 扫描文本节点，$…$ / $$…$$ / \(…\) / \[…\] 同一套定界符与不成对 $ 保护）。
+        // 标签文本经 escapeHtml 后仍是纯文本；KaTeX 未加载/渲染失败时静默保持原文，
+        // 不影响大纲导航本身。
+        if (typeof RenderPost !== 'undefined' && RenderPost.processMath) {
+          try {
+            RenderPost.processMath(outlineContent);
+          } catch (_) { /* 公式渲染失败不阻断大纲 */ }
+        }
+
         // Event delegation on outline-content
         outlineContent.onclick = (e) => {
           const toggle = e.target.closest('.outline-toggle');
