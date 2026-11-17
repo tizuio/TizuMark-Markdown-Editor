@@ -85,3 +85,26 @@ test('业务脚本（6 模块 + 2 lib）全部位于 app.js 之前', () => {
   // 生产 index.html 与 harness readdirSync 的字典序今天就已不同（N25），
   // 顺序不敏感由"新模块一律延迟求值"的设计保证，写进 ARCHITECTURE.md，不靠测试。
 });
+
+// ⑤ 多窗口撕离入口（tab-tearoff-window）：multi-window.js 在 constants.js 之后加载
+//    （TMMultiWindow 不依赖 TMConst，但保持"基础模块在前"的清单习惯），tab 右键菜单
+//    必须含「在新窗口打开」动作项（T4 的 executeMenuAction 'tab-open-in-window' 与之对齐）。
+test('多窗口: multi-window.js 在 constants.js 之后,tab 菜单含 tab-open-in-window', () => {
+  const html = fs.readFileSync(INDEX, 'utf8');
+  const srcs = scriptSrcs(html);
+  const mwIdx = srcs.indexOf('modules/multi-window.js');
+  assert.ok(mwIdx !== -1, 'index.html 缺少 modules/multi-window.js <script>');
+  const constIdx = srcs.indexOf('modules/constants.js');
+  assert.ok(constIdx !== -1, 'index.html 缺少 modules/constants.js,顺序断言无基准');
+  assert.ok(mwIdx > constIdx, 'multi-window.js 应位于 constants.js 之后（基础模块在前）');
+
+  const menuStart = html.indexOf('id="context-menu-tab"');
+  assert.ok(menuStart !== -1, 'index.html 缺少 #context-menu-tab');
+  // 以下一个菜单/区块开头为界,取本菜单片段(避免全文匹配误伤其它 data-action)
+  const menuEnd = html.indexOf('id="context-menu-', menuStart + 10);
+  const menuHtml = html.slice(menuStart, menuEnd === -1 ? menuStart + 4000 : menuEnd);
+  assert.ok(
+    /data-action="tab-open-in-window"/.test(menuHtml),
+    '#context-menu-tab 缺少 data-action="tab-open-in-window" 菜单项',
+  );
+});
