@@ -77,18 +77,28 @@ fn quit_app(app: tauri::AppHandle) {
     exit_app(app);
 }
 
-// 多窗口撕离（tab-tearoff-window）：枚举分离编辑器窗口 label（editor-<n>，除 main 外全部，
-// 升序）。退出协调用：主窗口 quit 前逐窗请求保存收口。前端 tauri-api.js COMMANDS 已含本命令名
-// （契约测试双向校验）。
+// 多窗口（tab-tearoff-window）label 口径：editor-<数字> 才算分离编辑器窗口——
+// 与前端 multi-window.isDetachedLabel 一致，两侧须同步修改。'editor-' 无编号不算（防误伤）。
+fn is_editor_label(label: &str) -> bool {
+    match label.strip_prefix("editor-") {
+        Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
+// 分离窗口 label 过滤（list_editor_windows 命令体）：非 editor-<n> 一律剔除，升序返回。
+fn filter_editor_labels(labels: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = labels.into_iter().filter(|l| is_editor_label(l)).collect();
+    out.sort();
+    out
+}
+
+// 多窗口撕离（tab-tearoff-window）：枚举分离编辑器窗口 label（editor-<n>，升序）。
+// 退出协调用：主窗口 quit 前逐窗请求保存收口；撕离时用于 label 分配与级联槽位计数。
+// 前端 tauri-api.js COMMANDS 已含本命令名（契约测试双向校验）。
 #[tauri::command]
 fn list_editor_windows(app: tauri::AppHandle) -> Vec<String> {
-    let mut labels: Vec<String> = app
-        .webview_windows()
-        .into_keys()
-        .filter(|l| l != "main")
-        .collect();
-    labels.sort();
-    labels
+    filter_editor_labels(app.webview_windows().into_keys().collect())
 }
 
 // 路径安全校验：拒绝写入/创建到系统关键目录或越界路径。
@@ -280,7 +290,16 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
                     }
                 }
                 "quit" => {
-                    exit_app(app.clone());
+                    // 托盘「退出」改为定向请求主窗口前端协调退出（保存询问 + 分离窗口收口），
+                    // 不再绕过前端直接 exit_app——那会静默丢所有窗口的未保存内容（设计定案 11）。
+                    // 用专用事件而非 close-requested：close-requested 尊重用户 closeAction 设置
+                    // （可能选「最小化」），托盘菜单「退出」必须无条件走退出路径。
+                    // 前端 app.js 监听 app-quit-requested → handleAppClose({ forceQuit: true })（Task 8）。
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.emit_to("main", "app-quit-requested", ());
+                    } else {
+                        exit_app(app.clone());
+                    }
                 }
                 _ => {}
             }
@@ -1456,8 +1475,10 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 show_window(&window);
                 // files_from_args 滤掉 argv[0]（第二实例 exe 自身路径），
-                // 避免前端误把 exe 当文件打开；与 get_cli_args 的 skip(1) 对齐
-                let _ = app.emit("file-open", files_from_args(argv));
+                // 避免前端误把 exe 当文件打开；与 get_cli_args 的 skip(1) 对齐。
+                // emit_to("main") 定向：file-open 是主窗口职责，多窗口下广播会让每个
+                // 分离窗口都重复开一次文件（设计定案 7）。
+                let _ = window.emit_to("main", "file-open", files_from_args(argv));
             }
         }))
         .plugin(
@@ -1471,15 +1492,15 @@ pub fn run() {
         )
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                let show_tray = *app.state::<WindowBehavior>().show_tray.lock().unwrap();
-                // 无托盘时直接退出（否则窗口将无法恢复）
-                if !show_tray {
-                    exit_app(app.clone());
-                } else {
-                    api.prevent_close();
-                    let _ = window.emit("close-requested", ());
-                }
+                // 一律 prevent_close + 定向 emit 给【触发窗口自身】的前端处置（emit 是全窗口
+                // 广播，多窗口下必须 emit_to，否则任一窗口关 X 会让所有窗口各弹一次保存框）：
+                // - 分离窗口（editor-*）：自己的保存询问 → 只关自己，绝不退出进程
+                //   （进程生命周期由主窗口决定，原「任意窗口关 X 即 exit_app」已废）；
+                // - 主窗口：前端 handleAppClose 协调退出/托盘。无托盘模式由前端强制走 quit
+                //   （窗口隐藏无托盘无法恢复，故不能选「最小化」）——原「无托盘直接 exit_app」
+                //   在多窗口下会静默丢分离窗口未保存内容（设计定案 11）。
+                api.prevent_close();
+                let _ = window.emit_to(window.label(), "close-requested", ());
             }
         })
         .setup(|app| {
@@ -2490,6 +2511,29 @@ fn test_build_cdp_print_params_outline_disabled() {
         let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
         assert_eq!(decoded, bytes, "base64 解码应还原原始字节");
         let _ = fs::remove_file(&tmp);
+    }
+
+    // ---------- 多窗口（tab-tearoff-window）：label 分流纯函数 ----------
+
+    #[test]
+    fn test_is_editor_label() {
+        assert!(is_editor_label("editor-1"));
+        assert!(is_editor_label("editor-12"));
+        assert!(!is_editor_label("editor-"), "'editor-' 无编号不算分离窗口");
+        assert!(!is_editor_label("main"));
+        assert!(!is_editor_label(""));
+        assert!(!is_editor_label("editor-1x"), "尾随非数字不算");
+    }
+
+    #[test]
+    fn test_filter_editor_labels_sorted() {
+        let got = filter_editor_labels(vec![
+            "editor-3".to_string(),
+            "main".to_string(),
+            "editor-1".to_string(),
+            "extra".to_string(),
+        ]);
+        assert_eq!(got, vec!["editor-1".to_string(), "editor-3".to_string()]);
     }
 
     #[test]
