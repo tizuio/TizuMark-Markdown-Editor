@@ -46,6 +46,8 @@
           // PDF 导出纸面目录页收录深度：3~6（h1–h3 … h1–h6），默认 6=全量收录
           // （2026-11-17 用户确认：深目录为默认预期，Word/Typora 的 h1–h3 作为可选）
           pdfTocMaxLevel: 6,
+          // 导出 PDF 生成目录总开关：关闭 = 无纸面目录页、无 PDF 书签、单遍导出（升级前行为）
+          pdfTocEnabled: true,
           // 面板整体折叠：文件/大纲任一收起时，对侧占满剩余高度
           filesCollapsed: false,
           outlineCollapsed: false,
@@ -176,6 +178,7 @@
         if (efW) { efW.value = s.editorFontWeight; document.getElementById('editor-font-weight-label').textContent = s.editorFontWeight; }
         document.getElementById('settings-image-asset-path').value = s.imageAssetPath || 'assets';
         document.getElementById('set-clear-tabs-on-quit').checked = s.clearTabsOnQuit === true;
+        document.getElementById('set-pdf-toc-enabled').checked = s.pdfTocEnabled !== false;
         document.getElementById('set-custom-bg').checked = s.customBgEnabled === true;
         const cbg = document.getElementById('set-custom-bg-color');
         if (cbg) cbg.value = s.customBgColor || '#f8f7f4';
@@ -323,6 +326,8 @@
         });
         const ctoq = document.getElementById('set-clear-tabs-on-quit');
         if (ctoq) ctoq.addEventListener('change', (e) => { this.settings.clearTabsOnQuit = e.target.checked; });
+        const tocEnabled = document.getElementById('set-pdf-toc-enabled');
+        if (tocEnabled) tocEnabled.addEventListener('change', (e) => { this.settings.pdfTocEnabled = e.target.checked; });
         // 图片存储方式 / 路径：已从 radio 升级为自绘下拉（set-image-store-mode / set-image-asset-path-mode），
         // onChange 在 initSettings 里通过 Select 绑定到 this.settings.imageInsertMode / imageAssetPathMode。
   

@@ -2041,7 +2041,12 @@
           // 第二遍正常打印落盘（产物 = 目录页 + 书签大纲）。
           // CDP 不可用（老运行时）：第一遍回 viaCdp=false → 移除目录页走原生单遍，
           // 行为 = 现状，绝不出「有目录页但无页码」的半成品。
-          const tocEntries = this._pdfTocEntries(printRoot, this.settings.pdfTocMaxLevel || 6);
+          // 生成目录总开关（设置面板）：关闭 = 无纸面目录页、无 PDF 书签、单遍导出，
+          // CDP 参数不带 generateDocumentOutline（产物 = 升级前行为）。
+          const tocEnabled = this.settings.pdfTocEnabled !== false;
+          const tocEntries = tocEnabled
+            ? this._pdfTocEntries(printRoot, this.settings.pdfTocMaxLevel || 6)
+            : [];
           let tocPageEl = null;
           if (tocEntries.length) {
             const tocShell = document.createElement('div');
@@ -2066,7 +2071,11 @@
               await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
             }
           } else {
-            await TauriApi.printToPdf({ options: { path: targetPath, ...pdfDims } });
+            // 无目录需求（开关关闭 / 无标题）：单遍导出；generateOutline=false 时
+            // Rust 侧 CDP 参数不带大纲（书签是目录开关的一部分，一并关闭）
+            await TauriApi.printToPdf({
+              options: { path: targetPath, generateOutline: tocEnabled, ...pdfDims },
+            });
           }
           pdfExported = true;
           this.setStatus(`${this.t('exportedPDF')}: ${targetPath}`);

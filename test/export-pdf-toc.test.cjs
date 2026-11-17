@@ -227,6 +227,26 @@ test('toc-wiring: 无标题文档 → 单遍打印、无 outlineOnly、无目录
   } finally { cleanup(w); }
 });
 
+test('toc-wiring: 生成目录开关关闭 → 单遍、无目录页、CDP 不带大纲', async () => {
+  const { w, ed, getInitErr } = await makeEnv();
+  try {
+    assert.strictEqual(getInitErr(), null);
+    await makeTocEditor(w, ed);
+    ed.settings.pdfTocEnabled = false;
+    const calls = [];
+    w.TauriApi.printToPdf = async ({ options }) => {
+      const root = w.document.getElementById('pdf-print-root');
+      calls.push({ options, hasToc: !!(root && root.querySelector('.pdf-toc-page')) });
+      return { viaCdp: true, outlinePages: null };
+    };
+    await ed.exportPDF();
+    assert.strictEqual(calls.length, 1, '关目录 → 单遍打印（无 outlineOnly 探测）');
+    assert.strictEqual(calls[0].options.outlineOnly, undefined);
+    assert.strictEqual(calls[0].options.generateOutline, false, 'CDP 参数不带书签大纲（产物 = 升级前行为）');
+    assert.strictEqual(calls[0].hasToc, false, '无目录页');
+  } finally { cleanup(w); }
+});
+
 test('toc-wiring: 两遍之间清空标签 → 不抛未捕获异常，finally 清理无残留', async () => {
   const { w, ed, getInitErr } = await makeEnv();
   try {

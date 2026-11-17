@@ -104,6 +104,17 @@ test('settings: pdfTocMaxLevel 默认 6（PDF 目录收录深度到 h6）', asyn
   try {
     const d = ed.defaultSettings();
     assert.strictEqual(d.pdfTocMaxLevel, 6, '默认收录 h1–h6（2026-11-17 用户确认的深度规格）');
+    assert.strictEqual(d.pdfTocEnabled, true, '生成目录开关默认开启');
+  } finally { cleanup(w); }
+});
+
+test('settings: pdfTocEnabled 类型错位回退默认 true', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocEnabled: false }));
+    assert.strictEqual(ed.loadSettings().pdfTocEnabled, false, '合法布尔值原样加载');
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ pdfTocEnabled: 'no' }));
+    assert.strictEqual(ed.loadSettings().pdfTocEnabled, true, '字符串类型错位回退默认 true');
   } finally { cleanup(w); }
 });
 

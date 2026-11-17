@@ -1534,6 +1534,10 @@ struct PdfPrintOptions {
     // serde 缺省 false —— 旧调用方（前端单遍导出 / 测试桩）不带此字段，行为不变。
     #[serde(default)]
     outline_only: Option<bool>,
+    // 用户设置「导出 PDF 生成目录」开关（前端设置面板）。缺省 true（生成书签大纲）；
+    // false = 完全升级前行为（无书签、无目录页），CDP 参数不带 generateDocumentOutline。
+    #[serde(default)]
+    generate_outline: Option<bool>,
 }
 
 // CDP Page.printToPDF 的 JSON 参数（纯函数，#[test] 静态断言防漂移）。
@@ -1550,7 +1554,7 @@ fn build_cdp_print_params(opts: &PdfPrintOptions) -> String {
         "marginRight": opts.margin_right,
         "printBackground": true,
         "displayHeaderFooter": false,
-        "generateDocumentOutline": true,
+        "generateDocumentOutline": opts.generate_outline.unwrap_or(true),
         "preferCSSPageSize": false,
     })
     .to_string()
@@ -1589,7 +1593,12 @@ async fn print_to_pdf(
         }
         return Ok(PdfPrintOutcome {
             via_cdp: true,
-            outline_pages: parse_pdf_outline_pages(&bytes),
+            // 用户关闭生成目录时 CDP 产物本身无大纲，跳过解析
+            outline_pages: if options.generate_outline.unwrap_or(true) {
+                parse_pdf_outline_pages(&bytes)
+            } else {
+                None
+            },
         });
     }
     if outline_only {
@@ -1895,29 +1904,49 @@ mod tests {
 
     #[test]
     fn test_build_cdp_print_params_outline_and_layout() {
-        let opts = PdfPrintOptions {
-            path: "C:/tmp/a.pdf".into(),
-            page_width: 8.27,
-            page_height: 11.69,
-            margin_top: 0.59,
-            margin_bottom: 0.59,
-            margin_left: 0.59,
-            margin_right: 0.59,
-            outline_only: None,
-        };
-        let v: serde_json::Value =
-            serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
-        assert_eq!(v["generateDocumentOutline"], true);
-        assert_eq!(v["printBackground"], true);
-        assert_eq!(v["displayHeaderFooter"], false);
-        assert_eq!(v["preferCSSPageSize"], false);
-        assert_eq!(v["paperWidth"], 8.27);
-        assert_eq!(v["paperHeight"], 11.69);
-        assert_eq!(v["marginTop"], 0.59);
-        assert_eq!(v["marginBottom"], 0.59);
-        assert_eq!(v["marginLeft"], 0.59);
-        assert_eq!(v["marginRight"], 0.59);
-    }
+    let opts = PdfPrintOptions {
+        path: "C:/tmp/a.pdf".into(),
+        page_width: 8.27,
+        page_height: 11.69,
+        margin_top: 0.59,
+        margin_bottom: 0.59,
+        margin_left: 0.59,
+        margin_right: 0.59,
+        outline_only: None,
+        generate_outline: None,
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
+    assert_eq!(v["generateDocumentOutline"], true);
+    assert_eq!(v["printBackground"], true);
+    assert_eq!(v["displayHeaderFooter"], false);
+    assert_eq!(v["preferCSSPageSize"], false);
+    assert_eq!(v["paperWidth"], 8.27);
+    assert_eq!(v["paperHeight"], 11.69);
+    assert_eq!(v["marginTop"], 0.59);
+    assert_eq!(v["marginBottom"], 0.59);
+    assert_eq!(v["marginLeft"], 0.59);
+    assert_eq!(v["marginRight"], 0.59);
+}
+
+#[test]
+fn test_build_cdp_print_params_outline_disabled() {
+    // 用户关闭「生成目录」：CDP 参数不带书签大纲（产物 = 升级前的平铺 PDF）
+    let opts = PdfPrintOptions {
+        path: "C:/tmp/a.pdf".into(),
+        page_width: 8.27,
+        page_height: 11.69,
+        margin_top: 0.59,
+        margin_bottom: 0.59,
+        margin_left: 0.59,
+        margin_right: 0.59,
+        outline_only: None,
+        generate_outline: Some(false),
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&build_cdp_print_params(&opts)).unwrap();
+    assert_eq!(v["generateDocumentOutline"], false);
+}
 
     #[test]
     fn test_parse_pdf_outline_pages_round_trip() {

@@ -134,6 +134,7 @@
         setRowLabel('set-custom-bg', t('customBg'));
         setRowLabel('set-close-action', t('closeAction'));
         setRowLabel('set-pdf-toc-depth', t('pdfTocDepth'));
+        setRowLabel('set-pdf-toc-enabled', t('pdfTocEnabled'));
         setRowLabel('set-clear-tabs-on-quit', t('clearTabsOnQuit'));
         setRowLabel('set-show-tray-icon', t('showTrayIcon'));
         setRowLabel('set-show-all-files-label', t('showAllFiles'));
