@@ -138,3 +138,26 @@ test('detach: 快捷键默认项 Ctrl+Shift+O + globalMap 绑定 + app.js case',
   assert.ok(APP.includes("case 'tab-open-in-window': this.detachTabToWindow(this._contextTabIndex); break;"),
     "app.js executeMenuAction 应含 tab-open-in-window case");
 });
+
+test('detach: 并发守卫——在途第二次调用拒绝,交接键不被覆盖', async () => {
+  // 终审 Critical 2 回归:两次在途撕离都从同一陈旧 listEditorWindows 快照取 label,
+  // 第二次 writeHandoff 会覆盖第一份 → create 失败后 clearHandoff 把第一份唯一副本删掉。
+  const { w, ed } = await makeEditor();
+  try {
+    w.TauriApi.listEditorWindows = async () => [];
+    w.TauriApi.createEditorWindow = async (label) => { await delay(80); return { label }; };
+    mockMainWindow(w, { x: 0, y: 0, width: 1200, height: 800 });
+    await ed.addTab('a.md', '# A', 'D:/a.md');
+    await ed.addTab('b.md', '# B', 'D:/b.md');
+    const aIdx = ed.tabs.findIndex(t => t.filePath === 'D:/a.md');
+    const p1 = ed.detachTabToWindow(aIdx);
+    const ok2 = await ed.detachTabToWindow(ed.tabs.length - 1); // 第一次仍在途
+    const ok1 = await p1;
+    assert.equal(ok1, true);
+    assert.equal(ok2, false, '在途第二次应被守卫拒绝');
+    const payload = MW.readHandoff('editor-1', w.localStorage);
+    assert.ok(payload, '第一份交接键不得被覆盖/清除');
+    assert.equal(payload.tab.filePath, 'D:/a.md');
+    MW.clearHandoff('editor-1', w.localStorage);
+  } finally { cleanup(w); }
+});

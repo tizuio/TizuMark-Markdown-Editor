@@ -131,35 +131,42 @@
           await this._aggregateDetachedSessions();
           return true;
         }
-        return await new Promise((resolve) => {
-          const pending = new Set(labels);
-          let settled = false;
-          let unlistenReady = () => {};
-          let unlistenAbort = () => {};
-          const finish = (ok) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            try { unlistenReady(); } catch (_) {}
-            try { unlistenAbort(); } catch (_) {}
-            resolve(ok);
-          };
-          const timer = setTimeout(() => finish(false), timeoutMs);
-          TauriApi.onEvent('app-quit-ready', (event) => {
+        const pending = new Set(labels);
+        let settled = false;
+        let timer = null;
+        let resolveOut = null;
+        const done = new Promise((resolve) => { resolveOut = resolve; });
+        const finish = (ok) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolveOut(ok);
+        };
+        let unlistenReady = null;
+        let unlistenAbort = null;
+        try {
+          // 先 await 挂好监听再发请求：真实 Tauri listen 是异步 IPC，超快的 ready 回复
+          // 不得与注册竞速（终审 Important 5）
+          unlistenReady = await TauriApi.onEvent('app-quit-ready', (event) => {
             const label = event && event.payload && event.payload.label;
             pending.delete(label);
             if (pending.size === 0) finish(true);
-          }).then((off) => { unlistenReady = off || unlistenReady; }).catch(() => {});
-          TauriApi.onEvent('app-quit-aborted', () => finish(false))
-            .then((off) => { unlistenAbort = off || unlistenAbort; }).catch(() => {});
+          });
+          unlistenAbort = await TauriApi.onEvent('app-quit-aborted', () => finish(false));
+          timer = setTimeout(() => finish(false), timeoutMs);
           for (const l of labels) {
             try { TauriApi.emitTo(l, 'app-quit-request', { from: 'main' }); } catch (_) {}
           }
-        }).then(async (ok) => {
-          if (!ok) return false;
-          await this._aggregateDetachedSessions();
-          return true;
-        });
+          const ok = await done;
+          if (ok) await this._aggregateDetachedSessions();
+          return ok;
+        } catch (e) {
+          finish(false);
+          return false;
+        } finally {
+          try { if (typeof unlistenReady === 'function') unlistenReady(); } catch (_) {}
+          try { if (typeof unlistenAbort === 'function') unlistenAbort(); } catch (_) {}
+        }
       },
 
       // 聚合分离窗口会话进主键（saveSession 只存 filePath 等元数据；未保存内容已由各窗
@@ -239,6 +246,9 @@
               try { await w1.destroy(); } catch (_) { try { await w1.close(); } catch (_) {} }
             }
           } catch (error) {
+            // 复位关闭哨兵：否则 showSaveDialog 等异常会让后续所有关闭尝试被早退挡住，窗口永久关不掉
+            // （终审 Important 4）
+            this._closingWindow = false;
             console.error('detached handleAppClose error:', error);
           }
           return;
@@ -279,15 +289,20 @@
           const action = await this._resolveCloseAction(opts);
           if (!action) return; // 用户在弹框点了取消（不清会话）
           if (action === 'quit') {
+            // 先与分离编辑器窗口协调收口（各自保存询问），全部 ready 后才动主会话/退出——
+            // 任一取消/超时 → 主会话保持原样（clearTabsOnQuit 不执行）、窗口保留、失败可见
+            // （终审 Important 6：先改会话再协调，被拒退出会留下被清空的会话键）。
+            const coordinated = await this.coordinateQuit();
+            if (!coordinated) {
+              this.setStatus(this.t('quitCoordinatedAborted'));
+              return;
+            }
             // 3a. 真正退出：按「退出时关闭所有标签」开关决定保存还是清空会话
             if (this.settings.clearTabsOnQuit) {
               try { localStorage.removeItem(this.sessionKey()); } catch (_) {}
             } else {
               this.saveSession();
             }
-            // 与分离编辑器窗口协调收口（各自保存询问）；任一取消/超时 → 整体不退、窗口保留
-            const coordinated = await this.coordinateQuit();
-            if (!coordinated) return;
             await TauriApi.quitApp();
           } else {
             // 3b. 非退出（如最小化到托盘）：不清空会话，保存后隐藏窗口

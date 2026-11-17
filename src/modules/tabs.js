@@ -285,45 +285,59 @@
       // isModified 语义在新窗口原样成立）；源窗口移除本 tab。
       // 失败口径：建窗失败 → 保留 tab、清交接键、E_WINDOW 报错——任何路径不静默丢内容。
       async detachTabToWindow(index) {
+        // 在途防重入：并发第二次会从同一陈旧 listEditorWindows 快照取到同一 label，
+        // writeHandoff 覆盖第一份交接键、create 失败后 clearHandoff 把第一份唯一副本删掉
+        // → 未保存内容不可恢复（终审 Critical 2）。守卫期间重复触发（双击/按住快捷键）直接拒绝。
+        if (this._detaching) return false;
         if (index < 0 || index >= this.tabs.length) return false;
         const tab = this.tabs[index];
         if (!tab) return false;
         if (!tab._loaded && tab.filePath) await this.ensureTabLoaded(tab);
-
-        const labels = await Promise.resolve(
-          typeof TauriApi.listEditorWindows === 'function' ? TauriApi.listEditorWindows() : []
-        ).catch(() => []);
-        const label = TMMultiWindow.nextEditorLabel(labels);
-        // 级联槽位 = 既有 editor 窗口数 + 1：首个撕离窗即得 28px 偏移，不与主窗口完全重叠
-        const slot = labels.filter(l => TMMultiWindow.isDetachedLabel(l)).length + 1;
-        // 主窗口几何（物理像素）÷ scaleFactor 换算逻辑像素——WebviewWindow 建窗选项是逻辑像素，
-        // 混用会在缩放屏（125%/150%）上错位；浏览器环境/取失败回退默认基几何。
-        let base = { x: 100, y: 100, width: 1200, height: 800 };
+        this._detaching = true;
         try {
-          const win = TauriApi.currentWindow();
-          if (win && typeof win.innerPosition === 'function') {
-            const pos = await win.innerPosition();
-            const size = await win.outerSize();
-            const scale = (typeof win.scaleFactor === 'function') ? await win.scaleFactor() : 1;
-            base = {
-              x: pos.x / scale, y: pos.y / scale,
-              width: size.width / scale, height: size.height / scale,
-            };
-          }
-        } catch (_) { /* 降级默认几何 */ }
-        const geometry = TMMultiWindow.cascadeGeometry(base, slot);
+          const labels = await Promise.resolve(
+            typeof TauriApi.listEditorWindows === 'function' ? TauriApi.listEditorWindows() : []
+          ).catch(() => []);
+          const label = TMMultiWindow.nextEditorLabel(labels);
+          // 级联槽位 = 既有 editor 窗口数 + 1：首个撕离窗即得 28px 偏移，不与主窗口完全重叠
+          const slot = labels.filter(l => TMMultiWindow.isDetachedLabel(l)).length + 1;
+          // 主窗口几何（物理像素）÷ scaleFactor 换算逻辑像素——WebviewWindow 建窗选项是逻辑像素，
+          // 混用会在缩放屏（125%/150%）上错位；浏览器环境/取失败回退默认基几何。
+          let base = { x: 100, y: 100, width: 1200, height: 800 };
+          try {
+            const win = TauriApi.currentWindow();
+            if (win && typeof win.innerPosition === 'function') {
+              const pos = await win.innerPosition();
+              const size = await win.outerSize();
+              const scale = (typeof win.scaleFactor === 'function') ? await win.scaleFactor() : 1;
+              base = {
+                x: pos.x / scale, y: pos.y / scale,
+                width: size.width / scale, height: size.height / scale,
+              };
+            }
+          } catch (_) { /* 降级默认几何 */ }
+          const geometry = TMMultiWindow.cascadeGeometry(base, slot);
 
-        // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回
-        TMMultiWindow.writeHandoff(label, tab, localStorage);
-        const created = await TauriApi.createEditorWindow(label, geometry);
-        if (!created) {
-          TMMultiWindow.clearHandoff(label, localStorage);
-          this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
-          return false;
+          // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回。
+          // 写入失败（如超大内容触顶 localStorage 配额）与建窗失败同口径：保 tab、报错、不静默。
+          try {
+            TMMultiWindow.writeHandoff(label, tab, localStorage);
+          } catch (e) {
+            this.reportError('E_WINDOW', { error: e });
+            return false;
+          }
+          const created = await TauriApi.createEditorWindow(label, geometry);
+          if (!created) {
+            TMMultiWindow.clearHandoff(label, localStorage);
+            this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
+            return false;
+          }
+          const removeIndex = this.tabs.indexOf(tab);
+          if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
+          return true;
+        } finally {
+          this._detaching = false;
         }
-        const removeIndex = this.tabs.indexOf(tab);
-        if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
-        return true;
       },
       // ---- 标签页拖拽排序 ----
       reorderTab(from, to) {

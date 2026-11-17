@@ -99,3 +99,28 @@ test('boot: app.js 分叉护栏(parseBootParams/交接消费/清扫/file-open �
     'file-open 监听必须包在 !boot.detached 内(否则分离窗口重复开文件)');
   assert.ok(APP.includes('restoreDetachedTab'), 'detached 分支应经 restoreDetachedTab 重建');
 });
+
+test('boot: 真实分离 boot——恰一个 tab,无幽灵空 tab,未保存态成立', async () => {
+  // 构造器默认单 tab 在主窗口被 restoreSession 覆盖;分离分支必须同样清掉再重建
+  // (终审 Critical 1 回归:否则每个分离窗口都带着一个空 未命名0)
+  const seedTab = {
+    name: 'draft.md', content: '## 未保存草稿', savedContent: '', filePath: null,
+    kind: 'markdown', cursorPos: { line: 1, ch: 2 }, scrollPos: { top: 5, left: 0 },
+    previewScrollTop: 7, fileMeta: null, pendingExternalChange: false, _loaded: true,
+  };
+  const { w, getInitErr } = await buildEnv({
+    captureInitErr: true,
+    url: 'http://localhost/index.html?label=editor-1',
+    seedStorage: (ls) => MW.writeHandoff('editor-1', seedTab, ls),
+  });
+  try {
+    await delay(500);
+    assert.strictEqual(getInitErr(), null, '分离 boot 不应报错');
+    assert.equal(w.editor.tabs.length, 1, '应恰有交接键里的一个 tab(无幽灵空 tab)');
+    assert.equal(w.editor.tabs[0].content, '## 未保存草稿');
+    assert.equal(w.editor.tabs[0].savedContent, '', 'savedContent 随迁');
+    assert.equal(w.editor.tabs[0].isModified, true, '未保存态成立');
+    assert.equal(w.editor.activeTabIndex, 0);
+    assert.equal(MW.readHandoff('editor-1', w.localStorage), null, '交接键消费后应清除');
+  } finally { cleanup(w); }
+});

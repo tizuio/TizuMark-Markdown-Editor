@@ -130,3 +130,59 @@ test('quit: mergeDetachedSessions 烟测(委托 multi-window 纯函数)', () => 
   );
   assert.deepEqual(merged.tabs.map(t => t.filePath), ['D:/a.md', 'D:/b.md']);
 });
+
+test('quit: ready/aborted 监听先于请求发出(不与注册竞速)', async () => {
+  const { w, ed, handlers, emits } = await makeEditor();
+  try {
+    w.TauriApi.listEditorWindows = async () => ['editor-1'];
+    w.TauriApi.emitTo = async (label, event, payload) => {
+      if (event === 'app-quit-request') {
+        assert.ok(handlers['app-quit-ready'], 'app-quit-ready 监听必须先于请求发出');
+        assert.ok(handlers['app-quit-aborted'], 'app-quit-aborted 监听必须先于请求发出');
+      }
+      emits.push({ label, event, payload });
+    };
+    const p = ed.coordinateQuit({ timeoutMs: 1500 });
+    await delay(30);
+    await handlers['app-quit-ready']({ payload: { label: 'editor-1' } });
+    const ok = await p;
+    assert.equal(ok, true);
+  } finally { cleanup(w); }
+});
+
+test('quit: detached 关闭流程异常不砖窗(_closingWindow 复位)', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    let destroyed = 0;
+    w.TauriApi.currentWindow = () => ({ label: 'editor-1', destroy: async () => { destroyed++; }, close: async () => {} });
+    ed._detachedLabel = 'editor-1';
+    ed.tabs = [Object.assign(new w.TMConst.Tab('d.md', 'old', 'D:/d.md'), { content: 'new' })];
+    ed.showSaveDialog = async () => { throw new Error('dialog crash'); };
+    await ed.handleAppClose();
+    assert.equal(destroyed, 0, '异常时窗口保留');
+    ed.showSaveDialog = async () => 'discard';
+    await ed.handleAppClose();
+    assert.equal(destroyed, 1, '标志复位后关闭流程可达');
+  } finally { cleanup(w); }
+});
+
+test('quit: forceQuit 协调被拒 → 主会话键不被清,失败可见', async () => {
+  const { w, ed, handlers, quitCount } = await makeEditor();
+  try {
+    const statuses = [];
+    ed.setStatus = (m) => statuses.push(m);
+    w.TauriApi.listEditorWindows = async () => ['editor-1'];
+    w.localStorage.setItem('tizumark-session', JSON.stringify({
+      version: 2, tabs: [{ filePath: 'D:/a.md', name: 'a.md' }], emptyTabs: false,
+    }));
+    ed.settings.clearTabsOnQuit = true;
+    ed.tabs = []; // 主窗口无未保存,跳过自身保存询问
+    const p = ed.handleAppClose({ forceQuit: true });
+    await delay(30);
+    await handlers['app-quit-aborted']({ payload: { label: 'editor-1' } });
+    await p;
+    assert.equal(quitCount(), 0, '协调被拒不得退出');
+    assert.ok(w.localStorage.getItem('tizumark-session'), '被拒退出不得清主会话键(clearTabsOnQuit 先于协调是终审 Important 6)');
+    assert.ok(statuses.length > 0, '协调失败应对用户可见');
+  } finally { cleanup(w); }
+});

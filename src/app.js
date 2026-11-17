@@ -121,7 +121,11 @@ class MarkdownEditor {
     this.applyViewMode();
     this.updateMaximizeIcon();
     this.updateWordCount();
-    setTimeout(() => this.checkUpdate(false), 5000);
+    // 多窗口：分离窗口不自动检查更新（反目标：每个分离窗口 5s 后各弹一份更新框）；
+    // 菜单手动「检查更新」保留（installUpdate 已拒分离窗口执行）。
+    if (!(window.__tizumarkBoot && window.__tizumarkBoot.detached)) {
+      setTimeout(() => this.checkUpdate(false), 5000);
+    }
     this.updateSideButtons();
     this.initBackendHealth();
     this.applyLanguage();
@@ -596,6 +600,10 @@ window.addEventListener('DOMContentLoaded', async () => {
           setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 1200);
         } else {
           const tab = window.editor.restoreDetachedTab(payload.tab);
+          // 清掉构造器默认单 tab（主窗口由 restoreSession 覆盖，分离分支改为交接态重建），
+          // 否则每个分离窗口都带一个幽灵「未命名0」空 tab（终审 Critical 1）
+          window.editor.tabs = [];
+          window.editor.activeTabIndex = -1;
           // 与 addTab 同尾口径：入栈 → 元数据 → switchTab（恢复光标/滚动/预览） → 最近文件 → 会话
           window.editor.tabs.push(tab);
           window.editor.refreshFileMeta(tab);

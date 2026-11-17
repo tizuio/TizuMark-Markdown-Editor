@@ -416,7 +416,7 @@
         const groupLabels = this.t('shortcutGroup') || {};
         // 按功能分组展示，便于在长列表中查找
         const groups = [
-          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'exportPDF', 'closeToTray'] },
+          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'detachTab', 'exportPDF', 'closeToTray'] },
           { key: 'search', ids: ['find', 'crossSearch', 'fileSearch'] },
           { key: 'tabView', ids: ['nextTab', 'prevTab', 'toggleView', 'toggleSidebar', 'toggleTheme', 'foldBlock', 'unfoldBlock', 'foldAll', 'unfoldAll'] },
           { key: 'format', ids: ['bold', 'italic', 'strikethrough', 'inlineCode', 'highlight', 'insertSuperscript', 'insertSubscript', 'moveLineUp', 'moveLineDown', 'insertLineBelow', 'insertLineAbove'] },
