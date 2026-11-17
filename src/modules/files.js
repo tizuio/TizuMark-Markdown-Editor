@@ -292,10 +292,11 @@
       // 非 Markdown 明文文件：按扩展名选择 CodeMirror 语法高亮模式（仅高亮，不改变编辑行为）
       _applyCodeMode(ext) {
         if (!this.cm || typeof this.cm.setOption !== 'function') return;
-        // md/markdown 与未知扩展名兜底必须复用 editor-core 的基础配置（window.TizuMdModeCfg，
+        // md/markdown 与未知扩展名兜底必须复用 editor-core 的基础配置（TMConst.MD_MODE_CFG，
         // 含行内格式 token 中和 tokenTypeOverrides）——裸 'gfm' 字符串会把该配置整体覆盖丢失，
         // **粗体** 等重新出现格式化外观（2026-11-15 真机实锤：打开 demo.md 后 token 回退）。
-        const mdMode = (window.TizuMdModeCfg && typeof window.TizuMdModeCfg === 'object') ? window.TizuMdModeCfg : 'gfm';
+        const MD_MODE_CFG = window.TMConst && window.TMConst.MD_MODE_CFG;
+        const mdMode = (MD_MODE_CFG && typeof MD_MODE_CFG === 'object') ? MD_MODE_CFG : 'gfm';
         const map = {
           js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
           ts: 'javascript', tsx: 'javascript',

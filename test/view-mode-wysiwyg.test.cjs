@@ -925,8 +925,12 @@ test('列表/代码块活动行渲染化 CSS：源符号透明化 + ::before 渲
   // gfm 模式 gitHubSpice 把 7–40 位十六进制串认成 SHA → cm-link token →
   // codemirror.css .cm-link { text-decoration: underline } 在编辑态漏出；渲染器不识别
   // → 不一致。必须关 gitHubSpice（普通 URL 的 cm-link 走 urlRE 分支，渲染态本有下划线，保留）。
+  // 2026-11-17：mode 配置本体已收编进 constants.js（TMConst.MD_MODE_CFG，check-globals
+  // 单全局口径），gitHubSpice 断言随迁；editor-core 经解构复用同一对象。
   const ecore = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'editor-core.js'), 'utf8');
-  assert.match(ecore, /gitHubSpice:\s*false/, 'gfm 模式未关 gitHubSpice（SHA/issue 串被认成链接，编辑态漏下划线）');
+  const cconst = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'constants.js'), 'utf8');
+  assert.match(cconst, /gitHubSpice:\s*false/, 'gfm 模式未关 gitHubSpice（SHA/issue 串被认成链接，编辑态漏下划线）');
+  assert.match(ecore, /const \{ Tab, MD_MODE_CFG \} = TMConst;/, 'editor-core 未从 TMConst 复用 MD_MODE_CFG');
   // token 的 text-decoration 也要中和（.cm-link 下划线 / .cm-strikethrough 删除线漏出）；
   // 渲染态链接口径 = .preview-content a { text-decoration:none } → 编辑态 cm-link 无下划线
   assert.match(css, /wysiwyg-plain-text span\[class[*]="cm-"\] \{[\s\S]{0,800}text-decoration: none;/,

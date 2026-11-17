@@ -203,25 +203,30 @@ test('D3 工作区 vendor 副本当前已含两处补丁', () => {
 // E. editor-core 配置静态守卫（配置与 C 组行为测试保持同步）
 // ============================================================
 
-test('E1 editor-core mode 配置含 tokenTypeOverrides 且四类 token 指向 plain', () => {
+test('E1 MD_MODE_CFG 定义在 constants.js（TMConst 命名空间），editor-core 复用', () => {
+  // 2026-11-17：配置从 editor-core 的 window.TizuMdModeCfg 收编进 constants.js 的
+  // TMConst.MD_MODE_CFG——check-globals 白名单口径是「每模块只导出一个全局」，
+  // 独立挂 window 会违规（editor-core/files 双双变成多全局导出）。
+  const csrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'constants.js'), 'utf8');
+  assert.match(csrc, /const MD_MODE_CFG = \{[\s\S]*?tokenTypeOverrides:\s*\{\s*em:\s*'plain',\s*strong:\s*'plain',\s*strikethrough:\s*'plain',\s*codeInline:\s*'plain'\s*\}[\s\S]*?\};/,
+    'constants.js 缺行内格式 token 中和配置（或与 C 组行为测试的 EDITOR_MODE_CFG 不同步）');
+  assert.match(csrc, /gitHubSpice:\s*false/, 'gitHubSpice: false 不得丢失');
+  assert.match(csrc, /^\s{4}MD_MODE_CFG,\s*$/m, 'MD_MODE_CFG 未导出进 TMConst api');
   const src = fs.readFileSync(ECORE, 'utf8');
-  assert.match(src, /tokenTypeOverrides:\s*\{\s*em:\s*'plain',\s*strong:\s*'plain',\s*strikethrough:\s*'plain',\s*codeInline:\s*'plain'\s*\}/,
-    'editor-core.js 缺行内格式 token 中和配置（或与 C 组行为测试的 EDITOR_MODE_CFG 不同步）');
-  assert.match(src, /gitHubSpice:\s*false/, 'gitHubSpice: false 不得丢失');
-  // 配置必须提为共享常量 MD_MODE_CFG 并挂 window（files.js 打开文件时复用），构造处用 mode: MD_MODE_CFG
-  assert.match(src, /window\.TizuMdModeCfg\s*=\s*MD_MODE_CFG/, 'editor-core 未挂 window.TizuMdModeCfg（files.js 无处复用）');
+  assert.match(src, /const \{ Tab, MD_MODE_CFG \} = TMConst;/, 'editor-core 未从 TMConst 解构 MD_MODE_CFG');
   assert.match(src, /mode:\s*MD_MODE_CFG,/, 'editor-core 构造实例未使用 MD_MODE_CFG 常量');
+  assert.doesNotMatch(src, /window\.TizuMdModeCfg/, 'editor-core 不得再挂 window.TizuMdModeCfg 全局');
 });
 
 test('E2 files.js _applyCodeMode 打开文件不得用裸 gfm 覆盖 markdown 配置', () => {
   // 2026-11-15 真机实锤：openFile → _applyCodeMode('md') → setOption('mode', 'gfm')（裸字符串）
   // 把 tokenTypeOverrides 整体覆盖丢失，**粗体** 等重新变回格式化外观。md/markdown 映射与
-  // 未知扩展名兜底必须复用 window.TizuMdModeCfg。
+  // 未知扩展名兜底必须复用 TMConst.MD_MODE_CFG。
   const fsrc = fs.readFileSync(path.join(ROOT, 'src', 'modules', 'files.js'), 'utf8');
   const fnStart = fsrc.indexOf('_applyCodeMode(ext)');
   assert.ok(fnStart !== -1, 'files.js 缺 _applyCodeMode');
   const fnBody = fsrc.slice(fnStart, fsrc.indexOf('async openFolder()', fnStart));
-  assert.match(fnBody, /window\.TizuMdModeCfg/, '_applyCodeMode 未复用 window.TizuMdModeCfg');
+  assert.match(fnBody, /window\.TMConst\.MD_MODE_CFG/, '_applyCodeMode 未复用 TMConst.MD_MODE_CFG');
   assert.doesNotMatch(fnBody, /md:\s*'gfm'/, "_applyCodeMode 的 md 映射不得是裸 'gfm'（覆盖 tokenTypeOverrides）");
   assert.doesNotMatch(fnBody, /\|\|\s*'gfm'/, "_applyCodeMode 未知扩展名兜底不得是裸 'gfm'");
   assert.doesNotMatch(fnBody, /setOption\('mode',\s*'gfm'\)/, "_applyCodeMode catch 兜底不得是裸 'gfm'");

@@ -150,6 +150,17 @@
     'folder-open-containing', 'folder-copy-path',
   ];
 
+  // markdown 基础 mode 配置（唯一来源，2026-11-15 定稿）：editor-core 构造编辑器实例
+  // 与 files.js 的 _applyCodeMode 打开 .md 文件必须共用同一对象——真机实锤：打开文件时
+  // setOption('mode', 'gfm')（裸字符串）会把行内格式 token 中和整个覆盖丢失，
+  // **粗体** 等重新变回 cm-strong/cm-em/cm-strikethrough/cm-comment 格式化外观。
+  // 放 TMConst 既有命名空间（check-globals 白名单口径：每模块只导出一个全局）。
+  const MD_MODE_CFG = {
+    name: 'gfm',
+    gitHubSpice: false,
+    tokenTypeOverrides: { em: 'plain', strong: 'plain', strikethrough: 'plain', codeInline: 'plain' },
+  };
+
   const api = {
     MAX_PREVIEW_LINES,
     MAX_PREVIEW_CHARS,
@@ -170,6 +181,7 @@
     DOC_REQUIRED_BUTTON_IDS,
     DOC_FREE_MENU_ACTIONS,
     Tab,
+    MD_MODE_CFG,
     dialogOpen,
     dialogSave,
   };

@@ -3,19 +3,9 @@
 // 因此方法内的 this 仍指向编辑器实例，模块之间可继续用 this.xxx() 互调。
 (function () {
   'use strict';
-  const { Tab } = TMConst;
-
-  // markdown 基础 mode 配置（唯一来源）：editor-core 构造编辑器实例与 files.js 的
-  // _applyCodeMode 打开 .md 文件必须共用同一对象——2026-11-15 真机实锤：打开文件时
-  // setOption('mode', 'gfm')（裸字符串）会把下面的行内格式 token 中和整个覆盖丢失，
-  // **粗体** 等重新变回 cm-strong/cm-em/cm-strikethrough/cm-comment 格式化外观。
-  // 挂 window 供后加载的 files.js 读取（本脚本先于 files.js 进 index.html）。
-  const MD_MODE_CFG = {
-    name: 'gfm',
-    gitHubSpice: false,
-    tokenTypeOverrides: { em: 'plain', strong: 'plain', strikethrough: 'plain', codeInline: 'plain' },
-  };
-  window.TizuMdModeCfg = MD_MODE_CFG;
+  const { Tab, MD_MODE_CFG } = TMConst;
+  // MD_MODE_CFG（markdown 基础 mode 配置，含行内格式 token 中和）定义在 constants.js、
+  // 走 TMConst 命名空间共享：editor-core 构造实例与 files.js 打开 .md 必须共用同一对象。
 
   const mixin = {
       // 上下移动当前行/选中行块（CM5 核心无 moveLineUp/Down 命令，自实现，合并自 PR #36）。
@@ -187,7 +177,7 @@
           // 标题 cm-header / 引用 cm-quote / 链接 cm-link / 围栏内部语言高亮不受影响。
           // 高亮 ==..== 模式本就不发 token，编辑态恒为源码。gfm.js 会把 modeConfig
           // 属性透传给 markdown 模式（markdownConfig[attr] = modeConfig[attr]）。
-          // 配置本体 = 上方 MD_MODE_CFG（window.TizuMdModeCfg），files.js 打开 .md
+          // 配置本体 = TMConst.MD_MODE_CFG（定义在 constants.js），files.js 打开 .md
           // 文件时复用同一对象，不得用裸 'gfm' 字符串覆盖。
           mode: MD_MODE_CFG,
           theme: 'default',
