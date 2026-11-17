@@ -292,6 +292,10 @@
       // 非 Markdown 明文文件：按扩展名选择 CodeMirror 语法高亮模式（仅高亮，不改变编辑行为）
       _applyCodeMode(ext) {
         if (!this.cm || typeof this.cm.setOption !== 'function') return;
+        // md/markdown 与未知扩展名兜底必须复用 editor-core 的基础配置（window.TizuMdModeCfg，
+        // 含行内格式 token 中和 tokenTypeOverrides）——裸 'gfm' 字符串会把该配置整体覆盖丢失，
+        // **粗体** 等重新出现格式化外观（2026-11-15 真机实锤：打开 demo.md 后 token 回退）。
+        const mdMode = (window.TizuMdModeCfg && typeof window.TizuMdModeCfg === 'object') ? window.TizuMdModeCfg : 'gfm';
         const map = {
           js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
           ts: 'javascript', tsx: 'javascript',
@@ -303,10 +307,10 @@
           json: 'javascript',
           yml: 'yaml', yaml: 'yaml',
           sh: 'shell', bash: 'shell', zsh: 'shell',
-          md: 'gfm', markdown: 'gfm',
+          md: mdMode, markdown: mdMode,
         };
-        const mode = map[(ext || '').toLowerCase()] || 'gfm';
-        try { this.cm.setOption('mode', mode); } catch (e) { try { this.cm.setOption('mode', 'gfm'); } catch (_) {} }
+        const mode = map[(ext || '').toLowerCase()] || mdMode;
+        try { this.cm.setOption('mode', mode); } catch (e) { try { this.cm.setOption('mode', mdMode); } catch (_) {} }
       },
       async openFolder() {
         try {

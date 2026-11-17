@@ -397,4 +397,64 @@ function applyTizuMarkContinuelistPatch() {
 
 applyTizuMarkContinuelistPatch();
 
+// TizuMark markdown 模式本地补丁（2026-11-15，删除线误触发 + 行内代码独立 token）：
+// mode/markdown/markdown.js 由本脚本从 node_modules 再生（不进 git），修复只存在于
+// 再生后打的补丁里——口径与 applyTizuMarkCm5Patches 一致：marker 幂等跳过；锚点消失
+// 且无 marker = vendor 源码变了（CM 升级等）→ 失败显式报出，绝不静默跳过。
+//   ① 恰好 2 个波浪才允许开/关删除线：3 个及以上是围栏语义（~~~lang），一律按字面
+//      文本处理、绝不改变删除线状态——标题「## 8. 波浪线围栏 ~~~（xxx）」曾因
+//      eatWhile 吞掉 3 连波浪后下一字符非空白而误开删除线，把到行尾的全部文字划掉。
+//   ② 行内代码独立 token：getType 行内分支读 tokenTypeOverrides.codeInline（缺省仍
+//      tokenTypes.code），使编辑器可单独把行内代码中和为纯文本（editor-core.js 的
+//      tokenTypeOverrides），缩进代码块/无高亮围栏体的 code(comment) 不受影响。
+function applyTizuMarkMarkdownModePatch() {
+  const dest = path.join(LIB, 'codemirror', 'mode', 'markdown', 'markdown.js');
+  let code = fs.readFileSync(dest, 'utf8');
+  const patches = [
+    {
+      name: '恰好 2 波浪才触发删除线（标题 ~~~（ 误开删除线修复）',
+      marker: '// TizuMark 补丁（2026-11-15 删除线误触发修复）',
+      from: `      if (ch === '~' && stream.eatWhile(ch)) {
+        if (state.strikethrough) {// Remove strikethrough`,
+      to: `      if (ch === '~' && stream.eatWhile(ch)) {
+        // TizuMark 补丁（2026-11-15 删除线误触发修复）：仅「恰好 2 个波浪」才允许开/关
+        // 删除线；3 个及以上是围栏语义（~~~lang），一律按字面文本处理、绝不改变删除线
+        // 状态——标题「## 8. 波浪线围栏 ~~~（xxx）」曾因 eatWhile 吞掉 3 连波浪后下一
+        // 字符非空白而误开删除线，把到行尾的全部文字划掉。
+        if (stream.current().length !== 2) { return getType(state); }
+        if (state.strikethrough) {// Remove strikethrough`,
+    },
+    {
+      name: '行内代码独立 token（tokenTypeOverrides.codeInline）',
+      marker: 'modeCfg.tokenTypeOverrides && modeCfg.tokenTypeOverrides.codeInline',
+      from: `      if (state.code) { styles.push(tokenTypes.code); }`,
+      to: `      // TizuMark 补丁（2026-11-15 行内代码独立 token）：行内代码不再复用块级代码的
+      // tokenTypes.code（comment）——tokenTypeOverrides.codeInline 可单独改写行内
+      // 代码 token，块级路径（缩进代码 / 无高亮围栏体的 tokenTypes.code）不受影响。
+      if (state.code) { styles.push(modeCfg.tokenTypeOverrides && modeCfg.tokenTypeOverrides.codeInline ? modeCfg.tokenTypeOverrides.codeInline : tokenTypes.code); }`,
+    },
+  ];
+  let bad = 0;
+  for (const p of patches) {
+    if (code.indexOf(p.marker) !== -1) {
+      console.log('[ensure-vendor] markdown 模式补丁已在（幂等跳过）：' + p.name);
+      continue;
+    }
+    if (code.indexOf(p.from) === -1) {
+      console.error(`[ensure-vendor] markdown 模式补丁锚点未找到：${p.name}（vendor 源码已变化，须更新补丁；拒绝继续以免修复静默丢失）`);
+      bad++;
+      continue;
+    }
+    code = code.replace(p.from, p.to);
+    console.log('[ensure-vendor] markdown 模式补丁已应用：' + p.name);
+  }
+  fs.writeFileSync(dest, code);
+  if (bad > 0) {
+    console.error(`[ensure-vendor] ${bad} 个 markdown 模式补丁未应用，vendor 不完整`);
+    process.exit(1);
+  }
+}
+
+applyTizuMarkMarkdownModePatch();
+
 console.log('[ensure-vendor] vendor 同步完成：src/lib（codemirror/katex/mermaid/html2canvas/markdown-it/highlight.js）');

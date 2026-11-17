@@ -2769,11 +2769,12 @@ test('不跳顶修复⑤（2026-10-21）：ensure-vendor 再生 vendor 后重打
   const vendor = fs.readFileSync(path.join(ROOT, 'scripts', 'ensure-vendor.mjs'), 'utf8');
   assert.match(vendor, /function applyTizuMarkCm5Patches\(\) \{/,
     'ensure-vendor 缺 CM5 补丁重打步骤（vendor 再生会抹掉不跳顶修复）');
-  // 补丁调用顺序：CM5 核心 → continuelist addon → vendor 同步完成（2026-10-28 新增 continuelist
-  // 逐级退出补丁，须同在同步完成前重打，否则 npm install 抹掉修复；窗口 8000 = 补丁体含
-  // 块尾跳出逻辑后已逾 4000，S106 曾撑爆）
-  assert.match(vendor, /applyTizuMarkCm5Patches\(\);[\s\S]{0,8000}?applyTizuMarkContinuelistPatch\(\);\s*\n\s*console\.log\('\[ensure-vendor\] vendor 同步完成/,
-    'ensure-vendor 的 CM5/continuelist 补丁步骤未在 vendor 同步完成前调用');
+  // 补丁调用顺序：CM5 核心 → continuelist addon → markdown 模式 → vendor 同步完成
+  // （2026-10-28 新增 continuelist 逐级退出补丁，须同在同步完成前重打，否则 npm install
+  // 抹掉修复；2026-11-15 新增 markdown 模式补丁——恰好 2 波浪删除线守卫 + 行内代码
+  // 独立 token。窗口 8000 = 补丁体含块尾跳出逻辑后已逾 4000，S106 曾撑爆）
+  assert.match(vendor, /applyTizuMarkCm5Patches\(\);[\s\S]{0,8000}?applyTizuMarkContinuelistPatch\(\);[\s\S]{0,8000}?applyTizuMarkMarkdownModePatch\(\);\s*\n\s*console\.log\('\[ensure-vendor\] vendor 同步完成/,
+    'ensure-vendor 的 CM5/continuelist/markdown 补丁步骤未在 vendor 同步完成前调用');
   // 两个补丁项的幂等 marker（已打则跳过；锚点丢失则 exit 1，绝不静默）
   assert.match(vendor, /marker: 'if \(rendered\.has\(line\)\) return;'/,
     'ensure-vendor CM5 补丁项一（estimateLineHeights 跳过已渲染行）缺 marker');
