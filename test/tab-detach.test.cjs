@@ -190,8 +190,9 @@ test('detach: 并发守卫——在途第二次调用拒绝,交接键不被覆�
   } finally { cleanup(w); }
 });
 
-test('drag: 拖出窗口边界松手 → 撕离(移动语义,落点建窗)', async () => {
-  // 二期拖拽撕离:复用指针拖拽基础设施,越界 mouseup 触发 _openTabInWindow(move,落点)
+test('drag: 拖出窗口边界松手 → 复制(原窗口保留,落点建窗)', async () => {
+  // 二期拖拽撕离:复用指针拖拽基础设施,越界 mouseup 触发 _openTabInWindow。
+  // 默认复制语义(原窗口保留,用户 2026-11-18 定);Ctrl/Cmd+拖拽 = 移动。
   const { w, ed } = await makeEditor();
   try {
     const created = [];
@@ -202,8 +203,8 @@ test('drag: 拖出窗口边界松手 → 撕离(移动语义,落点建窗)', asy
     await ed.addTab('b.md', '# B', 'D:/b.md');
     const aIdx = ed.tabs.findIndex(t => t.filePath === 'D:/a.md');
     const tabEl = w.document.querySelector(`.tab[data-index="${aIdx}"]`);
-    const fire = (type, x, y, target) => {
-      target.dispatchEvent(new w.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+    const fire = (type, x, y, target, mods) => {
+      target.dispatchEvent(new w.MouseEvent(type, Object.assign({ bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }, mods || {})));
     };
     fire('mousedown', 50, 12, tabEl);
     fire('mousemove', 60, 20, w.document);   // 越过 5px 阈值激活
@@ -214,9 +215,20 @@ test('drag: 拖出窗口边界松手 → 撕离(移动语义,落点建窗)', asy
     // 落点建窗:base(100,80)+client(60,-30) → (160,50)
     assert.equal(created[0].geom.x, 160, '新窗左上角 = 窗口原点+落点');
     assert.equal(created[0].geom.y, 50);
-    assert.equal(ed.tabs.some(t => t.filePath === 'D:/a.md'), false, '移动语义:原窗口 tab 移除');
+    assert.equal(ed.tabs.some(t => t.filePath === 'D:/a.md'), true, '复制语义:原窗口文档保留');
     const payload = MW.readHandoff('editor-1', w.localStorage);
     assert.ok(payload && payload.tab.filePath === 'D:/a.md', '交接键随迁');
+    MW.clearHandoff('editor-1', w.localStorage);
+
+    // Ctrl+拖拽 = 移动语义(原窗口移除)
+    const aIdx2 = ed.tabs.findIndex(t => t.filePath === 'D:/a.md');
+    const tabEl2 = w.document.querySelector(`.tab[data-index="${aIdx2}"]`);
+    fire('mousedown', 50, 12, tabEl2);
+    fire('mousemove', 60, 20, w.document);
+    fire('mouseup', 60, -30, w.document, { ctrlKey: true });
+    await delay(30);
+    assert.equal(created.length, 2, 'Ctrl+拖拽仍建新窗');
+    assert.equal(ed.tabs.some(t => t.filePath === 'D:/a.md'), false, 'Ctrl+拖拽 = 移动:原窗口 tab 移除');
     MW.clearHandoff('editor-1', w.localStorage);
   } finally { cleanup(w); }
 });

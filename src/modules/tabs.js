@@ -739,16 +739,18 @@
         const ds = this._dragState;
         if (!ds) return;
         if (ds.active) {
-          // 拖出窗口边界松手 = 撕离（移动语义，Excel/Word；落点即新窗左上角）；
-          // 窗口内松手走既有重排。撕离异步自跑，不阻塞事件收尾。
+          // 拖出窗口边界松手 = 新窗打开该文档，落点即新窗左上角；窗口内松手走既有重排。
+          // 默认【复制】语义（原窗口保留，用户 2026-11-18 定；与菜单「在新窗口打开」同口径），
+          // Ctrl/Cmd+拖拽 = 移动（与菜单「移动到新窗口」同口径）。撕离异步自跑，不阻塞事件收尾。
           if (window.TMMultiWindow && TMMultiWindow.tearOffPoint(
                 e.clientX, e.clientY, window.innerWidth, window.innerHeight)) {
             const from = ds.from;
             const drop = { dropClientX: e.clientX, dropClientY: e.clientY };
+            const move = !!(e.ctrlKey || e.metaKey);
             this._endTabDrag();
             this._suppressClick = true;
             this._dragState = null;
-            this._openTabInWindow(from, true, drop).catch(() => {});
+            this._openTabInWindow(from, move, drop).catch(() => {});
             return;
           }
           const to = this._tabIndexAtPoint(e.clientX, e.clientY);
