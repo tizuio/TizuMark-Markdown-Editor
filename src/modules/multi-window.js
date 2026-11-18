@@ -87,7 +87,7 @@
       if (!data || !data.tab) return null;
       return data;
     } catch (e) {
-      // 损坏 JSON 视同缺失，但必须留下诊断线索（评审 P1-2：不再静默吞掉）
+      // 损坏 JSON 视同缺失，但必须留下诊断线索
       console.warn('[TizuMark] handoff payload corrupt:', e);
       return null;
     }
@@ -142,7 +142,7 @@
     };
   }
 
-  // 显示器工作区钳制（评审 P2-6）：bounds 为逻辑像素 {x,y,width,height}。
+  // 显示器工作区钳制：bounds 为逻辑像素 {x,y,width,height}。
   // 拖到屏幕右/下边缘松手时，避免新窗大比例落在屏外；窗口大于工作区时贴左上。
   function clampGeometry(geometry, bounds) {
     const g = geometry || {};
@@ -163,7 +163,7 @@
     };
   }
 
-  // 所有显示器的物理像素并集（评审 P2-6）：以统一坐标空间钳制新窗，
+  // 所有显示器的物理像素并集：以统一坐标空间钳制新窗，
   // 既不把窗口拉回源显示器（支持拖到副屏），也不让它落到桌面区域之外。
   function monitorUnionBounds(monitors) {
     let minX = Infinity;

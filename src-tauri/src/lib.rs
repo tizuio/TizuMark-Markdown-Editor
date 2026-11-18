@@ -800,7 +800,7 @@ fn drop_watcher(state: &WatcherState, label: &str) -> bool {
 }
 
 // 挂载/替换指定 label 的监听槽；被替换的旧句柄交还调用方（drop 即关闭监听）。
-// 锁中毒返回错误而非 panic（评审 P3-1）：让命令显式失败，避免前端 IPC 无响应。
+// 锁中毒返回错误而非 panic：让命令显式失败，避免前端 IPC 无响应。
 fn put_watcher(
     state: &WatcherState,
     label: String,

@@ -91,7 +91,7 @@
       // 测试可直接注入。boot 参数与键口径见 multi-window.js / 设计文档定案 4。
       sessionKey() {
         // 单一来源：优先用 boot 注入的 _detachedLabel；缺失时解析一次 URL 并回填，
-        // 之后不再重复解析（评审 P3-4：避免两套来源长期并存漂移）。
+        // 之后不再重复解析（避免两套来源长期并存漂移）。
         if (!this._detachedLabel) {
           const boot = (window.TMMultiWindow && window.TMMultiWindow.parseBootParams)
             ? window.TMMultiWindow.parseBootParams(window.location.search)

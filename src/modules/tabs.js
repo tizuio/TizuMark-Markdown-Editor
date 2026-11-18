@@ -290,7 +290,7 @@
       async detachTabToWindow(index) {
         return await this._openTabInWindow(index, true);
       },
-      // 跨窗口 label 分配互斥（评审 P1-3）：WebView2/Chromium 提供 Web Locks，
+      // 跨窗口 label 分配互斥：WebView2/Chromium 提供 Web Locks，
       // 把「取 label → 写交接键 → 建窗」串行化，避免两个窗口从同一陈旧快照选到同一
       // label、交接键互相覆盖后被失败方 clearHandoff 删掉唯一副本。无 Web Locks 时降级。
       async _withEditorLabelLock(fn) {
@@ -308,7 +308,7 @@
       async _openTabInWindow(index, move, dropPt) {
         // 在途防重入：并发第二次会从同一陈旧 listEditorWindows 快照取到同一 label，
         // writeHandoff 覆盖第一份交接键、create 失败后 clearHandoff 把第一份唯一副本删掉
-        // → 未保存内容不可恢复（终审 Critical 2）。守卫期间重复触发（双击/按住快捷键）直接拒绝。
+        // → 未保存内容不可恢复。守卫期间重复触发（双击/按住快捷键）直接拒绝。
         if (this._detaching) return false;
         if (index < 0 || index >= this.tabs.length) return false;
         const tab = this.tabs[index];
@@ -338,7 +338,7 @@
                   width: size.width / scale, height: size.height / scale,
                 };
                 // 虚拟桌面物理并集 ÷ 源窗口 scale = 统一逻辑坐标；用并集而非“当前显示器”，
-                // 既允许拖到副屏，又能阻止新窗落到桌面之外（评审 P2-6）。
+                // 既允许拖到副屏，又能阻止新窗落到桌面之外。
                 let monBounds = null;
                 if (typeof TauriApi.availableMonitors === 'function') {
                   const union = TMMultiWindow.monitorUnionBounds(await TauriApi.availableMonitors());
@@ -770,7 +770,7 @@
         if (!ds) return;
         if (ds.active) {
           // 拖出窗口边界松手 = 新窗打开该文档，落点即新窗左上角；窗口内松手走既有重排。
-          // 默认【复制】语义（原窗口保留，用户 2026-11-18 定；与菜单「在新窗口打开」同口径），
+          // 默认【复制】语义（原窗口保留；与菜单「在新窗口打开」同口径），
           // Ctrl/Cmd+拖拽 = 移动（与菜单「移动到新窗口」同口径）。撕离异步自跑，不阻塞事件收尾。
           if (window.TMMultiWindow && TMMultiWindow.tearOffPoint(
                 e.clientX, e.clientY, window.innerWidth, window.innerHeight)) {

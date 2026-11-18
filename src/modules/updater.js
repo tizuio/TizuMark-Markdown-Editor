@@ -323,14 +323,14 @@
             return;
           }
         } catch (_) { /* 浏览器环境降级：无窗口概念,继续 */ }
-        // 先校验待安装包，再协调关闭分离窗口：没有包可装时不得误关用户窗口（评审 P2-8）。
+        // 先校验待安装包，再协调关闭分离窗口：没有包可装时不得误关用户窗口。
         if (!this.pendingUpdateRid) return;
         if (!this.pendingCachePath || !this.pendingCachePath.path) {
           // 没有已落盘的安装包（理论上不会：安装按钮只在「已下载」态出现）
           this.showToast(this.t('updateFailed'));
           return;
         }
-        // 协调失败必须显式中止（评审 P2-2）：安装会重启并杀掉所有窗口，
+        // 协调失败必须显式中止：安装会重启并杀掉所有窗口，
         // 吞掉异常继续可能静默丢失分离窗口未保存内容。
         try {
           const coordinated = await this.coordinateQuit();
