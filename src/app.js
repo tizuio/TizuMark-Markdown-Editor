@@ -514,13 +514,52 @@ window.addEventListener('DOMContentLoaded', async () => {
     // 代码块按需滚动：preview 出现/替换 .code-scroll 时自动跑后处理（rAF 去抖）。
     // LiveReload 推新 JS 后已渲染的代码块不会重新触发 render，单靠 render 末尾调用
     // 会漏掉；MutationObserver 兜底所有时机（含初次加载、async 替换、LiveReload 后）。
-    const pruneCodeScrolls = () => {
-      if (!window.editor || !window.editor.preview) return;
+    // 自愈兜底（issue #89）：一次性测量可能撞上非渲染时机（display:none/未入文档 →
+    // scrollHeight/clientHeight 均为 0），把长代码块写成粘滞 inline hidden——
+    // MutationObserver 只看 DOM 变更，布局恢复后无人纠正 → 阅读模式长块永久无滚动条。
+    // 双保险（两者互补，缺一不可）：
+    // ① ResizeObserver——初始回调与尺寸变化（含 0→真实高度）时重测，覆盖「隐藏态跨帧
+    //    后再显示」（0×0 → 实际尺寸必派发）；
+    // ② rAF 延迟重测——「隐藏→测量→恢复」发生在同一帧时，恢复后尺寸与 RO 上次派发值
+    //    相同，RO 不派发（真机探针实锤的盲区）；rAF 回调时布局已稳定，补测封死。
+    // 写 style 不改盒子尺寸、不算 childList mutation，无循环风险。
+    const roTargets = new Set();
+    let pendingScrollRecheck = false;
+    const codeScrollRO = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const el = entry.target;
+            // 已断连的 target 不会再有尺寸变化回调，此处是唯一能感知的时机；
+            // prune 侧 sweep 兜底（正常路径元素替换时走这里卸载）
+            if (!el.isConnected) { codeScrollRO.unobserve(el); roTargets.delete(el); continue; }
+            el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? 'auto' : 'hidden';
+          }
+        })
+      : null;
+    const measureCodeScrolls = () => {
       window.editor.preview.querySelectorAll('.code-scroll').forEach((el) => {
         // 必须显式 'auto'：CSS 默认是 hidden（防 Windows always-show 滚动条轨道），
         // 清空 inline 会让 CSS 接管 → 仍 hidden → 永远没滚动条
         el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? 'auto' : 'hidden';
+        // observe 幂等（规范：target 已在观察列表则直接返回），重复调用无副作用
+        if (codeScrollRO) { codeScrollRO.observe(el); roTargets.add(el); }
       });
+    };
+    const pruneCodeScrolls = () => {
+      if (!window.editor || !window.editor.preview) return;
+      // 清扫已被替换/移除的观察目标，防 observer 长期持有脱离 DOM 的元素
+      for (const el of roTargets) {
+        if (!el.isConnected) { codeScrollRO.unobserve(el); roTargets.delete(el); }
+      }
+      measureCodeScrolls();
+      // 同帧隐藏→恢复场景：此刻布局未必反映最终可见态，rAF 后强制布局再补测一次
+      if (codeScrollRO && !pendingScrollRecheck) {
+        pendingScrollRecheck = true;
+        requestAnimationFrame(() => {
+          pendingScrollRecheck = false;
+          if (window.editor && window.editor.preview) measureCodeScrolls();
+        });
+      }
     };
     new MutationObserver(() => requestAnimationFrame(pruneCodeScrolls))
       .observe(window.editor.preview, { childList: true, subtree: true });

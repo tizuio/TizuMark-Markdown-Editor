@@ -47,6 +47,42 @@ test('app.js: 注册 MutationObserver 监听 preview 子树，自动跑 .code-sc
   );
 });
 
+test('app.js: ResizeObserver 自愈兜底——坏测量写死的 inline hidden 会被重测纠正（issue #89）', () => {
+  // 坏写入只可能来自非渲染态（display:none/未入文档 → 两值均 0 → 误写 hidden）。
+  // 双保险互补：① RO 覆盖「隐藏态跨帧后再显示」（0×0→实际尺寸必派发）；
+  // ② rAF 延迟重测覆盖「同帧内隐藏→测量→恢复」（恢复后尺寸与 RO 上次派发值相同，
+  //    RO 不派发——真机探针实锤的盲区），rAF 时布局已稳定。
+  assert.match(
+    appSrc,
+    /typeof\s+ResizeObserver\s*!==\s*'undefined'/,
+    '必须有 typeof 守卫（jsdom 无 ResizeObserver，不能让初始化崩掉）',
+  );
+  assert.match(appSrc, /new\s+ResizeObserver\(/, '应创建单例 ResizeObserver');
+  // RO 回调里用同一谓词重测（与 prune/applyCodeScrollOverflow 一致）
+  assert.match(
+    appSrc,
+    /el\.style\.overflowY\s*=\s*el\.scrollHeight\s*>\s*el\.clientHeight\s*\+\s*1\s*\?\s*'auto'\s*:\s*'hidden'/g,
+  );
+  // rAF 延迟重测：pendingScrollRecheck 防抖（每轮 mutation 只补测一次，不自我续期）
+  assert.match(appSrc, /pendingScrollRecheck/, '应有 rAF 延迟重测的防抖标记');
+  assert.match(
+    appSrc,
+    /requestAnimationFrame\(\s*\(\)\s*=>\s*\{\s*pendingScrollRecheck\s*=\s*false/,
+    'prune 后应 rAF 补测一次（同帧隐藏→恢复场景 RO 不派发，唯一纠正路径）',
+  );
+  // 断连清扫：RO 回调感知 isConnected（唯一能收到已脱离元素回调的时机）+ prune sweep
+  assert.match(
+    appSrc,
+    /if\s*\(\s*!el\.isConnected\s*\)\s*\{\s*codeScrollRO\.unobserve\(el\)/,
+    'RO 回调应对断连元素 unobserve（元素替换后的旧目标不再有尺寸变化，只能在这里卸载）',
+  );
+  assert.match(
+    appSrc,
+    /codeScrollRO\.observe\(el\)/,
+    'prune 写完 inline 后应把元素交给 RO 观察（observe 幂等，重复调用无副作用）',
+  );
+});
+
 test('styles.css: 关闭「代码块滚动条」时 .preview-content.code-no-scroll .code-scroll 撑开高度不滚动', () => {
   const block = css.match(/\.preview-content\.code-no-scroll\s+\.code-scroll\s*\{[^}]*\}/);
   assert.ok(block, '应存在 .preview-content.code-no-scroll .code-scroll 规则');
