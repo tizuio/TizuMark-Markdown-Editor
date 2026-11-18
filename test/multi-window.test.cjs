@@ -137,3 +137,28 @@ test('mergeDetachedSessions: 追加 filePath 去重,main 字段不变', () => {
   assert.equal(merged.workspaceFolder, 'D:/work');
   assert.equal(merged.version, 2);
 });
+
+test('tearOffPoint: 窗口边界外(留 margin 容差)判撕离', () => {
+  // jsdom 内部坐标(窗内)不撕离
+  assert.equal(MW.tearOffPoint(500, 300, 1000, 700), false);
+  assert.equal(MW.tearOffPoint(0, 0, 1000, 700), false);
+  // 越界(默认 margin 8)
+  assert.equal(MW.tearOffPoint(-20, 300, 1000, 700), true, '左越界');
+  assert.equal(MW.tearOffPoint(500, -20, 1000, 700), true, '上越界');
+  assert.equal(MW.tearOffPoint(1020, 300, 1000, 700), true, '右越界');
+  assert.equal(MW.tearOffPoint(500, 720, 1000, 700), true, '下越界');
+  // 容差内(±8px)不撕离,防贴边误触
+  assert.equal(MW.tearOffPoint(-5, 300, 1000, 700), false);
+  assert.equal(MW.tearOffPoint(500, 705, 1000, 700), false);
+});
+
+test('tearOffGeometry: 落点即新窗左上角(窗口原点+窗口内落点),和为负才钳 0', () => {
+  const g = MW.tearOffGeometry({ x: 100, y: 80 }, { dropClientX: 300, dropClientY: 250 }, 1200, 800);
+  assert.deepEqual(g, { x: 400, y: 330, width: 1200, height: 800 });
+  // 窗内负落点 = 拖到源窗口左侧/上方松手:和为正时跟手,不钳
+  const g2 = MW.tearOffGeometry({ x: 100, y: 80 }, { dropClientX: -50, dropClientY: -30 }, 1200, 800);
+  assert.deepEqual(g2, { x: 50, y: 50, width: 1200, height: 800 });
+  // 和为负(源窗口本身在屏外)才钳 0
+  const g3 = MW.tearOffGeometry({ x: -100, y: -80 }, { dropClientX: -50, dropClientY: -30 }, 1200, 800);
+  assert.deepEqual(g3, { x: 0, y: 0, width: 1200, height: 800 });
+});

@@ -189,3 +189,58 @@ test('detach: 并发守卫——在途第二次调用拒绝,交接键不被覆�
     MW.clearHandoff('editor-1', w.localStorage);
   } finally { cleanup(w); }
 });
+
+test('drag: 拖出窗口边界松手 → 撕离(移动语义,落点建窗)', async () => {
+  // 二期拖拽撕离:复用指针拖拽基础设施,越界 mouseup 触发 _openTabInWindow(move,落点)
+  const { w, ed } = await makeEditor();
+  try {
+    const created = [];
+    w.TauriApi.listEditorWindows = async () => [];
+    w.TauriApi.createEditorWindow = async (label, geom) => { created.push({ label, geom }); return { label }; };
+    mockMainWindow(w, { x: 100, y: 80, width: 1200, height: 800 });
+    await ed.addTab('a.md', '# A', 'D:/a.md');
+    await ed.addTab('b.md', '# B', 'D:/b.md');
+    const aIdx = ed.tabs.findIndex(t => t.filePath === 'D:/a.md');
+    const tabEl = w.document.querySelector(`.tab[data-index="${aIdx}"]`);
+    const fire = (type, x, y, target) => {
+      target.dispatchEvent(new w.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+    };
+    fire('mousedown', 50, 12, tabEl);
+    fire('mousemove', 60, 20, w.document);   // 越过 5px 阈值激活
+    fire('mousemove', 60, -30, w.document);  // 拖出上边界
+    fire('mouseup', 60, -30, w.document);
+    await delay(30);
+    assert.equal(created.length, 1, '越界松手应建新窗');
+    // 落点建窗:base(100,80)+client(60,-30) → (160,50)
+    assert.equal(created[0].geom.x, 160, '新窗左上角 = 窗口原点+落点');
+    assert.equal(created[0].geom.y, 50);
+    assert.equal(ed.tabs.some(t => t.filePath === 'D:/a.md'), false, '移动语义:原窗口 tab 移除');
+    const payload = MW.readHandoff('editor-1', w.localStorage);
+    assert.ok(payload && payload.tab.filePath === 'D:/a.md', '交接键随迁');
+    MW.clearHandoff('editor-1', w.localStorage);
+  } finally { cleanup(w); }
+});
+
+test('drag: 窗口内松手不撕离,既有重排不受影响', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    let created = 0;
+    w.TauriApi.listEditorWindows = async () => [];
+    w.TauriApi.createEditorWindow = async (label, geom) => { created++; return { label }; };
+    mockMainWindow(w, { x: 0, y: 0, width: 1200, height: 800 });
+    await ed.addTab('a.md', '# A', 'D:/a.md');
+    await ed.addTab('b.md', '# B', 'D:/b.md');
+    const names0 = ed.tabs.map(t => t.name);
+    const tabEl0 = w.document.querySelector('.tab[data-index="0"]');
+    const fire = (type, x, y, target) => {
+      target.dispatchEvent(new w.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+    };
+    // 窗口内拖动并松手:elementFromPoint mock 不了逐点位,此处不命中 tab → 不重排、不撕离
+    fire('mousedown', 50, 12, tabEl0);
+    fire('mousemove', 200, 200, w.document);
+    fire('mouseup', 200, 200, w.document);
+    await delay(30);
+    assert.equal(created, 0, '窗内松手不得建窗撕离');
+    assert.deepEqual(ed.tabs.map(t => t.name), names0, '顺序不变');
+  } finally { cleanup(w); }
+});

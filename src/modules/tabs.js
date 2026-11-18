@@ -292,10 +292,12 @@
       },
       // 共享核心：写交接键 → 建窗 →（仅 move）移除源 tab。设计：
       // docs/superpowers/specs/2026-11-18-tab-tearoff-window-design.md。
+      // dropPt（可选，拖拽撕离专用）：{ dropClientX, dropClientY } 窗口内落点，
+      // 新窗左上角 = 窗口原点 + 落点（tearOffGeometry），替代固定级联位。
       // 状态随迁走 localStorage 交接键（未保存修改与未命名 tab 均可迁——savedContent 一并写入，
       // isModified 语义在新窗口原样成立）。
       // 失败口径：建窗失败 → 保留 tab、清交接键、E_WINDOW 报错——任何路径不静默丢内容。
-      async _openTabInWindow(index, move) {
+      async _openTabInWindow(index, move, dropPt) {
         // 在途防重入：并发第二次会从同一陈旧 listEditorWindows 快照取到同一 label，
         // writeHandoff 覆盖第一份交接键、create 失败后 clearHandoff 把第一份唯一副本删掉
         // → 未保存内容不可恢复（终审 Critical 2）。守卫期间重复触发（双击/按住快捷键）直接拒绝。
@@ -327,7 +329,11 @@
               };
             }
           } catch (_) { /* 降级默认几何 */ }
-          const geometry = TMMultiWindow.cascadeGeometry(base, slot);
+          let geometry = TMMultiWindow.cascadeGeometry(base, slot);
+          if (dropPt) {
+            // 拖拽撕离：新窗落在松手位置，不走固定级联位
+            geometry = TMMultiWindow.tearOffGeometry(base, dropPt, geometry.width, geometry.height);
+          }
 
           // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回。
           // 写入失败（如超大内容触顶 localStorage 配额）与建窗失败同口径：保 tab、报错、不静默。
@@ -634,6 +640,13 @@
             if (e.button === 1) { e.preventDefault(); this.closeTab(i); return; }
             if (e.button === 0) {
               this._dragState = { from: i, startX: e.clientX, startY: e.clientY, active: false };
+              // 指针捕获：拖出窗口边界后 mousemove/mouseup 仍持续送达（拖拽撕离依赖越界坐标；
+              // WebView2 按住按钮期间 Chromium 通常自带捕获，显式 capture 兜底环境差异）
+              try {
+                if (typeof tabEl.setPointerCapture === 'function' && e.pointerId !== undefined) {
+                  tabEl.setPointerCapture(e.pointerId);
+                }
+              } catch (_) { /* 不支持捕获则依赖浏览器按钮期捕获 */ }
             }
           });
           // 鼠标悬停显示完整路径（含文件名）；未保存标签无 filePath 时回退文件名
@@ -726,6 +739,18 @@
         const ds = this._dragState;
         if (!ds) return;
         if (ds.active) {
+          // 拖出窗口边界松手 = 撕离（移动语义，Excel/Word；落点即新窗左上角）；
+          // 窗口内松手走既有重排。撕离异步自跑，不阻塞事件收尾。
+          if (window.TMMultiWindow && TMMultiWindow.tearOffPoint(
+                e.clientX, e.clientY, window.innerWidth, window.innerHeight)) {
+            const from = ds.from;
+            const drop = { dropClientX: e.clientX, dropClientY: e.clientY };
+            this._endTabDrag();
+            this._suppressClick = true;
+            this._dragState = null;
+            this._openTabInWindow(from, true, drop).catch(() => {});
+            return;
+          }
           const to = this._tabIndexAtPoint(e.clientX, e.clientY);
           if (to != null && to !== ds.from) this.reorderTab(ds.from, to);
           this._endTabDrag();

@@ -118,6 +118,30 @@
     return removed;
   }
 
+  // 拖拽撕离判定:指针落在窗口边界外即撕离候选(默认留 8px 容差,防贴边误触)。
+  // 拖拽=移动语义(Excel/Word),配合 tabs.js initTabDragEvents 的 mouseup 分支使用。
+  function tearOffPoint(x, y, width, height, margin) {
+    const m = Number.isFinite(margin) ? margin : 8;
+    x = Number(x); y = Number(y);
+    const w = Number(width) || 0;
+    const h = Number(height) || 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    return x < -m || x > w + m || y < -m || y > h + m;
+  }
+
+  // 拖拽撕落几何:落点即新窗左上角(逻辑坐标 = 窗口原点 base + 窗口内落点 dropClient*),
+  // 负值钳 0;尺寸沿用级联结果。让新窗出现在用户松手的地方,而非固定级联位。
+  function tearOffGeometry(base, dropPt, width, height) {
+    const b = base || {};
+    const d = dropPt || {};
+    return {
+      x: Math.max(0, (Number(b.x) || 0) + (Number(d.dropClientX) || 0)),
+      y: Math.max(0, (Number(b.y) || 0) + (Number(d.dropClientY) || 0)),
+      width: width,
+      height: height,
+    };
+  }
+
   // 退出聚合:把各分离窗口会话的 tabs(filePath 去重、保序)追加进主会话;主会话其余字段
   // (activeFilePath/workspaceFolder/expandedFolders/emptyTabs/version)一律不动——重启后
   // 分离窗口文件以主窗口 tab 恢复(设计定案 4 的降级无损路径)。
@@ -149,6 +173,8 @@
     readHandoff: readHandoff,
     clearHandoff: clearHandoff,
     sweepStaleHandoffs: sweepStaleHandoffs,
+    tearOffPoint: tearOffPoint,
+    tearOffGeometry: tearOffGeometry,
     mergeDetachedSessions: mergeDetachedSessions,
   };
 
