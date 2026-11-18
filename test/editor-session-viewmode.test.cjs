@@ -72,6 +72,12 @@ test('会话级 md 模式记忆：md 预览态下新建文档（newFile）不应
 
     ed.newFile();
 
+    // newFile 内部 addTab 是未 await 的异步链（switchTab→updatePreview→…）。
+    // 不等它落地就返回的话，cleanup 的 w.close() 会打断在途链，node:test（CI node 22）
+    // 在测试结束后捕获到链上的 rejection（"generated asynchronous activity after the
+    // test ended"），整文件被判失败。等链收尾再断言/返回，断言本身不受影响。
+    await new Promise((r) => setTimeout(r, 250));
+
     assert.strictEqual(ed._sessionMdViewMode, null, 'newFile 不应把会话记忆写成 edit');
   });
 });
