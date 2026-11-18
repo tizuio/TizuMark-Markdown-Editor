@@ -117,26 +117,54 @@ test('detach: 建窗失败 → tab 保留、交接键清除、返回 false', asy
   } finally { cleanup(w); }
 });
 
-test('detach: 菜单 action 分发到 detachTabToWindow(this._contextTabIndex)', async () => {
+test('detach/copy: 菜单 action 分发——tab-open-in-window=复制保留,tab-move-to-window=移动', async () => {
   const { w, ed } = await makeEditor();
   try {
-    let called = null;
-    const orig = ed.detachTabToWindow.bind(ed);
-    ed.detachTabToWindow = async (i) => { called = i; return true; };
+    let moved = null;
+    let copied = null;
+    const origMove = ed.detachTabToWindow.bind(ed);
+    const origCopy = ed.copyTabToWindow.bind(ed);
+    ed.detachTabToWindow = async (i) => { moved = i; return true; };
+    ed.copyTabToWindow = async (i) => { copied = i; return true; };
     ed._contextTabIndex = 2;
+    ed.executeMenuAction('tab-move-to-window');
+    assert.equal(moved, 2, '「移动到新窗口」应走 detachTabToWindow');
     ed.executeMenuAction('tab-open-in-window');
-    assert.equal(called, 2);
-    ed.detachTabToWindow = orig;
+    assert.equal(copied, 2, '「在新窗口打开」应走 copyTabToWindow(原窗口保留)');
+    ed.detachTabToWindow = origMove;
+    ed.copyTabToWindow = origCopy;
   } finally { cleanup(w); }
 });
 
-test('detach: 快捷键默认项 Ctrl+Shift+O + globalMap 绑定 + app.js case', () => {
-  assert.ok(/detachTab:\s*\{\s*key:\s*'Ctrl\+Shift\+O'/.test(SHORTCUTS),
-    'getDefaultShortcuts 应含 detachTab: Ctrl+Shift+O');
-  assert.ok(/detachTab:\s*\(\)\s*=>\s*this\.detachTabToWindow\(this\.activeTabIndex\)/.test(SHORTCUTS),
-    'globalMap 应绑定 detachTab → detachTabToWindow(activeTabIndex)');
-  assert.ok(APP.includes("case 'tab-open-in-window': this.detachTabToWindow(this._contextTabIndex); break;"),
-    "app.js executeMenuAction 应含 tab-open-in-window case");
+test('copy: 原窗口保留 tab(复制语义),交接键照常写入', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    w.TauriApi.listEditorWindows = async () => [];
+    w.TauriApi.createEditorWindow = async (label) => ({ label });
+    mockMainWindow(w, { x: 0, y: 0, width: 1200, height: 800 });
+    await ed.addTab('a.md', '# A', 'D:/a.md');
+    const aIdx = ed.tabs.findIndex(t => t.filePath === 'D:/a.md');
+    const before = ed.tabs.length;
+    const ok = await ed.copyTabToWindow(aIdx);
+    assert.equal(ok, true);
+    assert.equal(ed.tabs.length, before, '复制语义:原窗口 tab 保留');
+    assert.ok(ed.tabs.some(t => t.filePath === 'D:/a.md'), '文档仍在本窗口');
+    const payload = MW.readHandoff('editor-1', w.localStorage);
+    assert.ok(payload, '交接键应写入(新窗口开副本)');
+    assert.equal(payload.tab.filePath, 'D:/a.md');
+    MW.clearHandoff('editor-1', w.localStorage);
+  } finally { cleanup(w); }
+});
+
+test('copy: 快捷键 Ctrl+Shift+O 绑定 copyTabToWindow + app.js 双 case', () => {
+  assert.ok(/openTabInWindow:\s*\{\s*key:\s*'Ctrl\+Shift\+O'/.test(SHORTCUTS),
+    'getDefaultShortcuts 应含 openTabInWindow: Ctrl+Shift+O');
+  assert.ok(/openTabInWindow:\s*\(\)\s*=>\s*this\.copyTabToWindow\(this\.activeTabIndex\)/.test(SHORTCUTS),
+    'globalMap 应绑定 openTabInWindow → copyTabToWindow(activeTabIndex)');
+  assert.ok(APP.includes("case 'tab-open-in-window': this.copyTabToWindow(this._contextTabIndex); break;"),
+    "app.js executeMenuAction 应含 tab-open-in-window=复制 case");
+  assert.ok(APP.includes("case 'tab-move-to-window': this.detachTabToWindow(this._contextTabIndex); break;"),
+    "app.js executeMenuAction 应含 tab-move-to-window=移动 case");
 });
 
 test('detach: 并发守卫——在途第二次调用拒绝,交接键不被覆盖', async () => {

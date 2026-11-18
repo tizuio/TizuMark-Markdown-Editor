@@ -280,11 +280,22 @@
         }
         this.saveSession();
       },
-      // 撕离 tab 到独立编辑器窗口（设计：docs/superpowers/specs/2026-11-18-tab-tearoff-window-design.md）。
-      // 状态随迁走 localStorage 交接键（未保存修改与未命名 tab 均可迁——savedContent 一并写入，
-      // isModified 语义在新窗口原样成立）；源窗口移除本 tab。
-      // 失败口径：建窗失败 → 保留 tab、清交接键、E_WINDOW 报错——任何路径不静默丢内容。
+      // 复制到新窗口（浏览器语义「在新窗口打开」）：原窗口保留 tab，新窗口开独立副本。
+      // 有 filePath 的副本互改依赖现有外部变更横幅提示（设计定案 13）；未保存未命名副本
+      // 各自独立、无冲突检测——属已知限制，用户自行取舍保存顺序。
+      async copyTabToWindow(index) {
+        return await this._openTabInWindow(index, false);
+      },
+      // 移动到新窗口（撕离，Excel/Word 拖拽语义 / #70）：原窗口移除该 tab，状态全部随迁。
       async detachTabToWindow(index) {
+        return await this._openTabInWindow(index, true);
+      },
+      // 共享核心：写交接键 → 建窗 →（仅 move）移除源 tab。设计：
+      // docs/superpowers/specs/2026-11-18-tab-tearoff-window-design.md。
+      // 状态随迁走 localStorage 交接键（未保存修改与未命名 tab 均可迁——savedContent 一并写入，
+      // isModified 语义在新窗口原样成立）。
+      // 失败口径：建窗失败 → 保留 tab、清交接键、E_WINDOW 报错——任何路径不静默丢内容。
+      async _openTabInWindow(index, move) {
         // 在途防重入：并发第二次会从同一陈旧 listEditorWindows 快照取到同一 label，
         // writeHandoff 覆盖第一份交接键、create 失败后 clearHandoff 把第一份唯一副本删掉
         // → 未保存内容不可恢复（终审 Critical 2）。守卫期间重复触发（双击/按住快捷键）直接拒绝。
@@ -332,8 +343,10 @@
             this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
             return false;
           }
-          const removeIndex = this.tabs.indexOf(tab);
-          if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
+          if (move) {
+            const removeIndex = this.tabs.indexOf(tab);
+            if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
+          }
           return true;
         } finally {
           this._detaching = false;

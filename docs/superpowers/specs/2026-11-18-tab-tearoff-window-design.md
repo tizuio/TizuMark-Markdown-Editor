@@ -62,7 +62,7 @@
 ## 已定案要点(勿重新设计)
 
 1. **窗口形态**:完整编辑器(方案 A)。
-2. **v1 交互**:tab 右键菜单「在新窗口打开」(挂进现有 `context-menu-tab`,context-menu.js 已按 tab 绑定 contextmenu)+ 快捷键;移动语义,tab 状态随迁;原窗口空出则进入现有 `_applyEmptyState()` 空态。
+2. **v1 交互**(真机验证后细化,2026-11-18):tab 右键菜单双入口——「在新窗口打开」=**复制**(原窗口保留 tab,新窗口开独立副本;快捷键 Ctrl+Shift+O 绑复制)+「移动到新窗口」=**撕离**(原窗口移除该 tab,Excel/Word 拖拽语义);撕离后原窗口空出则进入现有 `_applyEmptyState()` 空态。复制语义下:有 filePath 的副本互改由现有外部变更横幅提示(定案 13);未保存未命名副本各自独立、无冲突检测,属已知限制。
 3. **窗口 label**:`editor-<n>`,n 取现有 `editor-*` 最大值 +1(关闭后复用空位);创建时显式传几何(主窗口当前尺寸、级联偏移),不依赖 window-state 的 per-label 自动恢复。
 4. **会话**:主窗口键 `tizumark-session` 不动;每个分离窗口写自己的 `tizumark-session-editor-<n>`(同 v2 结构);主窗口退出聚合时把分离窗口的 filePath 并入主 session.tabs,重启后作为普通 tab 恢复。
 5. **tab 状态随迁通道(builder check 定案)**:localStorage 交接键 `tizumark-window-handoff-<label>`——源窗口在建窗**前**序列化完整 tab 状态(content/光标/滚动/previewScrollTop/kind/name/filePath/fileMeta/pendingExternalChange,未保存修改与无 filePath 的未命名 tab 均可迁),分离窗口 boot 消费后清除该键;键缺失且无 doc 参数 → 分离窗口报错并自关;主窗口 boot 清扫过期交接键。不引入新 IPC 通道。

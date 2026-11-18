@@ -385,7 +385,8 @@ class MarkdownEditor {
       case 'preview-copy-html': { const sel = window.getSelection(); if (sel.rangeCount > 0) { const range = sel.getRangeAt(0); const frag = range.cloneContents(); const div = document.createElement('div'); div.appendChild(frag); navigator.clipboard.writeText(div.innerHTML); } break; }
       case 'preview-find': this.toggleFindPanel(); break;
 
-      case 'tab-open-in-window': this.detachTabToWindow(this._contextTabIndex); break;
+      case 'tab-open-in-window': this.copyTabToWindow(this._contextTabIndex); break;
+      case 'tab-move-to-window': this.detachTabToWindow(this._contextTabIndex); break;
       case 'tab-close': this.closeTab(this._contextTabIndex); break;
       case 'tab-close-others': this.closeOtherTabs(this._contextTabIndex); break;
       case 'tab-close-all': this.closeAllTabs(); break;

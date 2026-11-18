@@ -11,7 +11,7 @@
           openFile: { key: 'Ctrl+O', label: '打开' },
           saveFile: { key: 'Ctrl+S', label: '保存' },
           closeTab: { key: 'Ctrl+W', label: '关闭标签页' },
-          detachTab: { key: 'Ctrl+Shift+O', label: '在新窗口打开' },
+          openTabInWindow: { key: 'Ctrl+Shift+O', label: '在新窗口打开' },
           find: { key: 'Ctrl+F', label: '查找替换' },
           nextTab: { key: 'Ctrl+Tab', label: '下一个标签页' },
           prevTab: { key: 'Ctrl+Shift+Tab', label: '上一个标签页' },
@@ -416,7 +416,7 @@
         const groupLabels = this.t('shortcutGroup') || {};
         // 按功能分组展示，便于在长列表中查找
         const groups = [
-          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'detachTab', 'exportPDF', 'closeToTray'] },
+          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'openTabInWindow', 'exportPDF', 'closeToTray'] },
           { key: 'search', ids: ['find', 'crossSearch', 'fileSearch'] },
           { key: 'tabView', ids: ['nextTab', 'prevTab', 'toggleView', 'toggleSidebar', 'toggleTheme', 'foldBlock', 'unfoldBlock', 'foldAll', 'unfoldAll'] },
           { key: 'format', ids: ['bold', 'italic', 'strikethrough', 'inlineCode', 'highlight', 'insertSuperscript', 'insertSubscript', 'moveLineUp', 'moveLineDown', 'insertLineBelow', 'insertLineAbove'] },
@@ -813,7 +813,7 @@
           openFile: () => this.openFile(),
           newFile: () => this.newFile(),
           closeTab: () => this.closeTab(this.activeTabIndex),
-          detachTab: () => this.detachTabToWindow(this.activeTabIndex),
+          openTabInWindow: () => this.copyTabToWindow(this.activeTabIndex),
           exportPDF: () => this.exportPDF(),
           saveAs: () => this.saveAsFile(),
           toggleView: () => this.toggleViewMode(),

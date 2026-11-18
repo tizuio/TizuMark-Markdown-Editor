@@ -88,8 +88,8 @@ test('业务脚本（6 模块 + 2 lib）全部位于 app.js 之前', () => {
 
 // ⑤ 多窗口撕离入口（tab-tearoff-window）：multi-window.js 在 constants.js 之后加载
 //    （TMMultiWindow 不依赖 TMConst，但保持"基础模块在前"的清单习惯），tab 右键菜单
-//    必须含「在新窗口打开」动作项（T4 的 executeMenuAction 'tab-open-in-window' 与之对齐）。
-test('多窗口: multi-window.js 在 constants.js 之后,tab 菜单含 tab-open-in-window', () => {
+//    必须含「在新窗口打开」(复制)与「移动到新窗口」(撕离)两个动作项。
+test('多窗口: multi-window.js 在 constants.js 之后,tab 菜单含复制/移动双入口', () => {
   const html = fs.readFileSync(INDEX, 'utf8');
   const srcs = scriptSrcs(html);
   const mwIdx = srcs.indexOf('modules/multi-window.js');
@@ -105,6 +105,10 @@ test('多窗口: multi-window.js 在 constants.js 之后,tab 菜单含 tab-open-
   const menuHtml = html.slice(menuStart, menuEnd === -1 ? menuStart + 4000 : menuEnd);
   assert.ok(
     /data-action="tab-open-in-window"/.test(menuHtml),
-    '#context-menu-tab 缺少 data-action="tab-open-in-window" 菜单项',
+    '#context-menu-tab 缺少 data-action="tab-open-in-window" 菜单项（复制）',
+  );
+  assert.ok(
+    /data-action="tab-move-to-window"/.test(menuHtml),
+    '#context-menu-tab 缺少 data-action="tab-move-to-window" 菜单项（移动）',
   );
 });
