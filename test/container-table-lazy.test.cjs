@@ -147,3 +147,75 @@ test('有空行分隔的表格（remark-gfm 路径）<br> 行为不变', async (
   const html = renderMarkdown(md, { softBreaks: false });
   assert.ok(/<td[^>]*>第一行<br>第二行<\/td>/.test(html), 'remark 路径应保持原有支持，实际: ' + html);
 });
+
+// ---- 表格单元格内行内公式（guardMathBlocks 占位符放行）----
+// 历史 bug：guardMathBlocks 把 $...$ 换成受控占位符 <span><!--MATHBLOCK_N--></span> 后，
+// 容器内表格走 renderCellContent 的 HTML 直转路径，escapeHTML 把占位符整体转义成
+// &lt;span&gt;&lt;!--MATHBLOCK_N--&gt;...，restoreMathBlocks 匹配不到 → 单元格公式位置
+// 残留占位符字面文本（用户 MOT 笔记实测：引用块内表格 $...$ 不渲染）。
+// 修复后：renderCellContent 先摘出占位符再转义、末尾放回，restore 阶段统一还原，
+// 单元格与段落路径同口径输出 $...$ 原文，KaTeX 由下游统一渲染。
+
+test('blockquote 内表格：行内公式不再残留占位符字面文本', async () => {
+  const md = [
+    '> ⚠️ **方向澄清框**（贯穿例子 $\\text{chol}(P)$ 的角度）：',
+    '>',
+    '> | 方向集 | 是什么 | 角度 |',
+    '> | ---- | ---- | ---- |',
+    '> | 状态坐标轴 | x/y 轴 | 0° / 90° |',
+    '> | **Cholesky 列** | $\\text{chol}(P)$ 的列 | **26.6° / 90°** |',
+    '> | 特征方向 | 对称根 $V\\sqrt D$ 的列 | −58.3° |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留 MATHBLOCK 占位符，实际: ' + html);
+  assert.ok(!/(?:&lt;|&#x3C;)span(?:&gt;|&#x3E;|>)/.test(html), '不应残留转义的占位符 span，实际: ' + html);
+  assert.ok(/<td>\$\\text\{chol\}\(P\)\$ 的列<\/td>/.test(html), '单元格应输出公式原文（与段落同口径，KaTeX 由下游渲染），实际: ' + html);
+  assert.ok(/<td>对称根 \$V\\sqrt D\$ 的列<\/td>/.test(html), '第二个公式单元格同理');
+});
+
+test('顶层无空行紧接表格：行内公式同样放行（同一 renderCellContent 路径）', async () => {
+  const md = [
+    '公式表：',
+    '| 表达式 |',
+    '|------|',
+    '| $a^2+b^2=c^2$ |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td>\$a\^2\+b\^2=c\^2\$<\/td>/.test(html), '单元格应输出公式原文，实际: ' + html);
+});
+
+test('单元格粗体与公式混排：两者互不破坏', async () => {
+  const md = [
+    '> | 是什么 |',
+    '> | ---- |',
+    '> | **粗体** $V\\sqrt D$ 尾 |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td><strong>粗体<\/strong> \$V\\sqrt D\$ 尾<\/td>/.test(html), '粗体与公式应并存，实际: ' + html);
+});
+
+test('单元格行内代码含 $ 不被误伤（guard 本不在反引号内制造占位符）', async () => {
+  const md = [
+    '> | 写法 |',
+    '> | ---- |',
+    '> | `a $x$ b` |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<code>a \$x\$ b<\/code>/.test(html), '行内代码内 $ 应保持字面，实际: ' + html);
+});
+
+test('有空行分隔的表格（remark-gfm 路径）行内公式行为不变', async () => {
+  const md = [
+    '公式：',
+    '',
+    '| 表达式 |',
+    '|------|',
+    '| $a^2+b^2=c^2$ |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td[^>]*>\$a\^2\+b\^2=c\^2\$<\/td>/.test(html), 'remark 路径应保持原有行为，实际: ' + html);
+});

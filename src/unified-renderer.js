@@ -1135,7 +1135,25 @@ function gfmTableToHtml(tableLines) {
 }
 
 function renderCellContent(text) {
-  let result = escapeHTML(text);
+  // guardMathBlocks 的行内公式占位符 <span><!--MATHBLOCK_N--></span> 是受控内联 HTML，
+  // 不是用户文本。escapeHTML 会把它转义成 &lt;span&gt;&lt;!--MATHBLOCK_N--&gt;...，
+  // restoreMathBlocks 按原始标记匹配不到 → 容器内表格（本函数为 HTML 直转路径，单元格
+  // 不走 remark 行内解析）的公式位置残留占位符字面文本（用户 MOT 笔记实测：引用块内
+  // 表格 $...$ 不渲染）。先摘出占位符换成 NUL 哨兵（escapeHTML 与粗体/斜体/链接/行内
+  // 代码改写都不碰 \x00），末尾放回原始形态，restore 阶段统一还原，下游 KaTeX 与段落
+  // 路径同口径。行内代码 `` `<span>...` `` 场景 guard 本就不在反引号内制造占位符，
+  // 摘取不会破坏行内代码。div 形态（显示公式占位）今日不会出现在单行单元格（guard
+  // 不处理行中 $$），一并摘取属防御，防 guard 行为变化后重蹈覆辙。
+  const mathTokens = [];
+  const work = text.replace(
+    /<span><!--MATHBLOCK_\d+--><\/span>|<div class="math-placeholder" data-math-idx="\d+" data-source-line="\d+"><\/div>/g,
+    (m) => {
+      mathTokens.push(m);
+      return '\x00MATH' + (mathTokens.length - 1) + '\x00';
+    }
+  );
+
+  let result = escapeHTML(work);
 
   const codeSpans = [];
   result = result.replace(/`(.+?)`/g, (m, code) => {
@@ -1157,6 +1175,9 @@ function renderCellContent(text) {
   result = result.replace(/%%CODE(\d+)%%/g, (m, idx) => {
     return '<code>' + codeSpans[parseInt(idx)] + '</code>';
   });
+
+  // 放回数学占位符原始形态（行内代码占位还原之后，避免哨兵被卷进 <code> 内容）
+  result = result.replace(/\x00MATH(\d+)\x00/g, (m, i) => mathTokens[parseInt(i)]);
 
   return result;
 }
