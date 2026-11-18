@@ -141,7 +141,7 @@
           if (settled) return;
           settled = true;
           if (timer) clearTimeout(timer);
-          if (liveTimer) clearInterval(liveTimer);
+          if (liveTimer) clearTimeout(liveTimer);
           resolveOut(ok);
         };
         let unlistenReady = null;
@@ -158,13 +158,17 @@
           timer = setTimeout(() => finish(false), timeoutMs);
           // 存活复核：窗口若已销毁/不响应，永远不会回 ready，不能干等满 60s。
           // 剩余 pending 全部不在存活列表 → 立即按失败收口，让用户看到明确结果。
-          liveTimer = setInterval(async () => {
+          // 用自调度 setTimeout 链而非 setInterval：finish 即停不留常驻定时器，
+          // 且上一次 listEditorWindows 的 await 未返回时不会叠发下一轮查询。
+          const runLiveCheck = async () => {
             if (settled) return;
             try {
               const live = new Set(await TauriApi.listEditorWindows());
-              if ([...pending].every(l => !live.has(l))) finish(false);
+              if ([...pending].every(l => !live.has(l))) { finish(false); return; }
             } catch (_) { /* 查询失败按未知处理，交给超时兜底 */ }
-          }, 1500);
+            if (!settled) liveTimer = setTimeout(runLiveCheck, 1500);
+          };
+          liveTimer = setTimeout(runLiveCheck, 1500);
           for (const l of labels) {
             try { TauriApi.emitTo(l, 'app-quit-request', { from: 'main' }); } catch (_) {}
           }
