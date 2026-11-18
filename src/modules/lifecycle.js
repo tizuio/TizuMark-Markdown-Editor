@@ -183,10 +183,12 @@
       // 聚合分离窗口会话进主键（saveSession 只存 filePath 等元数据；未保存内容已由各窗
       // 在收口时落盘/丢弃，故此处只恢复「打开过哪些文件」）。聚合前先 saveSession 把主窗口
       // 当前 tabs 落盘，再在其上追加分离窗口 tabs——否则调用方随后的 saveSession 会只写
-      // 主窗口 tabs、把合并结果覆盖掉（评审 P1-1）。失败不阻塞退出。
+      // 主窗口 tabs、把合并结果覆盖掉（评审 P1-1）。
+      // saveSession 只在确有分离会话待合并时执行：无分离窗口时（绝大多数退出）不落盘，
+      // 保住「clearTabsOnQuit=true 退出不写会话键」的既有契约（editor-clear-tabs-on-quit）。
+      // 失败不阻塞退出。
       async _aggregateDetachedSessions() {
         try {
-          this.saveSession();
           const SESSION_PREFIX = 'tizumark-session-editor-';
           const keys = [];
           for (let i = 0; i < localStorage.length; i++) {
@@ -203,12 +205,15 @@
             }
           }
           if (detached.length > 0) {
+            this.saveSession(); // P1-1：合并基底先落盘，再追加分离窗口 tabs
             const main = this.loadSession() || { version: 2, tabs: [], emptyTabs: false, activeFilePath: null };
             const merged = TMMultiWindow.mergeDetachedSessions(main, detached);
             if (merged.tabs.length > 0) {
               localStorage.setItem('tizumark-session', JSON.stringify(merged));
             }
           }
+          // 供 quit 分支判断“聚合已落盘与否”：true = 已写入合并结果，调用方不得再 saveSession
+          this._sessionAggregated = detached.length > 0;
           for (const k of keys) {
             if (k.indexOf(SESSION_PREFIX) === 0 || k.indexOf(TMMultiWindow.HANDOFF_PREFIX) === 0) {
               try { localStorage.removeItem(k); } catch (_) {}
@@ -324,10 +329,15 @@
               this.setStatus(this.t('quitCoordinatedAborted'));
               return;
             }
-            // 3a. 真正退出：coordinateQuit 聚合时已把主窗口当前 tabs 落盘（见
-            // _aggregateDetachedSessions），此处不得再 saveSession，否则会覆盖分离窗口 tabs。
+            // 3a. 真正退出。落盘口径三分支（P1-1 + clearTabsOnQuit 契单）：
+            //   - clearTabsOnQuit=true：清会话键，不落盘；
+            //   - 聚合已发生（有分离会话，_aggregateDetachedSessions 内先 save 再合并）：
+            //     不再 saveSession，否则会把合并结果覆盖回纯主窗口 tabs；
+            //   - 无分离会话（绝大多数退出）：按原行为 saveSession。
             if (this.settings.clearTabsOnQuit) {
               try { localStorage.removeItem(this.sessionKey()); } catch (_) {}
+            } else if (!this._sessionAggregated) {
+              this.saveSession();
             }
             await TauriApi.quitApp();
           } else {
