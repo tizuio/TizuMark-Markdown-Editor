@@ -59,7 +59,6 @@
   function buildHandoffPayload(tab) {
     const t = tab || {};
     return {
-      version: 1,
       tab: {
         name: t.name,
         content: t.content,
@@ -72,7 +71,6 @@
         fileMeta: t.fileMeta || null,
         pendingExternalChange: !!t.pendingExternalChange,
         _loadError: !!t._loadError,
-        _loaded: true,
       },
     };
   }
@@ -88,8 +86,10 @@
       const data = JSON.parse(raw);
       if (!data || !data.tab) return null;
       return data;
-    } catch (_) {
-      return null; // 损坏 JSON 视同缺失,由 boot 报错自关,绝不抛异常卡启动
+    } catch (e) {
+      // 损坏 JSON 视同缺失，但必须留下诊断线索（评审 P1-2：不再静默吞掉）
+      console.warn('[TizuMark] handoff payload corrupt:', e);
+      return null;
     }
   }
 
@@ -142,6 +142,50 @@
     };
   }
 
+  // 显示器工作区钳制（评审 P2-6）：bounds 为逻辑像素 {x,y,width,height}。
+  // 拖到屏幕右/下边缘松手时，避免新窗大比例落在屏外；窗口大于工作区时贴左上。
+  function clampGeometry(geometry, bounds) {
+    const g = geometry || {};
+    const w = Math.max(800, Number(g.width) || 1200);
+    const h = Math.max(600, Number(g.height) || 800);
+    if (!bounds) {
+      return { x: Math.max(0, Number(g.x) || 0), y: Math.max(0, Number(g.y) || 0), width: w, height: h };
+    }
+    const bx = Number(bounds.x) || 0;
+    const by = Number(bounds.y) || 0;
+    const maxX = bx + (Number(bounds.width) || 0) - w;
+    const maxY = by + (Number(bounds.height) || 0) - h;
+    return {
+      x: Math.max(bx, Math.min(Number(g.x) || 0, maxX)),
+      y: Math.max(by, Math.min(Number(g.y) || 0, maxY)),
+      width: w,
+      height: h,
+    };
+  }
+
+  // 所有显示器的物理像素并集（评审 P2-6）：以统一坐标空间钳制新窗，
+  // 既不把窗口拉回源显示器（支持拖到副屏），也不让它落到桌面区域之外。
+  function monitorUnionBounds(monitors) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const m of monitors || []) {
+      if (!m || !m.position || !m.size) continue;
+      const x = Number(m.position.x) || 0;
+      const y = Number(m.position.y) || 0;
+      const w = Number(m.size.width) || 0;
+      const h = Number(m.size.height) || 0;
+      if (w <= 0 || h <= 0) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    }
+    if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
   // 退出聚合:把各分离窗口会话的 tabs(filePath 去重、保序)追加进主会话;主会话其余字段
   // (activeFilePath/workspaceFolder/expandedFolders/emptyTabs/version)一律不动——重启后
   // 分离窗口文件以主窗口 tab 恢复(设计定案 4 的降级无损路径)。
@@ -158,7 +202,6 @@
       }
     }
     m.tabs = tabs;
-    if (m.tabs.length === 0) m.emptyTabs = m.emptyTabs === true; // 空态口径交还主会话自身字段
     return m;
   }
 
@@ -175,6 +218,8 @@
     sweepStaleHandoffs: sweepStaleHandoffs,
     tearOffPoint: tearOffPoint,
     tearOffGeometry: tearOffGeometry,
+    clampGeometry: clampGeometry,
+    monitorUnionBounds: monitorUnionBounds,
     mergeDetachedSessions: mergeDetachedSessions,
   };
 

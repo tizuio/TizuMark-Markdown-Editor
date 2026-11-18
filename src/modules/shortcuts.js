@@ -909,7 +909,12 @@
         // 事件，前端 keydown 无法唤回窗口；OS 级热键（lib.rs set_close_to_tray_shortcut）
         // 负责隐藏/唤回。注册失败（组合键被其他程序占用等）仅告警，窗口内 keydown 派发
         // 仍作为兜底可用（全局注册成功后 OS 会吃掉该键，二者不会重复触发）。
-        this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+        // 分离窗口不参与：热键是进程级的、只作用于主窗口；重复 unregister/register 会在
+        // 注册失败时把主窗口已注册的热键弄丢（设计反目标：全局热键冲突）。
+        const bootInfo = (typeof window !== 'undefined') ? window.__tizumarkBoot : null;
+        if (!(bootInfo && bootInfo.detached)) {
+          this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+        }
   
         this.updateShortcutHints();
       },

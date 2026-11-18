@@ -79,7 +79,6 @@ test('buildHandoffPayload: 含 savedContent/pendingExternalChange(未保存未�
     fileMeta: null, pendingExternalChange: false, _loaded: true,
   };
   const payload = MW.buildHandoffPayload(tab);
-  assert.equal(payload.version, 1);
   assert.equal(payload.tab.savedContent, '');
   assert.equal(payload.tab.content, '## 草稿');
   assert.equal(payload.tab.filePath, null);
@@ -161,4 +160,33 @@ test('tearOffGeometry: 落点即新窗左上角(窗口原点+窗口内落点),�
   // 和为负(源窗口本身在屏外)才钳 0
   const g3 = MW.tearOffGeometry({ x: -100, y: -80 }, { dropClientX: -50, dropClientY: -30 }, 1200, 800);
   assert.deepEqual(g3, { x: 0, y: 0, width: 1200, height: 800 });
+});
+
+test('clampGeometry: 超出显示器右/下边界时贴边钳制(评审 P2-6)', () => {
+  const bounds = { x: 0, y: 0, width: 1920, height: 1080 };
+  assert.deepEqual(
+    MW.clampGeometry({ x: 1503, y: 399, width: 1232, height: 818 }, bounds),
+    { x: 688, y: 262, width: 1232, height: 818 },
+  );
+  // 无显示器信息(浏览器/jsdom 降级) → 仅负坐标钳 0
+  assert.deepEqual(
+    MW.clampGeometry({ x: -5, y: 30, width: 1200, height: 800 }, null),
+    { x: 0, y: 30, width: 1200, height: 800 },
+  );
+  // 窗口大于工作区 → 贴工作区左上,不产生负坐标
+  assert.deepEqual(
+    MW.clampGeometry({ x: 500, y: 500, width: 1200, height: 800 }, { x: 0, y: 24, width: 1024, height: 700 }),
+    { x: 0, y: 24, width: 1200, height: 800 },
+  );
+});
+
+test('monitorUnionBounds: 返回所有显示器的物理并集,无有效显示器返回 null', () => {
+  const mons = [
+    { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+    { position: { x: 1920, y: 0 }, size: { width: 2560, height: 1440 } },
+    { position: { x: -1280, y: 0 }, size: { width: 1280, height: 1024 } },
+  ];
+  assert.deepEqual(MW.monitorUnionBounds(mons), { x: -1280, y: 0, width: 5760, height: 1440 });
+  assert.equal(MW.monitorUnionBounds(null), null);
+  assert.equal(MW.monitorUnionBounds([{ position: { x: 0, y: 0 }, size: { width: 0, height: 0 } }]), null);
 });

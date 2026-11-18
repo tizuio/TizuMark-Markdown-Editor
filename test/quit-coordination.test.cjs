@@ -186,3 +186,78 @@ test('quit: forceQuit 协调被拒 → 主会话键不被清,失败可见', asyn
     assert.ok(statuses.length > 0, '协调失败应对用户可见');
   } finally { cleanup(w); }
 });
+
+test('quit: 主窗口当前 tabs 与分离会话在退出后都保留(默认 clearTabsOnQuit=false)', async () => {
+  // 评审 P1-1 回归:聚合结果不得被随后的 saveSession 覆盖
+  const { w, ed, handlers } = await makeEditor();
+  try {
+    w.TauriApi.listEditorWindows = async () => ['editor-1'];
+    ed.settings.clearTabsOnQuit = false;
+    ed.tabs = [new w.TMConst.Tab('a.md', 'A', 'D:/a.md')];
+    ed.activeTabIndex = 0;
+    w.localStorage.setItem('tizumark-session-editor-1', JSON.stringify({
+      version: 2, tabs: [{ filePath: 'D:/d.md', name: 'd.md' }], emptyTabs: false,
+    }));
+    const p = ed.handleAppClose({ forceQuit: true });
+    await delay(30);
+    await handlers['app-quit-ready']({ payload: { label: 'editor-1' } });
+    await p;
+    const main = JSON.parse(w.localStorage.getItem('tizumark-session'));
+    assert.deepEqual(main.tabs.map(t => t.filePath).sort(), ['D:/a.md', 'D:/d.md'],
+      '主窗口当前 tab 与分离窗口 tab 都必须落盘');
+  } finally { cleanup(w); }
+});
+
+test('quit: detached 普通关窗删除自己的会话键(不复活已关闭窗口,评审 P2-7)', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    w.TauriApi.currentWindow = () => ({ label: 'editor-1', destroy: async () => {}, close: async () => {} });
+    ed._detachedLabel = 'editor-1';
+    ed.tabs = [];
+    w.localStorage.setItem('tizumark-session-editor-1', JSON.stringify({
+      version: 2, tabs: [{ filePath: 'D:/old.md' }],
+    }));
+    await ed.handleAppClose();
+    assert.equal(w.localStorage.getItem('tizumark-session-editor-1'), null,
+      '普通关窗后其会话键必须清除');
+  } finally { cleanup(w); }
+});
+
+test('quit: 协调异常/取消后 _quitRequested 复位,普通关窗不再误发 ready(评审 P2-5)', async () => {
+  const { w, ed, emits } = await makeEditor();
+  try {
+    w.TauriApi.currentWindow = () => ({ label: 'editor-1', destroy: async () => {}, close: async () => {} });
+    ed._detachedLabel = 'editor-1';
+    ed._quitRequested = true;
+    ed.tabs = [Object.assign(new w.TMConst.Tab('d.md', 'old', 'D:/d.md'), { content: 'new' })];
+    ed.showSaveDialog = async () => 'cancel';
+    await ed.handleAppClose();
+    assert.equal(ed._quitRequested, false, '取消后应复位协调标志');
+    assert.deepEqual(emits.filter(e => e.event === 'app-quit-aborted').map(e => e.label), ['main']);
+    emits.length = 0;
+    await ed.handleAppClose(); // 普通关窗(非协调)
+    assert.equal(emits.filter(e => e.event === 'app-quit-ready').length, 0,
+      '普通关窗不得再上报 ready');
+  } finally { cleanup(w); }
+});
+
+test('quit: detached destroy 失败 → 复位哨兵可重试,不回退 close() 死循环(评审 P2-1)', async () => {
+  const { w, ed } = await makeEditor();
+  try {
+    let destroys = 0;
+    let closes = 0;
+    w.TauriApi.currentWindow = () => ({
+      label: 'editor-1',
+      destroy: async () => { destroys++; if (destroys === 1) throw new Error('destroy failed'); },
+      close: async () => { closes++; },
+    });
+    ed._detachedLabel = 'editor-1';
+    ed.tabs = [];
+    await ed.handleAppClose();
+    assert.equal(destroys, 1, '应尝试 destroy');
+    assert.equal(closes, 0, '不得回退 close()(会被 prevent_close + 哨兵挡住)');
+    assert.equal(ed._closingWindow, false, '失败后哨兵必须复位');
+    await ed.handleAppClose();
+    assert.equal(destroys, 2, '第二次关闭可重新进入流程并成功');
+  } finally { cleanup(w); }
+});

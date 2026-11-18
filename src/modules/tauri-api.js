@@ -117,15 +117,35 @@
     return ns.getCurrentWindow();
   };
 
+  // window.availableMonitors：返回显示器物理矩形列表；命名空间缺失/失败时返回 []
+  // （撕离建窗按虚拟桌面并集钳制几何，评审 P2-6）。
+  api.availableMonitors = function () {
+    const ns = getNs('window');
+    if (!ns || typeof ns.availableMonitors !== 'function') return Promise.resolve([]);
+    return Promise.resolve()
+      .then(() => ns.availableMonitors())
+      .catch(() => []);
+  };
+
   // 多窗口撕离：新建分离编辑器窗口（label=editor-<n>，webviewWindow.WebviewWindow）。
   // url 用相对路径（同源 index.html + label 参数，dev 为 http://localhost:1420、打包为 tauri://localhost，
   // 相对解析两种 base 均成立）；几何由调用方按 cascadeGeometry 传入。
   // 命名空间缺失（浏览器环境）resolve null；tauri://error 同样 resolve null 不抛（调用方降级为撕离失败）。
+  // created/error 都不来时必须超时收口，否则调用方 await 永久挂起、_detaching 永久为 true（评审 P2-3）。
   api.createEditorWindow = function (label, geometry) {
     const ns = getNs('webviewWindow');
     if (!ns || typeof ns.WebviewWindow !== 'function') return Promise.resolve(null);
     const g = geometry || {};
+    const TIMEOUT_MS = 8000;
     return new Promise((resolve) => {
+      let done = false;
+      let timer = null;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        resolve(value);
+      };
       let win;
       try {
         win = new ns.WebviewWindow(label, {
@@ -136,14 +156,18 @@
         });
       } catch (e) {
         console.error('[TauriApi] createEditorWindow error:', e);
-        resolve(null);
+        finish(null);
         return;
       }
-      win.once('tauri://created', () => resolve(win));
+      win.once('tauri://created', () => finish(win));
       win.once('tauri://error', (e) => {
         console.error('[TauriApi] createEditorWindow tauri://error:', e);
-        resolve(null);
+        finish(null);
       });
+      timer = setTimeout(() => {
+        console.error('[TauriApi] createEditorWindow timeout after ' + TIMEOUT_MS + 'ms');
+        finish(null);
+      }, TIMEOUT_MS);
     });
   };
 

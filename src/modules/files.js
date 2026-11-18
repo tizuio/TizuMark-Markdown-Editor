@@ -90,12 +90,15 @@
       // 不拆则多窗口 saveSession 互相覆盖）。_detachedLabel 由 app.js boot 分离分支设置；
       // 测试可直接注入。boot 参数与键口径见 multi-window.js / 设计文档定案 4。
       sessionKey() {
-        if (this._detachedLabel) return 'tizumark-session-' + this._detachedLabel;
-        const boot = (window.TMMultiWindow && window.TMMultiWindow.parseBootParams)
-          ? window.TMMultiWindow.parseBootParams(window.location.search)
-          : null;
-        if (boot && boot.detached) return 'tizumark-session-' + boot.label;
-        return 'tizumark-session';
+        // 单一来源：优先用 boot 注入的 _detachedLabel；缺失时解析一次 URL 并回填，
+        // 之后不再重复解析（评审 P3-4：避免两套来源长期并存漂移）。
+        if (!this._detachedLabel) {
+          const boot = (window.TMMultiWindow && window.TMMultiWindow.parseBootParams)
+            ? window.TMMultiWindow.parseBootParams(window.location.search)
+            : null;
+          if (boot && boot.detached) this._detachedLabel = boot.label;
+        }
+        return this._detachedLabel ? 'tizumark-session-' + this._detachedLabel : 'tizumark-session';
       },
       loadSession() {
         try {

@@ -597,8 +597,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       try {
         const payload = TMMultiWindow.readHandoff(boot.label, localStorage);
         if (!payload || !payload.tab) {
-          window.editor.reportError('E_HANDOFF_MISSING', { toast: false });
-          setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 1200);
+          // 交接缺失/损坏必须让用户看见（评审 P1-2）：toast 而非静默状态栏，
+          // 并留 5s 阅读时间再自关，避免窗口一闪而过掩盖内容丢失。
+          window.editor.reportError('E_HANDOFF_MISSING');
+          setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 5000);
         } else {
           const tab = window.editor.restoreDetachedTab(payload.tab);
           // 清掉构造器默认单 tab（主窗口由 restoreSession 覆盖，分离分支改为交接态重建），
@@ -618,8 +620,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
       } catch (e) {
         console.warn('detached boot handoff failed:', e);
-        try { window.editor.reportError('E_HANDOFF_MISSING', { toast: false }); } catch (_) {}
-        setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 1200);
+        try { window.editor.reportError('E_HANDOFF_MISSING'); } catch (_) {}
+        setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 5000);
       }
     } else {
       try {

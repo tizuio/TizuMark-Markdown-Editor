@@ -800,15 +800,16 @@ fn drop_watcher(state: &WatcherState, label: &str) -> bool {
 }
 
 // 挂载/替换指定 label 的监听槽；被替换的旧句柄交还调用方（drop 即关闭监听）。
+// 锁中毒返回错误而非 panic（评审 P3-1）：让命令显式失败，避免前端 IPC 无响应。
 fn put_watcher(
     state: &WatcherState,
     label: String,
     watcher: RecommendedWatcher,
-) -> Option<RecommendedWatcher> {
-    let mut map = state.0.lock().unwrap();
+) -> Result<Option<RecommendedWatcher>, String> {
+    let mut map = state.0.lock().map_err(|_| "watcher state poisoned".to_string())?;
     let old = map.remove(&label).flatten();
     map.insert(label, Some(watcher));
-    old
+    Ok(old)
 }
 
 #[tauri::command]
@@ -856,7 +857,7 @@ fn watch_folder(path: String, window: tauri::WebviewWindow) -> Result<(), String
         .map_err(|e| e.to_string())?;
     {
         let state = app.state::<WatcherState>();
-        put_watcher(&state, label, watcher);
+        put_watcher(&state, label, watcher)?;
     }
     Ok(())
 }
@@ -2601,9 +2602,9 @@ fn test_build_cdp_print_params_outline_disabled() {
         let mk = || RecommendedWatcher::new(move |_| {}, NotifyConfig::default()).unwrap();
         let w1 = mk();
         let w2 = mk();
-        let old = put_watcher(&state, "editor-1".to_string(), w1);
+        let old = put_watcher(&state, "editor-1".to_string(), w1).unwrap();
         assert!(old.is_none(), "首挂无旧句柄");
-        let old = put_watcher(&state, "editor-1".to_string(), w2);
+        let old = put_watcher(&state, "editor-1".to_string(), w2).unwrap();
         assert!(old.is_some(), "同 label 重挂应交还被替换句柄（drop 即关闭监听）");
         drop(old);
         let map = state.0.lock().unwrap();

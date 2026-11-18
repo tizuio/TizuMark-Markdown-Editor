@@ -54,6 +54,15 @@ ok(src.includes("closeToTray: 'Hide to tray'"), '英文 shortcutLabel 含 closeT
 ok(src.includes("next[aid] = { key: (k != null ? k : ''), label: def.label };"),
   'applyShortcutScheme/preview 对预设缺失项回落为空键');
 
+// 7. 分离窗口不重新注册进程级全局热键（设计反目标：热键冲突）
+try {
+  const applySrc = extractMethod(src, 'applyShortcuts');
+  ok(applySrc.includes('__tizumarkBoot') && applySrc.includes('bootInfo.detached'),
+    'applyShortcuts 对分离窗口跳过全局热键同步');
+} catch (e) {
+  ok(false, '提取 applyShortcuts 失败: ' + e.message);
+}
+
 console.log('# tests ' + (pass + fail));
 console.log('# pass ' + pass);
 console.log('# fail ' + fail);

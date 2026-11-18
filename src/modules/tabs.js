@@ -290,6 +290,14 @@
       async detachTabToWindow(index) {
         return await this._openTabInWindow(index, true);
       },
+      // 跨窗口 label 分配互斥（评审 P1-3）：WebView2/Chromium 提供 Web Locks，
+      // 把「取 label → 写交接键 → 建窗」串行化，避免两个窗口从同一陈旧快照选到同一
+      // label、交接键互相覆盖后被失败方 clearHandoff 删掉唯一副本。无 Web Locks 时降级。
+      async _withEditorLabelLock(fn) {
+        const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+        if (!locks || typeof locks.request !== 'function') return await fn();
+        return await locks.request('tizumark-editor-window-create', fn);
+      },
       // 共享核心：写交接键 → 建窗 →（仅 move）移除源 tab。设计：
       // docs/superpowers/specs/2026-11-18-tab-tearoff-window-design.md。
       // dropPt（可选，拖拽撕离专用）：{ dropClientX, dropClientY } 窗口内落点，
@@ -308,52 +316,78 @@
         if (!tab._loaded && tab.filePath) await this.ensureTabLoaded(tab);
         this._detaching = true;
         try {
-          const labels = await Promise.resolve(
-            typeof TauriApi.listEditorWindows === 'function' ? TauriApi.listEditorWindows() : []
-          ).catch(() => []);
-          const label = TMMultiWindow.nextEditorLabel(labels);
-          // 级联槽位 = 既有 editor 窗口数 + 1：首个撕离窗即得 28px 偏移，不与主窗口完全重叠
-          const slot = labels.filter(l => TMMultiWindow.isDetachedLabel(l)).length + 1;
-          // 主窗口几何（物理像素）÷ scaleFactor 换算逻辑像素——WebviewWindow 建窗选项是逻辑像素，
-          // 混用会在缩放屏（125%/150%）上错位；浏览器环境/取失败回退默认基几何。
-          let base = { x: 100, y: 100, width: 1200, height: 800 };
-          try {
-            const win = TauriApi.currentWindow();
-            if (win && typeof win.innerPosition === 'function') {
-              const pos = await win.innerPosition();
-              const size = await win.outerSize();
-              const scale = (typeof win.scaleFactor === 'function') ? await win.scaleFactor() : 1;
-              base = {
-                x: pos.x / scale, y: pos.y / scale,
-                width: size.width / scale, height: size.height / scale,
-              };
+          return await this._withEditorLabelLock(async () => {
+            const labels = await Promise.resolve(
+              typeof TauriApi.listEditorWindows === 'function' ? TauriApi.listEditorWindows() : []
+            ).catch(() => []);
+            const label = TMMultiWindow.nextEditorLabel(labels);
+            // 级联槽位 = 既有 editor 窗口数 + 1：首个撕离窗即得 28px 偏移，不与主窗口完全重叠
+            const slot = labels.filter(l => TMMultiWindow.isDetachedLabel(l)).length + 1;
+            // 主窗口几何（物理像素）÷ scaleFactor 换算逻辑像素——WebviewWindow 建窗选项是逻辑像素，
+            // 混用会在缩放屏（125%/150%）上错位；浏览器环境/取失败回退默认基几何。
+            let base = { x: 100, y: 100, width: 1200, height: 800 };
+            let monitorBounds = null;
+            try {
+              const win = TauriApi.currentWindow();
+              if (win && typeof win.innerPosition === 'function') {
+                const pos = await win.innerPosition();
+                const size = await win.outerSize();
+                const scale = (typeof win.scaleFactor === 'function') ? await win.scaleFactor() : 1;
+                base = {
+                  x: pos.x / scale, y: pos.y / scale,
+                  width: size.width / scale, height: size.height / scale,
+                };
+                // 虚拟桌面物理并集 ÷ 源窗口 scale = 统一逻辑坐标；用并集而非“当前显示器”，
+                // 既允许拖到副屏，又能阻止新窗落到桌面之外（评审 P2-6）。
+                let monBounds = null;
+                if (typeof TauriApi.availableMonitors === 'function') {
+                  const union = TMMultiWindow.monitorUnionBounds(await TauriApi.availableMonitors());
+                  if (union) {
+                    monBounds = {
+                      x: union.x / scale, y: union.y / scale,
+                      width: union.width / scale, height: union.height / scale,
+                    };
+                  }
+                }
+                if (!monBounds && typeof win.currentMonitor === 'function') {
+                  const mon = await win.currentMonitor();
+                  if (mon && mon.position && mon.size) {
+                    monBounds = {
+                      x: mon.position.x / scale, y: mon.position.y / scale,
+                      width: mon.size.width / scale, height: mon.size.height / scale,
+                    };
+                  }
+                }
+                monitorBounds = monBounds;
+              }
+            } catch (_) { /* 降级默认几何 */ }
+            let geometry = TMMultiWindow.cascadeGeometry(base, slot);
+            if (dropPt) {
+              // 拖拽撕离：新窗落在松手位置，不走固定级联位
+              geometry = TMMultiWindow.tearOffGeometry(base, dropPt, geometry.width, geometry.height);
             }
-          } catch (_) { /* 降级默认几何 */ }
-          let geometry = TMMultiWindow.cascadeGeometry(base, slot);
-          if (dropPt) {
-            // 拖拽撕离：新窗落在松手位置，不走固定级联位
-            geometry = TMMultiWindow.tearOffGeometry(base, dropPt, geometry.width, geometry.height);
-          }
+            geometry = TMMultiWindow.clampGeometry(geometry, monitorBounds);
 
-          // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回。
-          // 写入失败（如超大内容触顶 localStorage 配额）与建窗失败同口径：保 tab、报错、不静默。
-          try {
-            TMMultiWindow.writeHandoff(label, tab, localStorage);
-          } catch (e) {
-            this.reportError('E_WINDOW', { error: e });
-            return false;
-          }
-          const created = await TauriApi.createEditorWindow(label, geometry);
-          if (!created) {
-            TMMultiWindow.clearHandoff(label, localStorage);
-            this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
-            return false;
-          }
-          if (move) {
-            const removeIndex = this.tabs.indexOf(tab);
-            if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
-          }
-          return true;
+            // 先写交接键再建窗：新窗口 boot 可能先于 createEditorWindow 返回。
+            // 写入失败（如超大内容触顶 localStorage 配额）与建窗失败同口径：保 tab、报错、不静默。
+            try {
+              TMMultiWindow.writeHandoff(label, tab, localStorage);
+            } catch (e) {
+              this.reportError('E_WINDOW', { error: e });
+              return false;
+            }
+            const created = await TauriApi.createEditorWindow(label, geometry);
+            if (!created) {
+              TMMultiWindow.clearHandoff(label, localStorage);
+              this.reportError('E_WINDOW', { error: new Error('createEditorWindow failed') });
+              return false;
+            }
+            if (move) {
+              const removeIndex = this.tabs.indexOf(tab);
+              if (removeIndex !== -1) await this._removeTabNoPrompt(tab, removeIndex);
+            }
+            return true;
+          });
         } finally {
           this._detaching = false;
         }
@@ -640,13 +674,9 @@
             if (e.button === 1) { e.preventDefault(); this.closeTab(i); return; }
             if (e.button === 0) {
               this._dragState = { from: i, startX: e.clientX, startY: e.clientY, active: false };
-              // 指针捕获：拖出窗口边界后 mousemove/mouseup 仍持续送达（拖拽撕离依赖越界坐标；
-              // WebView2 按住按钮期间 Chromium 通常自带捕获，显式 capture 兜底环境差异）
-              try {
-                if (typeof tabEl.setPointerCapture === 'function' && e.pointerId !== undefined) {
-                  tabEl.setPointerCapture(e.pointerId);
-                }
-              } catch (_) { /* 不支持捕获则依赖浏览器按钮期捕获 */ }
+              // 拖出窗口边界后 mousemove/mouseup 仍持续送达（拖拽撕离依赖越界坐标）：
+              // WebView2 在按住按钮期间由 Chromium 隐式捕获指针，无需显式 setPointerCapture
+              // （mousedown 是 MouseEvent，没有 pointerId）。
             }
           });
           // 鼠标悬停显示完整路径（含文件名）；未保存标签无 filePath 时回退文件名

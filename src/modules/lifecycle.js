@@ -134,12 +134,14 @@
         const pending = new Set(labels);
         let settled = false;
         let timer = null;
+        let liveTimer = null;
         let resolveOut = null;
         const done = new Promise((resolve) => { resolveOut = resolve; });
         const finish = (ok) => {
           if (settled) return;
           settled = true;
           if (timer) clearTimeout(timer);
+          if (liveTimer) clearInterval(liveTimer);
           resolveOut(ok);
         };
         let unlistenReady = null;
@@ -154,6 +156,15 @@
           });
           unlistenAbort = await TauriApi.onEvent('app-quit-aborted', () => finish(false));
           timer = setTimeout(() => finish(false), timeoutMs);
+          // 存活复核：窗口若已销毁/不响应，永远不会回 ready，不能干等满 60s（评审 P2-4）。
+          // 剩余 pending 全部不在存活列表 → 立即按失败收口，让用户看到明确结果。
+          liveTimer = setInterval(async () => {
+            if (settled) return;
+            try {
+              const live = new Set(await TauriApi.listEditorWindows());
+              if ([...pending].every(l => !live.has(l))) finish(false);
+            } catch (_) { /* 查询失败按未知处理，交给超时兜底 */ }
+          }, 1500);
           for (const l of labels) {
             try { TauriApi.emitTo(l, 'app-quit-request', { from: 'main' }); } catch (_) {}
           }
@@ -170,10 +181,12 @@
       },
 
       // 聚合分离窗口会话进主键（saveSession 只存 filePath 等元数据；未保存内容已由各窗
-      // 在收口时落盘/丢弃，故此处只恢复「打开过哪些文件」）。失败不阻塞退出：主会话未动，
-      // 分离文件重启后由用户手动打开——绝不静默丢盘上内容。
+      // 在收口时落盘/丢弃，故此处只恢复「打开过哪些文件」）。聚合前先 saveSession 把主窗口
+      // 当前 tabs 落盘，再在其上追加分离窗口 tabs——否则调用方随后的 saveSession 会只写
+      // 主窗口 tabs、把合并结果覆盖掉（评审 P1-1）。失败不阻塞退出。
       async _aggregateDetachedSessions() {
         try {
+          this.saveSession();
           const SESSION_PREFIX = 'tizumark-session-editor-';
           const keys = [];
           for (let i = 0; i < localStorage.length; i++) {
@@ -237,18 +250,32 @@
                 for (const tab of modified) tab.content = tab.savedContent;
               }
             }
-            this.saveSession();
+            // 协调退出：落 label 会话键供主窗口聚合；普通关窗：删除自己的会话键，
+            // 避免早已关闭的窗口文件在下次启动时被聚合“复活”（评审 P2-7）。
             if (this._quitRequested) {
+              this.saveSession();
               try { TauriApi.emitTo('main', 'app-quit-ready', { label: ownLabel || this._detachedLabel }); } catch (_) {}
+              this._quitRequested = false; // 本轮协调已应答，复位防止后续普通关窗误发 ready（评审 P2-5）
+            } else {
+              try { localStorage.removeItem(this.sessionKey()); } catch (_) {}
             }
             const w1 = TauriApi.currentWindow();
             if (w1) {
-              try { await w1.destroy(); } catch (_) { try { await w1.close(); } catch (_) {} }
+              try {
+                await w1.destroy();
+              } catch (e) {
+                // destroy 失败不得回退 close()：Rust CloseRequested 会 prevent_close 并重新
+                // emit，而 _closingWindow 哨兵会让重入直接早退，窗口将永久关不掉（评审 P2-1）。
+                // 复位哨兵并显式记录错误，用户可再次点 X 重试，不会陷入关闭死循环。
+                this._closingWindow = false;
+                console.error('detached window destroy failed:', e);
+              }
             }
           } catch (error) {
             // 复位关闭哨兵：否则 showSaveDialog 等异常会让后续所有关闭尝试被早退挡住，窗口永久关不掉
-            // （终审 Important 4）
+            // （终审 Important 4）。同时显式上报 aborted，避免主窗口只能干等 60s（评审 P2-1）。
             this._closingWindow = false;
+            this._reportQuitAbort(ownLabel);
             console.error('detached handleAppClose error:', error);
           }
           return;
@@ -297,11 +324,10 @@
               this.setStatus(this.t('quitCoordinatedAborted'));
               return;
             }
-            // 3a. 真正退出：按「退出时关闭所有标签」开关决定保存还是清空会话
+            // 3a. 真正退出：coordinateQuit 聚合时已把主窗口当前 tabs 落盘（见
+            // _aggregateDetachedSessions），此处不得再 saveSession，否则会覆盖分离窗口 tabs。
             if (this.settings.clearTabsOnQuit) {
               try { localStorage.removeItem(this.sessionKey()); } catch (_) {}
-            } else {
-              this.saveSession();
             }
             await TauriApi.quitApp();
           } else {
@@ -336,6 +362,7 @@
       _reportQuitAbort(ownLabel) {
         if (!this._quitRequested) return;
         try { TauriApi.emitTo('main', 'app-quit-aborted', { label: ownLabel || this._detachedLabel }); } catch (_) {}
+        this._quitRequested = false; // 本轮协调已应答，复位防止后续普通关窗误发 abort（评审 P2-5）
       },
 
       async _resolveCloseAction(opts = {}) {
