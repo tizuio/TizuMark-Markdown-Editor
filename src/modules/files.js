@@ -246,9 +246,13 @@
           this.setStatus(this.t('formatUnsupported'));
           return;
         }
-        this._beginPaneLoad();
+        // loading 层按需挂（issue #74）：仅新开文件时显示，覆盖下方 readFileNormalized
+        // 的磁盘读取阶段；已存在的 tab 走 switchTab（其内部按需挂——已加载 tab 不闪，
+        // 无条件挂叠加 hidePaneLoading 的 180ms 最短显示 = 从文件树点开已打开文件必闪）
+        const existingIndex = this.tabs.findIndex(t => t.filePath === filePath);
+        const needsPaneLoad = existingIndex === -1;
+        if (needsPaneLoad) this._beginPaneLoad();
         try {
-          const existingIndex = this.tabs.findIndex(t => t.filePath === filePath);
           if (existingIndex !== -1) {
             await this.switchTab(existingIndex);
             this.saveSession();
@@ -286,7 +290,7 @@
           // 打开失败：结构化错误码（E_NOT_FOUND/E_PERMISSION/...）或兜底 E_IO，用户可见 toast + 开发可见 console
           this.reportError(e.code || 'E_IO', { context: { path: filePath }, error: e, params: e.params, detail: e.detail });
         } finally {
-          this._endPaneLoad();
+          if (needsPaneLoad) this._endPaneLoad();
         }
       },
       // 非 Markdown 明文文件：按扩展名选择 CodeMirror 语法高亮模式（仅高亮，不改变编辑行为）

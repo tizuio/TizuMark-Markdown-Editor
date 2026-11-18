@@ -145,7 +145,13 @@
         if (this.cm && this.cm.getOption && this.cm.getOption('readOnly')) {
           this.cm.setOption('readOnly', false);
         }
-        this._beginPaneLoad();
+        // loading 层按需挂（issue #74）：仅目标 tab 尚未加载（会话恢复态，切过去要读盘）时
+        // 才显示——已加载 tab 内容就在内存里，整个切换几十 ms，无条件挂 loading 叠加
+        // hidePaneLoading 的 180ms 最短显示，等于每次切 tab 必闪「加载中」。
+        // 大文档重渲染的 loading 由 render() 内部 needLoad 自管（preview-controller），不依赖这层。
+        const targetTab = this.tabs[index];
+        const needsPaneLoad = !targetTab._loaded && !!targetTab.filePath;
+        if (needsPaneLoad) this._beginPaneLoad();
         try {
           const oldTab = this.activeTab;
           if (oldTab) {
@@ -196,7 +202,7 @@
           this.highlightTreeActiveFile();
           this.syncViewModeToTab();
         } finally {
-          this._endPaneLoad();
+          if (needsPaneLoad) this._endPaneLoad();
         }
       },
       async addTab(name = '', content = '', filePath = null, kind = 'markdown') {

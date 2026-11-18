@@ -5,6 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { buildEnv, cleanup, delay } = require('./helpers/app-env.cjs');
 
 // 隔离标签操作涉及的副作用方法，避免触达真实 Tauri 命令 / 渲染器
@@ -196,4 +198,65 @@ test('tab: executeMenuAction 分发 tab-open-containing 到 openTabContainingFol
   await delay(10); // 等待 async 分支落地
   assert.strictEqual(called, true, 'executeMenuAction 应分发到 openTabContainingFolder');
   cleanup(w);
+});
+
+// ===== issue #74：多 tab 切换闪「加载中」=====
+// 根因：switchTab 无条件 _beginPaneLoad + hidePaneLoading 最短显示 180ms →
+// 已加载 tab 切换必闪。修复后 loading 层按需挂（仅会话恢复态 tab 需读盘时）。
+test('tab: switchTab 已加载 tab 不挂 loading 层（issue #74）', async () => {
+  const { w } = await buildEnv({ captureInitErr: true });
+  await delay(300);
+  const ed = w.editor;
+  stubTabSideEffects(ed);
+  let begins = 0, ends = 0;
+  ed._beginPaneLoad = () => { begins++; };
+  ed._endPaneLoad = () => { ends++; };
+  // 启动欢迎 tab 无 filePath；addTab 直接带 content（Tab 构造 _loaded=true）
+  await ed.addTab('n1.md', 'nnn', null);
+  await ed.addTab('n2.md', 'mmm', 'C:/x/n2.md');
+  const baseline = begins;
+  await ed.switchTab(0);
+  await ed.switchTab(ed.tabs.length - 1);
+  await ed.switchTab(1);
+  assert.strictEqual(begins, baseline, '已加载 tab 之间切换不应挂 loading 层');
+  assert.strictEqual(ends, 0, '不应有配对的 endPaneLoad');
+  cleanup(w);
+});
+
+test('tab: switchTab 未加载 tab（会话恢复态）挂 loading 且 begin/end 对称', async () => {
+  const { w } = await buildEnv({ captureInitErr: true });
+  await delay(300);
+  const ed = w.editor;
+  stubTabSideEffects(ed);
+  let begins = 0, ends = 0;
+  ed._beginPaneLoad = () => { begins++; };
+  ed._endPaneLoad = () => { ends++; };
+  await ed.addTab('r1.md', 'content', 'C:/x/r1.md');
+  // 模拟会话恢复形态（files.js:161：有 filePath 但内容未读盘，_loaded=false）
+  const restored = ed.tabs[ed.tabs.length - 1];
+  restored._loaded = false;
+  begins = 0; ends = 0;
+  await ed.switchTab(0); // 切到已加载 tab：不挂
+  assert.strictEqual(begins, 0, '已加载目标不应挂 loading');
+  await ed.switchTab(ed.tabs.length - 1); // 切回未加载 tab：挂一次
+  assert.strictEqual(begins, 1, '未加载 tab（需读盘）应挂一次 loading');
+  assert.strictEqual(ends, 1, 'begin/end 应对称（引用计数归零）');
+  cleanup(w);
+});
+
+test('tab: switchTab/openFilePath loading 层按需接线（issue #74 静态契约）', () => {
+  const tabsSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'tabs.js'), 'utf8');
+  assert.match(
+    tabsSrc,
+    /const needsPaneLoad = !targetTab\._loaded && !!targetTab\.filePath/,
+    'switchTab 应按「未加载且带路径（需读盘）」条件挂 loading',
+  );
+  assert.match(tabsSrc, /if \(needsPaneLoad\) this\._beginPaneLoad\(\)/, 'begin 应走 needsPaneLoad 条件');
+  assert.match(tabsSrc, /if \(needsPaneLoad\) this\._endPaneLoad\(\)/, 'end 应与 begin 同条件配对');
+  const filesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'files.js'), 'utf8');
+  assert.match(
+    filesSrc,
+    /const needsPaneLoad = existingIndex === -1/,
+    'openFilePath 应仅在新开文件（覆盖 readFileNormalized 读盘阶段）时挂 loading',
+  );
 });
