@@ -2307,6 +2307,34 @@ body.is-resizing-row .outline-sidebar { transition: none !important; }
   transition: max-width 0.2s ease;
 }
 
+/* ===== 全局两端对齐（issue #90，设置 previewJustify）=====
+   preview-justify 类挂两处：body（实时预览 raw 行/遮罩/live 导出）+ #preview
+   （随导出 clone 的 class 复制进导出文档）。两条后代规则分工：
+   - body.preview-justify …：命中阅读/源码预览(#preview)、实时预览遮罩（遮罩节点自带
+     preview-content 类）、PDF print root / 长图 host（挂在 live body 下）
+   - .preview-content.preview-justify …：命中导出文档容器（HTML/系统打印把完整
+     styles.css 嵌进导出 HTML，容器 div 复制了 #preview 的 class，body 上无类） */
+body.preview-justify .preview-content :is(p, li),
+.preview-content.preview-justify :is(p, li) {
+  text-align: justify;
+}
+/* 实时预览 raw 行（CodeMirror）：段落 = 一个源码行，lineWrapping 硬编码开启 →
+   软换行的中间视觉行可被 justify 拉伸、末行豁免（真机探针实测：中间行右缘精确
+   贴满容器、coordsChar 往返误差 ≤4px）。必须限定 .editor-container.wysiwyg-mode——
+   源码模式与实时预览共用同一 CM 实例，theme.js 只在 wysiwyg 模式挂 wysiwyg-mode 类。 */
+body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line {
+  text-align: justify;
+}
+/* 代码块 raw 行排除：所有代码行（含围栏行）都挂 wysiwyg-code-line 行类。
+   ⚠️ CM5 的 addLineClass 'text'（textClass）落在 .CodeMirror-line 元素**自身**
+   （真机实测 cls="CodeMirror-line wysiwyg-code-line"），不是行内后代——
+   排除必须用同名行类选择器，:has(.wysiwyg-code-line) 永远不匹配（探针实锤）。
+   代码文字不允许被两端对齐拉伸；不能用 cm-wysiwyg-code-box 反推——
+   details/HTML 容器行也挂它但不是代码。 */
+body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-code-line {
+  text-align: left;
+}
+
 /* 顶部内容对齐（2026-10-31 用户反馈「编辑和预览顶部内容对齐，现在有点偏差」）：
    编辑模式分屏时编辑器首行盒顶 = 容器顶 + 30px（vendored CM lines padding 4px +
    CodeMirror 结构内距），而预览 = padding-top 16px + 首元素 margin-top（p 默认 16px /

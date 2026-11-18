@@ -1277,3 +1277,58 @@ test('settings: 界面字号与字重滑块初始化后存在并可回填', asyn
     assert.strictEqual(w.document.getElementById('editor-font-weight-label').textContent, '600', '编辑字重标签应回填');
   } finally { cleanup(w); }
 });
+
+// ===== issue #90：全局两端对齐（previewJustify）=====
+test('settings: previewJustify 默认 false，applySettings 双挂/撤 preview-justify 类', async () => {
+  const { w, ed, getInitErr } = await makeEditor();
+  try {
+    assert.strictEqual(getInitErr(), null, '初始化不应报错');
+    assert.strictEqual(ed.defaultSettings().previewJustify, false, '默认关闭');
+    // 关 → 开：body 与 #preview 都挂类
+    ed.settings.previewJustify = true;
+    await ed.applySettings();
+    assert.strictEqual(w.document.body.classList.contains('preview-justify'), true, 'body 应挂 preview-justify（wysiwyg raw 行/遮罩/live 导出作用域）');
+    assert.strictEqual(ed.preview.classList.contains('preview-justify'), true, '#preview 应挂 preview-justify（随导出 clone 进导出文档）');
+    // 开 → 关：两处都撤
+    ed.settings.previewJustify = false;
+    await ed.applySettings();
+    assert.strictEqual(w.document.body.classList.contains('preview-justify'), false, '关闭后 body 类应撤除');
+    assert.strictEqual(ed.preview.classList.contains('preview-justify'), false, '关闭后 #preview 类应撤除');
+  } finally { cleanup(w); }
+});
+
+test('settings: 两端对齐 UI 接线（checkbox change → settings，回读 UI）', async () => {
+  const { w, ed, getInitErr } = await makeEditor();
+  try {
+    assert.strictEqual(getInitErr(), null, '初始化不应报错');
+    const cb = w.document.getElementById('set-preview-justify');
+    assert.ok(cb, 'index.html 应有 set-preview-justify checkbox');
+    cb.checked = true;
+    cb.dispatchEvent(new w.Event('change'));
+    assert.strictEqual(ed.settings.previewJustify, true, 'change 事件应写入 settings.previewJustify');
+  } finally { cleanup(w); }
+});
+
+test('settings: 两端对齐 CSS 契约（作用域限定 + 代码行排除 + 导出容器选择器）', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
+  // 预览/遮罩/导出容器命中
+  assert.match(css, /body\.preview-justify \.preview-content :is\(p, li\)/, 'body 类应命中预览与 wysiwyg 遮罩（遮罩自带 preview-content）');
+  assert.match(css, /\.preview-content\.preview-justify :is\(p, li\)/, '导出容器选择器必须存在（HTML/系统打印导出 body 上无类）');
+  // 实时预览 raw 行：必须限定 wysiwyg-mode（源码模式共用同一 CM 实例，不得泄漏）
+  assert.match(css, /body\.preview-justify \.editor-container\.wysiwyg-mode \.CodeMirror-line \{\s*\n?\s*text-align: justify/, 'CM 行 justify 必须限定在 .editor-container.wysiwyg-mode');
+  // 代码块 raw 行排除（wysiwyg-code-line 挂在 .CodeMirror-line 元素自身——CM5
+  // textClass 落行元素，不是行内后代，:has() 永远不匹配）
+  assert.match(css, /\.CodeMirror-line\.wysiwyg-code-line/, '代码 raw 行（元素自身 wysiwyg-code-line 类）必须反向排除');
+});
+
+test('settings: 两端对齐 i18n 词条三语齐备', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const data = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'i18n-data.js'), 'utf8');
+  const count = (data.match(/previewJustify: '/g) || []).length;
+  assert.strictEqual(count, 3, `zh/en/es 三语都应有 previewJustify 词条，实际 ${count}`);
+  const i18n = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'i18n.js'), 'utf8');
+  assert.match(i18n, /setRowLabel\('set-preview-justify', t\('previewJustify'\)\)/, 'applyLanguage 应接线 set-preview-justify 标签');
+});

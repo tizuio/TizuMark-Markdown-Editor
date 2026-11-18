@@ -28,6 +28,7 @@
           codeLineNumbers: false,
           codeWrap: false,
           codeScroll: true,
+          previewJustify: false, // 全局两端对齐（issue #90）：预览/实时预览/导出统一 justify
           softBreaks: true,
           extendedSyntax: true,
           showTrayIcon: true,
@@ -160,6 +161,7 @@
         document.getElementById('set-code-line-numbers').checked = s.codeLineNumbers;
         document.getElementById('set-code-wrap').checked = s.codeWrap;
         document.getElementById('set-code-scroll').checked = s.codeScroll;
+        document.getElementById('set-preview-justify').checked = !!s.previewJustify;
         if (this._selects && this._selects.language) this._selects.language.setValue(s.language || 'zh', true);
         document.getElementById('set-soft-breaks').checked = s.softBreaks !== false;
         document.getElementById('set-extended-syntax').checked = s.extendedSyntax !== false;
@@ -323,6 +325,9 @@
         });
         document.getElementById('set-code-scroll').addEventListener('change', (e) => {
           this.settings.codeScroll = e.target.checked;
+        });
+        document.getElementById('set-preview-justify').addEventListener('change', (e) => {
+          this.settings.previewJustify = e.target.checked;
         });
         const ctoq = document.getElementById('set-clear-tabs-on-quit');
         if (ctoq) ctoq.addEventListener('change', (e) => { this.settings.clearTabsOnQuit = e.target.checked; });
@@ -577,6 +582,15 @@
         this.preview.classList.toggle('code-line-numbers', s.codeLineNumbers);
         this.preview.classList.toggle('code-wrap', s.codeWrap);
         this.preview.classList.toggle('code-no-scroll', s.codeScroll === false);
+        // 全局两端对齐（issue #90）：类挂两处——
+        //  body：命中实时预览 raw 行（.editor-container.wysiwyg-mode 作用域，源码模式
+        //        共用同一 CM 实例、无 mode 类不受影响）与 wysiwyg 遮罩（遮罩节点自带
+        //        preview-content 类）、live 导出（PDF print root / 长图 host 挂 body 下）
+        //  #preview：随导出 clone（preview.cloneNode 复制 class）进入导出文档，
+        //        HTML/系统打印路径嵌完整 styles.css，由 .preview-content.preview-justify
+        //        后代规则命中；DOCX 路径用 closest('.preview-justify') 判定
+        document.body.classList.toggle('preview-justify', !!s.previewJustify);
+        this.preview.classList.toggle('preview-justify', !!s.previewJustify);
         if (this._hljsCache) this._hljsCache.clear();
         await this.applyThemeMode();
         this.applyCustomBg();

@@ -102,7 +102,11 @@
       } else if (node.type === 'paragraph') {
         // quote 段落（blockquote / alert）：加左缩进 + 左边框，否则与普通段落无视觉区分。
         const opts = { children: (node.runs || []).map(runToChild) };
-        if (node.align) opts.alignment = AlignmentType[node.align];
+        if (node.align) {
+          // CSS 计算值/结构侧 'justify' 在 docx 库 AlignmentType 里没有同名键
+          // （两端对齐是 JUSTIFIED = 'both'），需映射；center/left/right 同名直查。
+          opts.alignment = node.align === 'justify' ? AlignmentType.JUSTIFIED : AlignmentType[node.align];
+        }
         if (node.quote) {
           opts.indent = { left: 360 }; // 0.25 英寸
           opts.border = { left: { style: D.BorderStyle.SINGLE, size: 24, color: '2563EB', space: 8 } };
@@ -110,7 +114,9 @@
         }
         children.push(new Paragraph(opts));
       } else if (node.type === 'bullet') {
-        children.push(new Paragraph({ text: (node.runs && node.runs[0] && node.runs[0].text) || '', bullet: { level: node.level || 0 } }));
+        const bulletOpts = { text: (node.runs && node.runs[0] && node.runs[0].text) || '', bullet: { level: node.level || 0 } };
+        if (node.align) bulletOpts.alignment = node.align === 'justify' ? AlignmentType.JUSTIFIED : AlignmentType[node.align];
+        children.push(new Paragraph(bulletOpts));
       } else if (node.type === 'table') {
         children.push(buildTable(D, node));
       } else if (node.type === 'code') {

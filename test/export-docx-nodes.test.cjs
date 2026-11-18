@@ -128,3 +128,50 @@ test('domToDocxStructure: 独立公式块（math-display）提取 mathml 为居�
   assert.ok(para, '独立公式应作为居中段落');
   assert.ok(para.runs.some(r => r.mathml && r.mathml.includes('<math')), '应提取 mathml');
 });
+
+// ===== issue #90：全局两端对齐 → DOCX w:jc =====
+// clone 是 detached 树（getComputedStyle 不反映容器类），靠 closest('.preview-justify')
+// 判定；'justify' 在 docx 库 AlignmentType 无同名键，docx-builder 映射为 JUSTIFIED='both'。
+test('domToDocxStructure: preview-justify 容器 → 段落/列表/引用带 align=justify', () => {
+  const dom = new JSDOM(`<div id="root" class="preview-content preview-justify">
+    <p>正文段落</p>
+    <ul><li>列表项一</li><li>列表项二</li></ul>
+    <blockquote><p>引用内容</p></blockquote>
+  </div>`, { runScripts: 'dangerously' });
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  const para = structure.find(n => n.type === 'paragraph' && !n.quote);
+  assert.strictEqual(para.align, 'justify', '普通段落应带 align=justify');
+  // walk 会把 list 包装节点拍平：结构里直接是 bullet 节点
+  const bullets = structure.filter(n => n.type === 'bullet');
+  assert.ok(bullets.length >= 2, '两个列表项都应产出 bullet 节点');
+  assert.ok(bullets.every(c => c.align === 'justify'), '列表项（含嵌套）应带 align=justify');
+  const quote = structure.find(n => n.type === 'paragraph' && n.quote);
+  assert.strictEqual(quote.align, 'justify', '引用段落应带 align=justify');
+});
+
+test('domToDocxStructure: 无 preview-justify 容器 → align 为 undefined（默认左对齐不变）', () => {
+  const dom = new JSDOM('<div id="root"><p>正文</p><ul><li>列表</li></ul><blockquote><p>引用</p></blockquote></div>', { runScripts: 'dangerously' });
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  for (const n of structure) {
+    if (n.type === 'paragraph' || n.type === 'bullet') assert.strictEqual(n.align, undefined, '未开启两端对齐时不应写 align');
+  }
+});
+
+test('domToDocxStructure: inline textAlign 优先于 preview-justify', () => {
+  const dom = new JSDOM(`<div id="root" class="preview-justify"><p style="text-align:center">居中段</p></div>`, { runScripts: 'dangerously' });
+  const w = dom.window;
+  const fn = loadDomModule(w);
+  const structure = fn(w.document.getElementById('root'));
+  assert.strictEqual(structure[0].align, 'center', 'inline 样式应优先于容器类');
+});
+
+test('docx-builder: align=justify 映射到 AlignmentType.JUSTIFIED（静态契约）', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'docx-builder.js'), 'utf8');
+  assert.match(src, /node\.align === 'justify' \? AlignmentType\.JUSTIFIED/, "'justify' 必须映射为 AlignmentType.JUSTIFIED（库内无 'justify' 键）");
+});
