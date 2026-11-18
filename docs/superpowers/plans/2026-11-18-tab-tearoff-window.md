@@ -306,13 +306,14 @@ Run: `npm run check`
 Expected: 无违规
 
 - [ ] **Step 5: 真机验证(用户参与,per [[verify-before-pr]])**——`npm run dev`(cargo PATH 已加),核对清单:
-  1. 右键 tab「在新窗口打开」/`Ctrl+Shift+O` → 新窗口出现且**未保存修改的未命名 tab** 内容与修改态完整
-  2. 源窗口 tab 移除、唯一 tab 撕离进空态欢迎页
+  > 自动化覆盖:`test/tab-detach`、`quit-coordination`、`detached-boot`、`multi-window`、`tauri-api`;下列真机项仍需人工确认。
+  1. 右键 tab「在新窗口打开」/`Ctrl+Shift+O` → 新窗口出现且**未保存修改的未命名 tab** 内容与修改态完整(已由 tab-detach 覆盖)
+  2. 「移动到新窗口」源窗口移除该 tab(唯一 tab 进空态);「在新窗口打开」/默认拖拽为复制(原窗口保留),`Ctrl+拖拽`为移动
   3. 分离窗口可继续开文件、可切换工作区,两窗口文件树各自自动刷新(互不偷 watcher)
   4. 同文件双开:A 窗口保存 → B 窗口出现外部变更 banner
   5. 分离窗口点 X 只关自己;主窗口 X(无托盘设置下)→ 分离窗口各有保存询问,取消则整体不退
   6. 托盘「退出」走协调;更新安装按钮在分离窗口有未保存时先协调
-  7. 重启后:分离窗口曾打开的文件以主窗口 tab 恢复
+  7. 重启后:分离窗口曾打开的文件以主窗口 tab 恢复(会话聚合已由 quit-coordination 覆盖,真机重启待验)
 - [ ] **Step 6: 推分支 + 提 PR**
 
 ```bash

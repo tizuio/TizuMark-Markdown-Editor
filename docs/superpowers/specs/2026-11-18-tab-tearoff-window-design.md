@@ -1,7 +1,7 @@
 # Tab 撕离成独立编辑器窗口(多窗口)设计
 
 - 日期:2026-11-18
-- 状态:设计定稿(待实现计划)
+- 状态:已实现(2026-11-18,分支 feat/tab-tearoff-window)
 - 关联上游 issue:tizuio#28(第 1 条「每个文件支持单独一个窗口」,维护者回复"规划中"但 4 个月未动工)、tizuio#70(拖拽标签页分屏/多屏协作)
 
 ## 背景与动机
@@ -63,7 +63,7 @@
 
 1. **窗口形态**:完整编辑器(方案 A)。
 2. **v1 交互**(真机验证后细化,2026-11-18):tab 右键菜单双入口——「在新窗口打开」=**复制**(原窗口保留 tab,新窗口开独立副本;快捷键 Ctrl+Shift+O 绑复制)+「移动到新窗口」=**撕离**(原窗口移除该 tab,Excel/Word 拖拽语义);撕离后原窗口空出则进入现有 `_applyEmptyState()` 空态。复制语义下:有 filePath 的副本互改由现有外部变更横幅提示(定案 13);未保存未命名副本各自独立、无冲突检测,属已知限制。
-3. **窗口 label**:`editor-<n>`,n 取现有 `editor-*` 最大值 +1(关闭后复用空位);创建时显式传几何(主窗口当前尺寸、级联偏移),不依赖 window-state 的 per-label 自动恢复。
+3. **窗口 label**:`editor-<n>`,n 取现有 `editor-*` 编号中的**最小空位**(关闭后可回收复用);创建时显式传几何(主窗口当前尺寸、级联偏移),不依赖 window-state 的 per-label 自动恢复。
 4. **会话**:主窗口键 `tizumark-session` 不动;每个分离窗口写自己的 `tizumark-session-editor-<n>`(同 v2 结构);主窗口退出聚合时把分离窗口的 filePath 并入主 session.tabs,重启后作为普通 tab 恢复。
 5. **tab 状态随迁通道(builder check 定案)**:localStorage 交接键 `tizumark-window-handoff-<label>`——源窗口在建窗**前**序列化完整 tab 状态(content/光标/滚动/previewScrollTop/kind/name/filePath/fileMeta/pendingExternalChange,未保存修改与无 filePath 的未命名 tab 均可迁),分离窗口 boot 消费后清除该键;键缺失且无 doc 参数 → 分离窗口报错并自关;主窗口 boot 清扫过期交接键。不引入新 IPC 通道。
 6. **boot 分叉**:`app.js` DOMContentLoaded 读 `location.search`(如 `?doc=<path>&label=editor-1`)进入 detached 模式:跳过 `restoreSession()` 全量恢复(改为消费交接状态)、跳过更新检查 UI、跳过 CLI args 处理;EULA 已在 localStorage,天然跳过。
@@ -77,6 +77,17 @@
     - 更新安装 → 安装确认后、执行前跑同一协调;取消则不装。
 12. **分离窗口工作区范围(已定:支持挂载)**:现状 `WatcherState` 为全进程单槽(lib.rs:751),分离窗口挂载工作区会偷走主窗口的 watcher。v1 即支持分离窗口挂载/切换工作区(完整编辑器语义,用户 2026-11-18 定),随一期做 **Rust WatcherState 重设计:per-label `Mutex<HashMap<String, Option<RecommendedWatcher>>>`**,`watch_folder`/`stop_watch` 增加 label 参数(缺省取调用窗口 label),`folder-changed`/`folder-watch-error` 改 `emit_to(owner label)`;窗口关闭时回收其 watcher。
 13. **同文件双开**:允许;不加锁,依赖现有外部变更轮询 + banner 提醒"文件已在别处修改";已知限制:双开同时编辑,后保存覆盖先保存,banner 提示重载——v1 接受。
+
+## 实现状态(2026-11-18 回填)
+
+13 条定案与目标均已落地,主要入口:`src/modules/multi-window.js` / `tabs.js` / `lifecycle.js` / `tauri-api.js`、`src-tauri/src/lib.rs`。以下是实现相对设计文字的细化(语义不变):
+
+- **定案 6**:分离窗口跳过**自动**更新检查;手动「检查更新」保留,安装按钮在分离窗口被拒并提示去主窗口。
+- **定案 8**:建窗权限实际为 `core:webview:allow-create-webview-window`;显示器读取(`current-monitor` / `available-monitors`)已由 `core:window:default` 覆盖,用于撕离落点的工作区钳制。
+- **定案 9**:采用 JS 侧 `new WebviewWindow`,开发态与打包态均已验证。
+- **定案 11**:托盘「退出」使用专用 `app-quit-requested` 事件(而非 `close-requested`),避免 `closeAction=最小化` 吞掉退出;协调语义一致。
+- **定案 12**:`watch_folder`/`stop_watch` 以 `window: tauri::WebviewWindow` 参数派生 label(等价于显式 label 参数),事件按 label 定向。
+- **全局热键**:只由主窗口同步;分离窗口 boot 不重复注册,避免注册失败时把主窗口已注册的热键弄丢。
 
 ## 留给 builder
 
