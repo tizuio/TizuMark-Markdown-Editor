@@ -872,8 +872,8 @@ test('列表/代码块活动行渲染化 CSS：源符号透明化 + ::before 渲
     '复选框未锚定槽左缘 left:0（左漂根因是旧 -2ch 随字体度量变）');
   assert.match(css, /\.wysiwyg-task-prefix::before[\s\S]{0,400}width: 16px;[\s\S]{0,120}height: 16px;/,
     '复选框尺寸未固定 16px（与渲染 input[checkbox] 一致）');
-  assert.match(css, /wysiwyg-task-prefix::before[\s\S]{0,300}border: 1\.5px solid var\(--border-color\);/,
-    '复选框未对齐预览样式（1.5px 边框）');
+  assert.match(css, /wysiwyg-task-prefix::before[\s\S]{0,300}border: 1\.5px solid var\(--text-secondary\);/,
+    '复选框未对齐预览样式（1.5px 边框；issue #100 起边框用 --text-secondary 保暗色可见性）');
   assert.match(css, /wysiwyg-task-prefix\.checked::before[\s\S]{0,150}--color-success/, '勾选态未用主题成功色');
   assert.match(css,
     /wysiwyg-task-prefix\.checked::after[\s\S]{0,600}border-width: 0 2px 2px 0;[\s\S]{0,40}transform: rotate\(45deg\);/,
@@ -2109,14 +2109,14 @@ test('表格行/列操作（2026-10-13 用户要求）：hover 增行/增列 + �
     '行轨道未覆盖左 gutter 带（left:-24px 宽 24px = 常驻命中区，与列轨同宽；上下界随 wrap 留白 24px）');
   const rgIdx = css.indexOf('.wysiwyg-table-row-grip');
   assert.ok(rgIdx > 0, '缺行握点规则（.wysiwyg-table-row-grip，轨道内可见小把手）');
-  assert.match(css.slice(rgIdx, rgIdx + 400), /color: var\(--text-tertiary/, '行握点悬停态非中性灰点阵');
+  assert.match(css.slice(rgIdx, rgIdx + 400), /color: var\(--text-secondary/, '行握点悬停态非中性灰点阵（issue #100 起用 text-secondary 提对比）');
   const pillIdx2 = css.indexOf('.wysiwyg-table-col-pill');
   assert.ok(pillIdx2 > 0, '缺列轨道元素规则（.wysiwyg-table-col-pill，wrap 上常驻真实元素）');
   assert.match(css.slice(pillIdx2, pillIdx2 + 300), /top: 0;[\s\S]{0,160}height: 24px;/,
     '列轨道未覆盖顶 gutter 带（top:0 高 24px = wrap 上留白区，底边贴表顶，不再伸到行外）');
   const cgIdx = css.indexOf('.wysiwyg-table-col-grip');
   assert.ok(cgIdx > 0, '缺列握点规则（.wysiwyg-table-col-grip，轨道内可见小把手）');
-  assert.match(css.slice(cgIdx, cgIdx + 450), /color: var\(--text-tertiary/, '列握点悬停态非中性灰点阵');
+  assert.match(css.slice(cgIdx, cgIdx + 450), /color: var\(--text-secondary/, '列握点悬停态非中性灰点阵（issue #100 起用 text-secondary 提对比）');
   // 悬停不高亮：wysiwyg-row-hover / wysiwyg-col-hover 只作状态类，不得再有底色规则；
   // 阅读模式的行 hover 高亮（.preview-content tbody tr:hover）在遮罩上必须豁免
   assert.ok(css.indexOf('tr.wysiwyg-row-hover {') < 0, '悬停行高亮规则未移除（用户第 6 条：只有拖动才高亮）');
@@ -2936,11 +2936,11 @@ test('S74 代码块编辑态语法色重映射到 GitHub hljs 色板（≡ 渲�
   // 规则必须带 wysiwyg-code-line 限定，经典编辑模式 token 色不动
   const scope = '.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line';
   // 亮态 = github.min.css 色板（实测值）
-  assert.ok(css.includes(scope + ' span.cm-keyword { color: #d73a49; }'), '亮态 keyword 色不是 GitHub 色板红（#d73a49 ≡ .hljs-keyword）');
+  assert.ok(css.includes(scope + ' span.cm-keyword { color: #cf222e; }'), '亮态 keyword 色不是 GitHub 新色板红（#cf222e ≡ .hljs-keyword；issue #100 旧 #d73a49 仅 4.19:1）');
   assert.match(css, /span\.cm-def,[\s\S]{0,200}?span\.cm-property \{ color: #6f42c1; \}/, 'def/property 组色不是 GitHub 色板紫（#6f42c1 ≡ .hljs-title.function_）');
   assert.match(css, /span\.cm-number,[\s\S]{0,600}?span\.cm-type \{ color: #005cc5; \}/, 'number/atom/meta/attr/variable-3/type 组色不是 GitHub 色板蓝（#005cc5）');
   assert.match(css, /span\.cm-string,[\s\S]{0,200}?span\.cm-string-2 \{ color: #032f62; \}/, 'string 组色不是 GitHub 色板深蓝（#032f62 ≡ .hljs-string）');
-  assert.ok(css.includes(scope + ' span.cm-comment:not([class*="wysiwyg-code-fence"]) { color: #6a737d; }'), '亮态 comment 色不是 #6a737d，或缺围栏标志行排除（cm-comment 与 wysiwyg-code-fence 同身会被误染）');
+  assert.ok(css.includes(scope + ' span.cm-comment:not([class*="wysiwyg-code-fence"]) { color: #57606a; }'), '亮态 comment 色不是 #57606a（issue #100 旧 #6a737d 仅 4.41:1），或缺围栏标志行排除（cm-comment 与 wysiwyg-code-fence 同身会被误染）');
   assert.ok(css.includes(scope + ' { color: #24292e; }'), '缺亮态基色 #24292e（≡ .hljs 基色，无 token 色文本须同色）');
   // 暗态 = github-dark.min.css 色板
   const dscope = '[data-theme="dark"] ' + scope;

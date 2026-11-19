@@ -57,6 +57,10 @@
   --text-primary: #22262e;
   --text-secondary: #666d79;
   --border-color: #dfe2e8;
+  /* 强内容边界（表格网格/代码块盒/分割线/h2 下划线等）：亮色与 --border-color 同值；
+     暗色由文件末尾「暗色内容边界对比度」节提亮（issue #100 追加轮，WCAG 1.4.11
+     非文本组件 3:1 口径）。 */
+  --border-strong: var(--border-color);
   --accent-color: #2563eb;
   --accent-hover: #1e55d0;
   --accent-pressed: #1946ac;
@@ -288,7 +292,9 @@
   --bg-tab-active: #1a1c20;
   --text-primary: #d1d2d6;
   --text-secondary: #8e8f96;
-  --border-color: #32343c;
+  /* 2026-11-19 对比度追加轮：#32343c 在 #1a1c20 底上仅 1.37:1（表格边框/分割线
+     「看不清」的根因），提亮一档；内容边界另走 --border-strong（≈3.9:1，文件末尾） */
+  --border-color: #3e424c;
   --accent-color: #4a9eff;
   --accent-hover: #66b0ff;
   --accent-pressed: #2d86f0;
@@ -313,8 +319,9 @@
   --scrollbar-thumb: #383a42;
   --scrollbar-thumb-hover: #4c4e58;
   --preview-bg: #1a1c20;
-  --code-bg: #1f2126;
-  --find-bg: #1f2126;
+  /* 2026-11-19：#1f2126 与页面底 #1a1c20 仅 1.08:1（代码块背景「看不清」根因），提亮一档 */
+  --code-bg: #242830;
+  --find-bg: #242830;
 }
 
 /* ========== 翠林风 深色 ========== */
@@ -326,7 +333,7 @@
   --bg-tab-active: #162018;
   --text-primary: #c8d0c4;
   --text-secondary: #7e8e7a;
-  --border-color: #2a3a2c;
+  --border-color: #35473a;
   --accent-color: #65c89a;
   --accent-hover: #7dd8ae;
   --accent-pressed: #52b888;
@@ -351,8 +358,8 @@
   --scrollbar-thumb: #2e4230;
   --scrollbar-thumb-hover: #3e5640;
   --preview-bg: #162018;
-  --code-bg: #1b261d;
-  --find-bg: #1b261d;
+  --code-bg: #223024;
+  --find-bg: #223024;
 }
 
 /* ========== 极夜风 深色 ========== */
@@ -364,7 +371,7 @@
   --bg-tab-active: #202530;
   --text-primary: #d0d4de;
   --text-secondary: #8890a0;
-  --border-color: #363c4e;
+  --border-color: #434c62;
   --accent-color: #8ac4d8;
   --accent-hover: #a0d4e6;
   --accent-pressed: #74b4ca;
@@ -389,8 +396,8 @@
   --scrollbar-thumb: #384058;
   --scrollbar-thumb-hover: #4c5470;
   --preview-bg: #202530;
-  --code-bg: #262b38;
-  --find-bg: #262b38;
+  --code-bg: #2d3342;
+  --find-bg: #2d3342;
 }
 
 /* ========== 暮紫风 深色 ========== */
@@ -402,7 +409,7 @@
   --bg-tab-active: #1d1728;
   --text-primary: #ccc8d8;
   --text-secondary: #88829e;
-  --border-color: #342e48;
+  --border-color: #423a58;
   --accent-color: #b28cf0;
   --accent-hover: #c4a4f6;
   --accent-pressed: #a074e6;
@@ -427,8 +434,8 @@
   --scrollbar-thumb: #342e4a;
   --scrollbar-thumb-hover: #48426a;
   --preview-bg: #1d1728;
-  --code-bg: #231d30;
-  --find-bg: #231d30;
+  --code-bg: #2a2340;
+  --find-bg: #2a2340;
 }
 
 /* ========== 暖橙风 深色 ========== */
@@ -440,7 +447,7 @@
   --bg-tab-active: #241912;
   --text-primary: #d4c8bc;
   --text-secondary: #8e8072;
-  --border-color: #3e3026;
+  --border-color: #4d3d31;
   --accent-color: #e89460;
   --accent-hover: #f0a878;
   --accent-pressed: #d4804a;
@@ -465,8 +472,8 @@
   --scrollbar-thumb: #3e3026;
   --scrollbar-thumb-hover: #524438;
   --preview-bg: #241912;
-  --code-bg: #2a1f18;
-  --find-bg: #2a1f18;
+  --code-bg: #33261d;
+  --find-bg: #33261d;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -697,7 +704,9 @@ body {
 
 .editor-breadcrumb-separator {
   color: var(--text-secondary);
-  opacity: 0.55;
+  /* issue #100：0.55 → 0.75。纯装饰分隔符（WCAG 豁免），但 0.55 在亮色仅 2.2:1
+     观感过淡；0.75 亮 ~3.2 / 暗 ~3.6，仍明显弱于路径文字的层级感 */
+  opacity: 0.75;
   font-size: calc(var(--ui-font-size) * 0.8462);
   padding: 0 1px;
   flex-shrink: 0;
@@ -846,7 +855,10 @@ body {
    实心色块在深色主题下会成为全窗口最亮的一块，抢正文的视觉重心。 */
 .view-mode-tab.active {
   background-color: var(--accent-muted);
-  color: var(--accent-color);
+  /* issue #100：accent-color 直压 accent-muted 亮色 4.19 / 暗 4.47，略低于正文线。
+     亮色用 accent-pressed（更深，~10:1）；暗色 text 底色更深需更亮文字，用
+     accent-hover（~5.4:1）——dark 下 accent-pressed 反而更暗，必须分开指定。 */
+  color: var(--accent-pressed);
   /* 主题色发丝内环 + 主题自带的一档微投影：选中格看起来像嵌进轨道里的一小片玻璃。
      环用 inset box-shadow —— 不参与布局，不会撑动胶囊尺寸；--shadow-sm 浅色是
      rgba(0,0,0,.04)、深色是 .18，同一个写法两套主题都成立。
@@ -862,7 +874,12 @@ body {
 /* 选中项 hover 维持淡底，避免落到上面那条 --bg-hover 灰底上（语义变成「未选中」） */
 .view-mode-tab.active:hover {
   background-color: var(--accent-muted);
-  color: var(--accent-color);
+  color: var(--accent-pressed);
+}
+/* 暗色：accent-muted 底更深（偏黑蓝），文字需提亮到 accent-hover 才过 4.5（~5.4:1） */
+[data-theme="dark"] .view-mode-tab.active,
+[data-theme="dark"] .view-mode-tab.active:hover {
+  color: var(--accent-hover);
 }
 
 /* 所见即所得全量预渲染中：图标换成 spinner，文案换「渲染中」（JS 切换类 + 文本） */
@@ -1446,7 +1463,8 @@ body {
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  /* issue #100：text-secondary 直压 bg-tab 亮色仅 4.37:1，向 text-primary 混 18% 提到 ~5.2 */
+  color: color-mix(in srgb, var(--text-secondary) 82%, var(--text-primary));
   font-size: calc(var(--ui-font-size) * 1.2308);
   cursor: pointer;
   border-radius: 4px;
@@ -1473,7 +1491,10 @@ body {
   border-radius: 8px 8px 0 0;
   cursor: pointer;
   font-size: calc(var(--ui-font-size) * 0.9231);
-  color: var(--text-secondary);
+  /* issue #100：text-secondary on bg-tab 亮色 4.37:1 略低于正文线，混 18% text-primary
+     提到 ~5.2（暗色 text-secondary 混 text-primary = 提亮，同样安全方向）。
+     活动标签由 .tab.active 覆盖为 text-primary，不受影响。 */
+  color: color-mix(in srgb, var(--text-secondary) 82%, var(--text-primary));
   white-space: nowrap;
   min-width: 80px;
   max-width: 180px;
@@ -1521,7 +1542,9 @@ body {
 .tab-close {
   font-size: calc(var(--ui-font-size) * 1.0769);
   line-height: 1;
-  opacity: 0.5;
+  /* issue #100：0.5 → 0.75。× 是图形控件（3:1 线）：0.5 时亮色未激活仅 1.91:1；
+     0.75 配合父级混色后亮 ~3.2 / 暗 ~3.9，hover 由 1 恢复全量 */
+  opacity: 0.75;
   cursor: pointer;
 }
 
@@ -2555,6 +2578,16 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
   overflow: visible !important;
 }
 
+/* issue #100：亮色代码高亮两处临界（vendor 的 github.min.css 是 GitHub 旧色板）——
+   keyword #d73a49 on --code-bg 仅 4.19:1、comment #6a737d 4.41:1。用 GitHub 现行
+   亮色板对应值覆盖（keyword #cf222e ~4.9:1、comment #57606a ~5.9:1），观感同族、
+   对比达标。⚠️ 必须限定 [data-theme="light"]：暗色走 github-dark.min.css
+   （comment #8b949e 等）实测全过，无差别覆盖会反向踩低暗色对比。
+   ⚠️ 实时预览 raw 行的固定映射色（wysiwyg-code-line cm-keyword/cm-comment）已同步
+   改为同值，两态像素级一致（2026-10-21 契约）。 */
+[data-theme="light"] .preview-content span.hljs-keyword { color: #cf222e; }
+[data-theme="light"] .preview-content span.hljs-comment { color: #57606a; }
+
 /* 代码块 hljs 默认主题里 .hljs 元素带 background:#ffffff，pre 内会形成"内白外灰"
    双层。统一让 .hljs 透明，背景完全由 pre 的 var(--code-bg) 提供，软件与导出 PDF 一致。 */
 .preview-content pre code.hljs,
@@ -2696,7 +2729,11 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
   margin-right: 8px;
   width: 16px;
   height: 16px;
-  border: 1.5px solid var(--border-color);
+  /* 边框用 --text-secondary 而非 --border-color（issue #100）：暗色下 border-color
+     (#32343c) 对预览底 (#1a1c20) 仅 ~1.4:1，未勾选框几乎不可见。text-secondary
+     亮 ~4.7:1 / 暗 ~5.4:1，均过 WCAG 非文本 UI 组件 3:1 线。勾选态由 :checked
+     覆盖边框与底色（success 绿），不受影响。 */
+  border: 1.5px solid var(--text-secondary);
   border-radius: 3px;
   background-color: var(--bg-primary);
   vertical-align: middle;
@@ -3013,9 +3050,9 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
 }
 
 /* Checkbox unchecked */
-.preview-content li input[type="checkbox"]:not(:checked) {
-  opacity: 0.7;
-}
+/* 旧 opacity: 0.7 已移除（issue #100）：叠加边框弱化后暗色未勾选框整体 ~1.2:1
+   （底色 --bg-primary 与预览背景同为 #1a1c20，仅靠 0.7×边框区分）——用户反馈
+   「某些元素对比度较低」的实锤元素。边框已升为 --text-secondary，淡化取消。 */
 
 /* Table of Contents (TOC) */
 .toc {
@@ -3297,7 +3334,9 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
 }
 
 #word-count, #preview-word-count, #line-count {
-  opacity: 0.8;
+  /* issue #100：0.8 → 1。0.8 时亮色 text-secondary on bg-toolbar 仅 3.16:1；
+     全量 opacity 下亮 4.66 / 暗 4.92，过正文 4.5 线（颜色本身已是弱化灰） */
+  opacity: 1;
 }
 
 ::-webkit-scrollbar { width: 7px; height: 7px; }
@@ -3526,7 +3565,8 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
    :not 排除同身 span，嵌套时内层 .wysiwyg-code-fence 规则按最近祖先仍赢——两种拓扑
    都保住标志行的次级色设计（L3486），不被评论灰覆盖。 */
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line { color: #24292e; }
-.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-keyword { color: #d73a49; }
+/* keyword/comment 用 GitHub 新亮色板（issue #100 对比度），与上方 .hljs 覆盖同值 */
+.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-keyword { color: #cf222e; }
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-def,
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-property { color: #6f42c1; }
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-number,
@@ -3537,7 +3577,7 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-type { color: #005cc5; }
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-string,
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-string-2 { color: #032f62; }
-.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-comment:not([class*="wysiwyg-code-fence"]) { color: #6a737d; }
+.editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-comment:not([class*="wysiwyg-code-fence"]) { color: #57606a; }
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-builtin { color: #e36209; }
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-tag,
 .editor-container.wysiwyg-mode .CodeMirror pre.CodeMirror-line.wysiwyg-code-line span.cm-qualifier,
@@ -4051,14 +4091,16 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
   top: 7px;
   width: 16px;
   height: 16px;
-  border: 1.5px solid var(--border-color);
+  /* 边框 --text-secondary（issue #100）：与渲染态 input[checkbox] 同步升对比，
+     暗色下 --border-color 几乎不可见 */
+  border: 1.5px solid var(--text-secondary);
   border-radius: 3px;
   background: var(--bg-primary);
   box-sizing: border-box;
-  /* 未勾选态与渲染态 input:not(:checked) 同 opacity（0.7 淡化观感）；transition 与渲染态
-     同列表同时长——hover/勾选翻转变色同样 0.15s 过渡（2026-10-15 用户要求：勾选框勾选
-     前后样式与渲染态完全一致）。 */
-  opacity: 0.7;
+  /* 未勾选态 opacity 1（旧 0.7 随 issue #100 一并取消，与渲染态同步）；transition 与
+     渲染态同列表同时长——hover/勾选翻转变色同样 0.15s 过渡（2026-10-15 用户要求：
+     勾选框勾选前后样式与渲染态完全一致）。 */
+  opacity: 1;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 /* hover：与渲染态 input:hover 同口径——边框变成功色（整 24px 槽即可点击区，故整槽 hover） */
@@ -5225,7 +5267,7 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary, #9aa0a8);
+  color: var(--text-secondary); /* issue #100：grip 悬停显出时旧 text-tertiary 亮色仅 2.6:1，升一档 */
   font-size: 12px;
   line-height: 1;
   border-radius: 4px;
@@ -5246,7 +5288,7 @@ body.preview-justify .editor-container.wysiwyg-mode .CodeMirror-line.wysiwyg-cod
   align-items: center;
   justify-content: center;
   transform: translateX(-50%);
-  color: var(--text-tertiary, #9aa0a8);
+  color: var(--text-secondary); /* issue #100：grip 悬停显出时旧 text-tertiary 亮色仅 2.6:1，升一档 */
   font-size: 12px;
   line-height: 1;
   border-radius: 4px;
@@ -8514,7 +8556,19 @@ select option {
 
 .toast.danger { background: #dc2626; }
 .toast.success { background: #16a34a; }
-.toast.warning { background: #f59e0b; }
+/* issue #100：白字压 #f59e0b 仅 2.24:1（四色 toast 最差）。琥珀底配深字是标准
+   可达组合（~6.9:1）；close 按钮同步反转（白罩层改黑罩层） */
+.toast.warning { background: #f59e0b; color: #1c1917; }
+.toast.warning .toast-close {
+  color: #1c1917;
+  background: rgba(0, 0, 0, 0.10);
+  border-color: rgba(0, 0, 0, 0.28);
+}
+.toast.warning .toast-close:hover {
+  color: #1c1917;
+  background-color: rgba(0, 0, 0, 0.20);
+  border-color: rgba(0, 0, 0, 0.42);
+}
 .toast.info { background: #2563eb; }
 
 .toast-body {
@@ -8568,8 +8622,10 @@ select option {
   font-weight: 500;
   letter-spacing: .02em;
   line-height: 1.5;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  /* issue #100：白色罩层把 danger 底从 #dc2626 提亮到 #e24949，白字跌到 3.99:1。
+     改黑色罩层（叠加后底色更深），danger 4.9→5.8、info 4.6→5.3，白字全线过 4.5 */
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: 5px;
   color: #fff;
   cursor: pointer;
@@ -8583,14 +8639,14 @@ select option {
 }
 
 .toast-close:hover {
-  background-color: rgba(255, 255, 255, 0.28);
-  border-color: rgba(255, 255, 255, 0.55);
+  background-color: rgba(0, 0, 0, 0.26);
+  border-color: rgba(0, 0, 0, 0.36);
   color: #fff;
 }
 
 .toast-close:active {
-  background-color: rgba(255, 255, 255, 0.4);
-  border-color: rgba(255, 255, 255, 0.7);
+  background-color: rgba(0, 0, 0, 0.36);
+  border-color: rgba(0, 0, 0, 0.48);
 }
 
 @keyframes toast-in {
@@ -8673,4 +8729,49 @@ body.custom-bg-active #editor-wrapper .CodeMirror {
 body.custom-bg-active #preview {
   background-color: var(--custom-bg, var(--bg-primary)) !important;
   color: var(--custom-fg, var(--text-primary));
+}
+
+/* ========== 暗色内容边界对比度（issue #100 追加轮，2026-11-19）==========
+   基线探针（.workbuddy/probe-contrast-dark.cjs）实测：暗色下 --border-color 在
+   预览底上仅 1.3~1.4:1（表格网格/代码块盒/行内 code/kbd/分割线/h2 下划线全部
+   「看不清」）；代码块背景与页面底仅 1.08:1；图片无衬底、透明图融入背景。
+   新增 --border-strong：暗色按各配色自适应提亮到 ≈3.5~3.9:1（WCAG 1.4.11
+   非文本组件 3:1 口径）；亮色与 --border-color 同值，观感不变。
+   h1 下划线用 --heading-h1-color（实测 11.3:1）本已达标，不动。 */
+[data-theme="dark"] {
+  --border-strong: color-mix(in srgb, var(--border-color) 30%, var(--text-secondary) 70%);
+}
+
+/* 表格网格线（外框 + 单元格右/下缘） */
+[data-theme="dark"] .preview-content table,
+[data-theme="dark"] .preview-content th,
+[data-theme="dark"] .preview-content td {
+  border-color: var(--border-strong);
+}
+
+/* 代码块盒 / 行内代码 / kbd */
+[data-theme="dark"] .preview-content pre { border-color: var(--border-strong); }
+[data-theme="dark"] .preview-content code { border-color: var(--border-strong); }
+[data-theme="dark"] .preview-content kbd {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+}
+
+/* 分割线：暗色放弃「两端透明渐变」（中点再亮可视段也短），改 --border-strong 实线 */
+[data-theme="dark"] .preview-content hr {
+  background: var(--border-strong);
+}
+
+/* h2 下划线（1px 灰线，暗色下原 1.37:1 几乎不可见） */
+[data-theme="dark"] .preview-content h2 { border-bottom-color: var(--border-strong); }
+
+/* mermaid 图表容器 / md2 表格解析错误块 */
+[data-theme="dark"] .mermaid-container { border-color: var(--border-strong); }
+[data-theme="dark"] .preview-content .md2-error { border-color: var(--border-strong); }
+
+/* 图片衬底（暗色）：透明 PNG / 深色内容图在暗底上不可辨（用户反馈「图片背景块
+   看不清」）。给棋盘格衬底（与 .image-viewer 透明指示同口径）；不透明截图自身
+   有底色、衬底被完全盖住，不受影响。 */
+[data-theme="dark"] .preview-content img {
+  background: repeating-conic-gradient(#c9cdd4 0% 25%, #9aa0aa 0% 50%) 50% / 20px 20px;
 }
