@@ -524,10 +524,18 @@ function guardMathBlocks(content) {
       i += 1;
       let foundEnd = false;
       while (i < len) {
-        // 遇到 HTML 标签开头时立即中断：避免 $...$ 跨 <td></td> 等原始 HTML 标签配对，
-        // 把 table 单元格之间的 $ 破坏成字面量（ KaTeX 在 DOM 阶段仍会分别渲染单元格内公式）。
-        if (content[i] === '<' && i + 1 < len && (content[i + 1] === '/' || /[a-zA-Z]/.test(content[i + 1]))) {
-          break;
+        // 遇到「真正的 HTML 标签」时立即中断：避免 $...$ 跨 <td></td> 等原始 HTML 标签配对，
+        // 把 table 单元格之间的 $ 破坏成字面量（KaTeX 在 DOM 阶段仍会分别渲染单元格内公式）。
+        // 不能只判断 `<` + 字母/斜杠：数学比较 `k<j`、`a<b` 会被误判为标签开头而提前 break，
+        // 导致 $ 不配对、下标被 Markdown 解析成强调（2026-11-19 用户复现 \sum_{k<j} 公式失效）。
+        // 标签名含 `:`（Office 命名空间 <o:p>/<w:t>、<svg:path>）；漏掉会让公式吞标签、
+        // 转义成可见字面量。前瞻窗口限定 512 字符：`[^>]*` 在无 `>` 时会扫到文末并回溯，
+        // 未闭合 `$` + 大量 `a<b` 时退化为 O(n²)（160KB 实测 7s）。真实标签很少超此长度。
+        if (content[i] === '<') {
+          const tagEnd = Math.min(len, i + 512);
+          if (/^<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^>]*)?\/?>/.test(content.slice(i, tagEnd))) {
+            break;
+          }
         }
         if (content[i] === '$') {
           const inner = content.substring(start + 1, i);
