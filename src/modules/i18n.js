@@ -500,6 +500,8 @@
           'preview-select-all': 'selectAll',
           'preview-copy-html': 'copyAsHTML',
           'preview-find': 'findInPreview',
+          'tab-open-in-window': 'openInNewWindow',
+          'tab-move-to-window': 'moveToNewWindow',
           'tab-close': 'closeTab',
           'tab-close-others': 'closeOther',
           'tab-close-all': 'closeAll',

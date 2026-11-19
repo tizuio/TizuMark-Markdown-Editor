@@ -39,6 +39,7 @@ const KNOWN_GLOBALS = new Set([
   'TMI18nData', // 国际化字典数据（从 i18n.js 拆出，纯数据）
   'TMI18n', 'TMSettings', 'TMLayout', 'TMTheme', 'TMFont', 'TMShortcuts',
   'TMEditorCore', 'TMTabs', 'TMFind', 'TMMiscUI', 'TMFiles', 'TMExport',
+  'TMMultiWindow', // 多窗口撕离纯函数(label/几何/交接键/会话聚合,tab-tearoff-window)
   'TMPreviewSync', 'TMNotify', 'TMUpdater', 'TMFormat', 'TMCtxMenu', 'TMSlash',
   'TMLifecycle', 'TMToolbar', 'TMEmptyHint', 'TMWysiwyg',
   'TMCodeFold', // 源码模式区块折叠的纯函数范围规则（无 mixin，仅暴露 rangeFinder 等）

@@ -11,6 +11,7 @@
           openFile: { key: 'Ctrl+O', label: '打开' },
           saveFile: { key: 'Ctrl+S', label: '保存' },
           closeTab: { key: 'Ctrl+W', label: '关闭标签页' },
+          openTabInWindow: { key: 'Ctrl+Shift+O', label: '在新窗口打开' },
           find: { key: 'Ctrl+F', label: '查找替换' },
           nextTab: { key: 'Ctrl+Tab', label: '下一个标签页' },
           prevTab: { key: 'Ctrl+Shift+Tab', label: '上一个标签页' },
@@ -415,7 +416,7 @@
         const groupLabels = this.t('shortcutGroup') || {};
         // 按功能分组展示，便于在长列表中查找
         const groups = [
-          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'exportPDF', 'closeToTray'] },
+          { key: 'file', ids: ['newFile', 'openFile', 'saveFile', 'saveAs', 'closeTab', 'openTabInWindow', 'exportPDF', 'closeToTray'] },
           { key: 'search', ids: ['find', 'crossSearch', 'fileSearch'] },
           { key: 'tabView', ids: ['nextTab', 'prevTab', 'toggleView', 'toggleSidebar', 'toggleTheme', 'foldBlock', 'unfoldBlock', 'foldAll', 'unfoldAll'] },
           { key: 'format', ids: ['bold', 'italic', 'strikethrough', 'inlineCode', 'highlight', 'insertSuperscript', 'insertSubscript', 'moveLineUp', 'moveLineDown', 'insertLineBelow', 'insertLineAbove'] },
@@ -812,6 +813,7 @@
           openFile: () => this.openFile(),
           newFile: () => this.newFile(),
           closeTab: () => this.closeTab(this.activeTabIndex),
+          openTabInWindow: () => this.copyTabToWindow(this.activeTabIndex),
           exportPDF: () => this.exportPDF(),
           saveAs: () => this.saveAsFile(),
           toggleView: () => this.toggleViewMode(),
@@ -907,7 +909,12 @@
         // 事件，前端 keydown 无法唤回窗口；OS 级热键（lib.rs set_close_to_tray_shortcut）
         // 负责隐藏/唤回。注册失败（组合键被其他程序占用等）仅告警，窗口内 keydown 派发
         // 仍作为兜底可用（全局注册成功后 OS 会吃掉该键，二者不会重复触发）。
-        this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+        // 分离窗口不参与：热键是进程级的、只作用于主窗口；重复 unregister/register 会在
+        // 注册失败时把主窗口已注册的热键弄丢（设计反目标：全局热键冲突）。
+        const bootInfo = (typeof window !== 'undefined') ? window.__tizumarkBoot : null;
+        if (!(bootInfo && bootInfo.detached)) {
+          this._syncGlobalCloseToTrayShortcut((s.closeToTray && s.closeToTray.key) || '');
+        }
   
         this.updateShortcutHints();
       },

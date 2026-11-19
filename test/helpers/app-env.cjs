@@ -66,13 +66,15 @@ async function buildEnv(options = {}) {
   const appjs = fs.readFileSync(APPJS_PATH, 'utf8');
 
   const dom = new JSDOM(html, {
-    url: 'http://localhost/',
+    url: options.url || 'http://localhost/',
     pretendToBeVisual: true,
     runScripts: 'outside-only',
   });
   const w = dom.window;
   // 跳过 EULA 等待，直奔初始化
   w.localStorage.setItem('tizumark-eula-accepted', 'true');
+  // 允许用例在脚本求值前预置存储(如分离窗口交接键)——DOMContentLoaded boot 会消费
+  if (typeof options.seedStorage === 'function') options.seedStorage(w.localStorage);
 
   const rect = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 });
   w.Range.prototype.getBoundingClientRect = rect;

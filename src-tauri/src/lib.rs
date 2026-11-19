@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::ops::Deref;
 use encoding_rs::GB18030;
@@ -75,6 +76,30 @@ fn exit_app(app: tauri::AppHandle) {
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     exit_app(app);
+}
+
+// 多窗口（tab-tearoff-window）label 口径：editor-<数字> 才算分离编辑器窗口——
+// 与前端 multi-window.isDetachedLabel 一致，两侧须同步修改。'editor-' 无编号不算（防误伤）。
+fn is_editor_label(label: &str) -> bool {
+    match label.strip_prefix("editor-") {
+        Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
+// 分离窗口 label 过滤（list_editor_windows 命令体）：非 editor-<n> 一律剔除，升序返回。
+fn filter_editor_labels(labels: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = labels.into_iter().filter(|l| is_editor_label(l)).collect();
+    out.sort();
+    out
+}
+
+// 多窗口撕离（tab-tearoff-window）：枚举分离编辑器窗口 label（editor-<n>，升序）。
+// 退出协调用：主窗口 quit 前逐窗请求保存收口；撕离时用于 label 分配与级联槽位计数。
+// 前端 tauri-api.js COMMANDS 已含本命令名（契约测试双向校验）。
+#[tauri::command]
+fn list_editor_windows(app: tauri::AppHandle) -> Vec<String> {
+    filter_editor_labels(app.webview_windows().into_keys().collect())
 }
 
 // 路径安全校验：拒绝写入/创建到系统关键目录或越界路径。
@@ -266,7 +291,16 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
                     }
                 }
                 "quit" => {
-                    exit_app(app.clone());
+                    // 托盘「退出」改为定向请求主窗口前端协调退出（保存询问 + 分离窗口收口），
+                    // 不再绕过前端直接 exit_app——那会静默丢所有窗口的未保存内容（设计定案 11）。
+                    // 用专用事件而非 close-requested：close-requested 尊重用户 closeAction 设置
+                    // （可能选「最小化」），托盘菜单「退出」必须无条件走退出路径。
+                    // 前端 app.js 监听 app-quit-requested → handleAppClose({ forceQuit: true })（Task 8）。
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.emit_to("main", "app-quit-requested", ());
+                    } else {
+                        exit_app(app.clone());
+                    }
                 }
                 _ => {}
             }
@@ -746,16 +780,49 @@ fn move_path(from: String, to: String) -> Result<(), String> {
     }
 }
 
-// 工作区文件监听：监听整棵目录树，外部（资源管理器等）增删目录/文件时向前端广播 folder-changed 事件，
-// 前端防抖后重建文件树。监听句柄存入托管状态，重复监听或关闭文件夹时会先丢弃旧句柄。
-struct WatcherState(pub Mutex<Option<RecommendedWatcher>>);
+// 工作区文件监听：监听整棵目录树，外部（资源管理器等）增删目录/文件时向前端定向发 folder-changed
+// 事件（emit_to 归属窗口——多窗口撕离后每个窗口可挂自己的工作区，主窗口的文件树刷新
+// 不被分离窗口偷走；设计定案 12）。监听句柄按窗口 label 存槽，重复监听先丢弃旧句柄。
+struct WatcherState(pub Mutex<HashMap<String, Option<RecommendedWatcher>>>);
+
+impl WatcherState {
+    fn new() -> Self {
+        WatcherState(Mutex::new(HashMap::new()))
+    }
+}
+
+// 取出并丢弃指定 label 的监听槽（stop_watch 与窗口 Destroyed 回收共用）。返回是否有槽。
+fn drop_watcher(state: &WatcherState, label: &str) -> bool {
+    if let Ok(mut map) = state.0.lock() {
+        return map.remove(label).is_some();
+    }
+    false
+}
+
+// 挂载/替换指定 label 的监听槽；被替换的旧句柄交还调用方（drop 即关闭监听）。
+// 锁中毒返回错误而非 panic：让命令显式失败，避免前端 IPC 无响应。
+fn put_watcher(
+    state: &WatcherState,
+    label: String,
+    watcher: RecommendedWatcher,
+) -> Result<Option<RecommendedWatcher>, String> {
+    let mut map = state.0.lock().map_err(|_| "watcher state poisoned".to_string())?;
+    let old = map.remove(&label).flatten();
+    map.insert(label, Some(watcher));
+    Ok(old)
+}
 
 #[tauri::command]
-fn watch_folder(path: String, app: tauri::AppHandle) -> Result<(), String> {
-    if let Ok(mut state) = app.state::<WatcherState>().0.lock() {
-        *state = None;
+fn watch_folder(path: String, window: tauri::WebviewWindow) -> Result<(), String> {
+    let label = window.label().to_string();
+    let app = window.app_handle().clone();
+    // 与旧实现同口径：重监听先杀旧句柄（建新 watcher 失败也不留旧监听）
+    {
+        let state = app.state::<WatcherState>();
+        drop_watcher(&state, &label);
     }
     let app_handle = app.clone();
+    let emit_label = label.clone();
     let mut watcher = RecommendedWatcher::new(
         move |res: notify::Result<NotifyEvent>| {
             // 回调在 notify 内部线程执行。必须保持【无锁、无状态】：panic 被 catch_unwind
@@ -763,7 +830,7 @@ fn watch_folder(path: String, app: tauri::AppHandle) -> Result<(), String> {
             // 都不要放这里（否则 panic 后可能残留锁导致死锁）。
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 if res.is_ok() {
-                    let _ = app_handle.emit("folder-changed", ());
+                    let _ = app_handle.emit_to(&emit_label, "folder-changed", ());
                 }
             }));
             if let Err(payload) = result {
@@ -775,7 +842,8 @@ fn watch_folder(path: String, app: tauri::AppHandle) -> Result<(), String> {
                     .map(|s| s.to_string())
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "unknown panic".to_string());
-                let _ = app_handle.emit(
+                let _ = app_handle.emit_to(
+                    &emit_label,
                     "folder-watch-error",
                     serde_json::json!({ "message": msg }),
                 );
@@ -787,17 +855,17 @@ fn watch_folder(path: String, app: tauri::AppHandle) -> Result<(), String> {
     watcher
         .watch(std::path::Path::new(&path), RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
-    if let Ok(mut state) = app.state::<WatcherState>().0.lock() {
-        *state = Some(watcher);
+    {
+        let state = app.state::<WatcherState>();
+        put_watcher(&state, label, watcher)?;
     }
     Ok(())
 }
 
 #[tauri::command]
-fn stop_watch(app: tauri::AppHandle) -> Result<(), String> {
-    if let Ok(mut state) = app.state::<WatcherState>().0.lock() {
-        *state = None;
-    }
+fn stop_watch(window: tauri::WebviewWindow) -> Result<(), String> {
+    let state = window.app_handle().state::<WatcherState>();
+    drop_watcher(&state, window.label());
     Ok(())
 }
 
@@ -1429,7 +1497,11 @@ fn heading_to_id(text: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 分离编辑器窗口（editor-*）几何由前端建窗时显式级联传入（multi-window.cascadeGeometry），
+        // 不纳入 window-state 的按 label 存取——label 编号复用空位，残留状态会张冠李戴。
+        .plugin(tauri_plugin_window_state::Builder::default()
+            .with_filter(|label: &str| !label.starts_with("editor-"))
+            .build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -1438,8 +1510,10 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 show_window(&window);
                 // files_from_args 滤掉 argv[0]（第二实例 exe 自身路径），
-                // 避免前端误把 exe 当文件打开；与 get_cli_args 的 skip(1) 对齐
-                let _ = app.emit("file-open", files_from_args(argv));
+                // 避免前端误把 exe 当文件打开；与 get_cli_args 的 skip(1) 对齐。
+                // emit_to("main") 定向：file-open 是主窗口职责，多窗口下广播会让每个
+                // 分离窗口都重复开一次文件（设计定案 7）。
+                let _ = window.emit_to("main", "file-open", files_from_args(argv));
             }
         }))
         .plugin(
@@ -1452,16 +1526,25 @@ pub fn run() {
                 .build(),
         )
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                let show_tray = *app.state::<WindowBehavior>().show_tray.lock().unwrap();
-                // 无托盘时直接退出（否则窗口将无法恢复）
-                if !show_tray {
-                    exit_app(app.clone());
-                } else {
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    // 一律 prevent_close + 定向 emit 给【触发窗口自身】的前端处置（emit 是全窗口
+                    // 广播，多窗口下必须 emit_to，否则任一窗口关 X 会让所有窗口各弹一次保存框）：
+                    // - 分离窗口（editor-*）：自己的保存询问 → 只关自己，绝不退出进程
+                    //   （进程生命周期由主窗口决定，原「任意窗口关 X 即 exit_app」已废）；
+                    // - 主窗口：前端 handleAppClose 协调退出/托盘。无托盘模式由前端强制走 quit
+                    //   （窗口隐藏无托盘无法恢复，故不能选「最小化」）——原「无托盘直接 exit_app」
+                    //   在多窗口下会静默丢分离窗口未保存内容（设计定案 11）。
                     api.prevent_close();
-                    let _ = window.emit("close-requested", ());
+                    let _ = window.emit_to(window.label(), "close-requested", ());
                 }
+                WindowEvent::Destroyed => {
+                    // 窗口销毁即回收其文件监听槽（分离窗口挂工作区后关闭，不残留孤儿 watcher
+                    // 占住系统句柄；主窗口 Destroyed 进程将退，回收亦无害）
+                    let state = window.app_handle().state::<WatcherState>();
+                    drop_watcher(&state, window.label());
+                }
+                _ => {}
             }
         })
         .setup(|app| {
@@ -1475,11 +1558,12 @@ pub fn run() {
             app.manage(WindowBehavior::default());
             Ok(())
         })
-        .manage(WatcherState(Mutex::new(None)))
+        .manage(WatcherState::new())
         .manage(GlobalShortcutState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             get_cli_args,
+            list_editor_windows,
             set_window_behavior,
             set_close_to_tray_shortcut,
             quit_app,
@@ -2471,6 +2555,62 @@ fn test_build_cdp_print_params_outline_disabled() {
         let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
         assert_eq!(decoded, bytes, "base64 解码应还原原始字节");
         let _ = fs::remove_file(&tmp);
+    }
+
+    // ---------- 多窗口（tab-tearoff-window）：label 分流纯函数 ----------
+
+    #[test]
+    fn test_is_editor_label() {
+        assert!(is_editor_label("editor-1"));
+        assert!(is_editor_label("editor-12"));
+        assert!(!is_editor_label("editor-"), "'editor-' 无编号不算分离窗口");
+        assert!(!is_editor_label("main"));
+        assert!(!is_editor_label(""));
+        assert!(!is_editor_label("editor-1x"), "尾随非数字不算");
+    }
+
+    #[test]
+    fn test_filter_editor_labels_sorted() {
+        let got = filter_editor_labels(vec![
+            "editor-3".to_string(),
+            "main".to_string(),
+            "editor-1".to_string(),
+            "extra".to_string(),
+        ]);
+        assert_eq!(got, vec!["editor-1".to_string(), "editor-3".to_string()]);
+    }
+
+    // ---------- 多窗口（tab-tearoff-window）：per-label watcher 槽位语义 ----------
+
+    #[test]
+    fn test_drop_watcher_removes_only_target_label() {
+        let state = WatcherState::new();
+        state.0.lock().unwrap().insert("main".to_string(), None);
+        state.0.lock().unwrap().insert("editor-1".to_string(), None);
+        assert!(drop_watcher(&state, "editor-1"), "存在应移除并返回 true");
+        assert!(!drop_watcher(&state, "editor-1"), "重复移除返回 false");
+        assert!(!state.0.lock().unwrap().contains_key("editor-1"));
+        assert!(state.0.lock().unwrap().contains_key("main"), "不得误删其它 label 的 watcher");
+        assert!(!drop_watcher(&state, "editor-9"), "不存在的 label 返回 false");
+    }
+
+    #[test]
+    fn test_put_watcher_replaces_same_label_slot_only() {
+        let tmp = std::env::temp_dir().join("tizumark_watch_slot_test");
+        fs::create_dir_all(&tmp).unwrap();
+        let state = WatcherState::new();
+        let mk = || RecommendedWatcher::new(move |_| {}, NotifyConfig::default()).unwrap();
+        let w1 = mk();
+        let w2 = mk();
+        let old = put_watcher(&state, "editor-1".to_string(), w1).unwrap();
+        assert!(old.is_none(), "首挂无旧句柄");
+        let old = put_watcher(&state, "editor-1".to_string(), w2).unwrap();
+        assert!(old.is_some(), "同 label 重挂应交还被替换句柄（drop 即关闭监听）");
+        drop(old);
+        let map = state.0.lock().unwrap();
+        assert_eq!(map.len(), 1, "同 label 只占一个槽位");
+        assert!(map.contains_key("editor-1"));
+        let _ = fs::remove_dir(&tmp);
     }
 
     #[test]

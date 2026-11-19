@@ -64,3 +64,16 @@ test('capabilities: 核心权限仍在位（dialog/shell/updater/window-state）
   assert.ok(!permIds.includes('shell:allow-execute') && !permIds.includes('shell:allow-spawn'),
     '不得出现 shell 任意命令执行权限');
 });
+
+// 多窗口撕离（tab-tearoff-window）：分离窗口 label 授权 + JS 建窗权限。
+// editor-* 必须显式在 windows 集合内——否则新窗口的 IPC 全被拒（白屏）；
+// create-webview-window 是 JS 侧 WebviewWindowBuilder 的唯一建窗通道权限。
+test('capabilities: 多窗口授权（editor-* 窗口集合 + create-webview-window）', () => {
+  const cap = JSON.parse(fs.readFileSync(capFile, 'utf8'));
+  assert.ok(Array.isArray(cap.windows), 'capabilities 缺少 windows 数组');
+  assert.ok(cap.windows.includes('main'), 'windows 应含 main');
+  assert.ok(cap.windows.includes('editor-*'), 'windows 应含 editor-*（分离窗口授权）');
+  const permIds = cap.permissions.map((p) => typeof p === 'string' ? p : p.identifier).join('\n');
+  assert.ok(permIds.includes('core:webview:allow-create-webview-window'),
+    '缺少建窗权限 core:webview:allow-create-webview-window');
+});

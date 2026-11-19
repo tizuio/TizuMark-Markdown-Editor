@@ -121,7 +121,11 @@ class MarkdownEditor {
     this.applyViewMode();
     this.updateMaximizeIcon();
     this.updateWordCount();
-    setTimeout(() => this.checkUpdate(false), 5000);
+    // 多窗口：分离窗口不自动检查更新（反目标：每个分离窗口 5s 后各弹一份更新框）；
+    // 菜单手动「检查更新」保留（installUpdate 已拒分离窗口执行）。
+    if (!(window.__tizumarkBoot && window.__tizumarkBoot.detached)) {
+      setTimeout(() => this.checkUpdate(false), 5000);
+    }
     this.updateSideButtons();
     this.initBackendHealth();
     this.applyLanguage();
@@ -381,6 +385,8 @@ class MarkdownEditor {
       case 'preview-copy-html': { const sel = window.getSelection(); if (sel.rangeCount > 0) { const range = sel.getRangeAt(0); const frag = range.cloneContents(); const div = document.createElement('div'); div.appendChild(frag); navigator.clipboard.writeText(div.innerHTML); } break; }
       case 'preview-find': this.toggleFindPanel(); break;
 
+      case 'tab-open-in-window': this.copyTabToWindow(this._contextTabIndex); break;
+      case 'tab-move-to-window': this.detachTabToWindow(this._contextTabIndex); break;
       case 'tab-close': this.closeTab(this._contextTabIndex); break;
       case 'tab-close-others': this.closeOtherTabs(this._contextTabIndex); break;
       case 'tab-close-all': this.closeAllTabs(); break;
@@ -503,12 +509,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   }, 20000);
 
   try {
+    // 窗口身份（多窗口撕离，tab-tearoff-window）：?label=editor-<n> 的窗口为分离编辑器，
+    // boot 走 detached 分支（消费交接态，不做会话/CLI/版本恢复）。尽早解析，
+    // 后续事件注册的门（file-open 仅主窗口）与会话键（sessionKey）都以它为准。
+    const boot = TMMultiWindow.parseBootParams(window.location.search);
+    window.__tizumarkBoot = boot;
+
     updateLoadingProgress(5, tInit('progressCheckingEula'));
     const isFirstLaunch = await initEula();
 
     updateLoadingProgress(15, tInit('progressInitEditor'));
     window.editor = new MarkdownEditor();
     window.editor._loadingStart = Date.now();
+    if (boot.detached) window.editor._detachedLabel = boot.label;
 
     updateLoadingProgress(60, tInit('progressRegisterEvents'));
     // 代码块按需滚动：preview 出现/替换 .code-scroll 时自动跑后处理（rAF 去抖）。
@@ -567,6 +580,22 @@ window.addEventListener('DOMContentLoaded', async () => {
       await window.editor.handleAppClose();
     });
 
+    // 托盘菜单「退出」：Rust 定向发 app-quit-requested 给主窗口，强制走退出路径的协调
+    // （close-requested 会尊重 closeAction 设置——可能=最小化，与「退出」语义矛盾）。
+    // 分离窗口不监听：退出请求只发给主窗口，由 coordinateQuit 反向逐窗收口（Task 8）。
+    if (!boot.detached) {
+      await TauriApi.onEvent('app-quit-requested', async () => {
+        await window.editor.handleAppClose({ forceQuit: true });
+      });
+    } else {
+      // 分离窗口：主窗口 coordinateQuit 逐窗请求收口 → 跑自身保存询问后 ready/aborted 上报
+      // （lifecycle.js handleAppClose 分离分支）；普通关 X 走 close-requested,不经此路径。
+      await TauriApi.onEvent('app-quit-request', async () => {
+        window.editor._quitRequested = true;
+        await window.editor.handleAppClose();
+      });
+    }
+
     // 工作区目录树随外部文件增删自动刷新（由 Rust watch_folder 广播 folder-changed 事件）
     await TauriApi.onEvent('folder-changed', () => {
       if (window.editor) window.editor._scheduleTreeRefresh();
@@ -578,9 +607,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (window.editor) window.editor._handleFolderWatchError(event);
     });
 
-    await TauriApi.onEvent('file-open', async (event) => {
-      const args = event.payload;
-      if (!args || args.length === 0) return;
+    // file-open 仅主窗口注册：single_instance 的 argv 定向 emit 给 main（Rust 已改 emit_to），
+    // 分离窗口注册会重复开文件（设计定案 7）
+    if (!boot.detached) {
+      await TauriApi.onEvent('file-open', async (event) => {
+        const args = event.payload;
+        if (!args || args.length === 0) return;
 
       try {
         const w = TauriApi.currentWindow();
@@ -594,44 +626,82 @@ window.addEventListener('DOMContentLoaded', async () => {
       // 导致切换工作区确认框点不到而卡在加载页；加载由 openFolderPath 内部负责。
       await window.editor.openPathsSmart(args);
     });
+    } // if (!boot.detached) file-open 门闭合
 
     updateLoadingProgress(85, tInit('progressLoadingFile'));
-    try {
-      const args = await TauriApi.getCliArgs();
-      const hadSession = await window.editor.restoreSession();
-      let currentVersion = '';
-      if (args && args.length > 0) {
-        // 启动 CLI 参数：命令行显式指定目录，直接作为工作区打开（不弹确认）
-        await window.editor.openPathsSmart(args, { confirmWorkspaceSwitch: false });
-      } else {
-        // 首次安装 / 升级后首次打开：自动展示使用说明和 demo.md
-        const lastVersion = localStorage.getItem('tizumark-app-version');
-        try {
-          currentVersion = await TauriApi.getVersion();
-        } catch (_) { /* fallback 到静默跳过 */ }
-        if (isFirstLaunch || (currentVersion && lastVersion !== currentVersion)) {
-          window.editor.openUserGuide();
-          // 同步打开 demo.md（使用说明内嵌的 demo.md 链接已可手动点开，
-          // 此处自动打开省去用户多一步点击）
+    if (boot.detached) {
+      // ---------- 分离窗口 boot：消费交接态 ----------
+      // 未保存修改与未命名 tab 都随迁在交接键里；缺键（源窗口崩溃/重复消费）则报错自关，
+      // 不留一个空编辑器窗口。消费完清键，防下次 boot 误读。
+      try {
+        const payload = TMMultiWindow.readHandoff(boot.label, localStorage);
+        if (!payload || !payload.tab) {
+          // 交接缺失/损坏必须让用户看见：toast 而非静默状态栏，
+          // 并留 5s 阅读时间再自关，避免窗口一闪而过掩盖内容丢失。
+          window.editor.reportError('E_HANDOFF_MISSING');
+          setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 5000);
+        } else {
+          const tab = window.editor.restoreDetachedTab(payload.tab);
+          // 清掉构造器默认单 tab（主窗口由 restoreSession 覆盖，分离分支改为交接态重建），
+          // 否则每个分离窗口都带一个幽灵「未命名0」空 tab
+          window.editor.tabs = [];
+          window.editor.activeTabIndex = -1;
+          // 与 addTab 同尾口径：入栈 → 元数据 → switchTab（恢复光标/滚动/预览） → 最近文件 → 会话
+          window.editor.tabs.push(tab);
+          window.editor.refreshFileMeta(tab);
+          await window.editor.switchTab(window.editor.tabs.length - 1);
+          window.editor.updateTabBar();
           try {
-            const result = await TauriApi.readBundledFile({ filename: 'demo.md' });
-            const demoContent = result && typeof result === 'object' ? result.content : result;
-            const demoPath = result && typeof result === 'object' ? result.path : 'demo.md';
-            if (demoContent && !demoContent.trim().startsWith('<!DOCTYPE') && !demoContent.trim().startsWith('<html')) {
-              await window.editor._openBundledFile('demo.md', demoContent, demoPath);
+            if (tab.filePath) window.editor.addRecentFile(tab.filePath);
+          } catch (e) { console.error('[TizuMark] addRecentFile failed:', e); }
+          window.editor.saveSession();
+          TMMultiWindow.clearHandoff(boot.label, localStorage);
+        }
+      } catch (e) {
+        console.warn('detached boot handoff failed:', e);
+        try { window.editor.reportError('E_HANDOFF_MISSING'); } catch (_) {}
+        setTimeout(() => { try { TauriApi.currentWindow().destroy(); } catch (_) {} }, 5000);
+      }
+    } else {
+      try {
+        // 主窗口 boot：清扫过期交接键（建窗后源窗口崩溃/分离窗口 boot 失败的残留）
+        TMMultiWindow.sweepStaleHandoffs(localStorage);
+        const args = await TauriApi.getCliArgs();
+        const hadSession = await window.editor.restoreSession();
+        let currentVersion = '';
+        if (args && args.length > 0) {
+          // 启动 CLI 参数：命令行显式指定目录，直接作为工作区打开（不弹确认）
+          await window.editor.openPathsSmart(args, { confirmWorkspaceSwitch: false });
+        } else {
+          // 首次安装 / 升级后首次打开：自动展示使用说明和 demo.md
+          const lastVersion = localStorage.getItem('tizumark-app-version');
+          try {
+            currentVersion = await TauriApi.getVersion();
+          } catch (_) { /* fallback 到静默跳过 */ }
+          if (isFirstLaunch || (currentVersion && lastVersion !== currentVersion)) {
+            window.editor.openUserGuide();
+            // 同步打开 demo.md（使用说明内嵌的 demo.md 链接已可手动点开，
+            // 此处自动打开省去用户多一步点击）
+            try {
+              const result = await TauriApi.readBundledFile({ filename: 'demo.md' });
+              const demoContent = result && typeof result === 'object' ? result.content : result;
+              const demoPath = result && typeof result === 'object' ? result.path : 'demo.md';
+              if (demoContent && !demoContent.trim().startsWith('<!DOCTYPE') && !demoContent.trim().startsWith('<html')) {
+                await window.editor._openBundledFile('demo.md', demoContent, demoPath);
+              }
+            } catch (_) {
+              // demo.md 读取失败不影响主功能
             }
-          } catch (_) {
-            // demo.md 读取失败不影响主功能
           }
         }
+        // 持久化当前应用版本，供下次启动比对
+        if (currentVersion) {
+          localStorage.setItem('tizumark-app-version', currentVersion);
+        }
+      } catch (e) {
+        console.warn('Failed to load session / cli args:', e);
       }
-      // 持久化当前应用版本，供下次启动比对
-      if (currentVersion) {
-        localStorage.setItem('tizumark-app-version', currentVersion);
-      }
-    } catch (e) {
-      console.warn('Failed to load session / cli args:', e);
-    }
+    } // if (boot.detached) 主/分离窗口恢复分支闭合
 
     updateLoadingProgress(100, tInit('progressReady'));
     await window.editor.initFileWatcher();
