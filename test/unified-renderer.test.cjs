@@ -451,6 +451,39 @@ test('行内 $...$ 前后带空格且含 ASCII 单引号（素数/导数标记�
   assert.ok(!html.includes('katex-ignore'), '不应被 katex-ignore 跳过');
 });
 
+test('行内 $...$ 含小于号紧邻字母（\\sum_{k<j}）不被当作 HTML 标签截断', async () => {
+  // 用户复现：Cholesky 笔记中 $a_{jj}=\underbrace{\sum_{k<j}...}...$ 渲染为字面文本。
+  // guardMathBlocks 行内分支曾把 "<j" 误判为 HTML 标签开头提前 break，导致 $ 不配对，
+  // 公式被 Markdown 解析成强调。修复后整条公式应完整保留（< 仅转义一次）。
+  const md = '- **对角**（$i=j$）：$a_{jj}=\\underbrace{\\sum_{k<j}l_{jk}^2}_{\\text{前面列，已算好}}+\\;l_{jj}^2$ → 移项开根；';
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(
+    html.includes('$a_{jj}=\\underbrace{\\sum_{k&lt;j}l_{jk}^2}_{\\text{前面列，已算好}}+\\;l_{jj}^2$'),
+    '整条公式应完整保留（< 仅转义一次）: ' + html,
+  );
+  assert.ok(!html.includes('<em'), '下标不应被 Markdown 解析成强调: ' + html);
+});
+
+test('行内 $...$ 跨越 Office 命名空间标签时仍中断，标签不被转义进公式', async () => {
+  // 标签名字符集曾漏掉 `:`，导致 <o:p>/<w:t> 不再触发中断，公式把标签吞进数学文本，
+  // 最终被 escapeHTML 成可见字面量（KaTeX 解析失败）。修复后应恢复：标签交由
+  // rehypeCleanOfficeNamespaces 清洗，不进入公式正文。
+  const md = '<table><tr><td>$x<o:p></o:p>$</td></tr></table>';
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(html.includes('<td>$x$</td>'), '命名空间标签应被清洗而非转义进单元格: ' + html);
+  assert.ok(!html.includes('&lt;o:p'), '不应出现转义的 <o:p 字面量: ' + html);
+});
+
+test('未闭合 $ 后大量不等式不触发二次方标签扫描（性能护栏）', async () => {
+  // 标签判定曾对每个 `<` 用 [^>]* 扫到文末并回溯：未闭合 $ + 大量 a<b 时 O(n²)。
+  // 160KB 输入旧实现约 6.5s，修复后应线性完成（实测阈值取 2s 留足机器差异余量）。
+  const md = '$' + 'a<b '.repeat(40000);
+  const t0 = Date.now();
+  renderMarkdown(md, { softBreaks: false });
+  const ms = Date.now() - t0;
+  assert.ok(ms < 2000, '渲染耗时 ' + ms + 'ms，疑似 HTML 标签判定 O(n²) 回归');
+});
+
 test('HTML 实体按 HTML 标准解码（&nbsp; &amp; &lt; &gt; &copy; 等）', async () => {
   // 内容被原生 HTML 包裹时，实体应交给 HTML 解析器解码，不应残留命名实体字面量。
   const md = '<div>与 &amp; 或 &lt;b&gt; 及 &copy; 2026 &nbsp;尾</div>';
