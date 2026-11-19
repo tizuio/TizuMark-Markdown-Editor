@@ -129,11 +129,11 @@ test('domToDocxStructure: 独立公式块（math-display）提取 mathml 为居�
   assert.ok(para.runs.some(r => r.mathml && r.mathml.includes('<math')), '应提取 mathml');
 });
 
-// ===== issue #90：全局两端对齐 → DOCX w:jc =====
-// clone 是 detached 树（getComputedStyle 不反映容器类），靠 closest('.preview-justify')
+// ===== issue #90：全局两端对齐 → 2026-11-20 四态 previewAlign → DOCX w:jc =====
+// clone 是 detached 树（getComputedStyle 不反映容器类），靠 closest('.preview-align-*')
 // 判定；'justify' 在 docx 库 AlignmentType 无同名键，docx-builder 映射为 JUSTIFIED='both'。
-test('domToDocxStructure: preview-justify 容器 → 段落/列表/引用带 align=justify', () => {
-  const dom = new JSDOM(`<div id="root" class="preview-content preview-justify">
+test('domToDocxStructure: preview-align-justify 容器 → 段落/列表/引用带 align=justify', () => {
+  const dom = new JSDOM(`<div id="root" class="preview-content preview-align-justify">
     <p>正文段落</p>
     <ul><li>列表项一</li><li>列表项二</li></ul>
     <blockquote><p>引用内容</p></blockquote>
@@ -151,18 +151,38 @@ test('domToDocxStructure: preview-justify 容器 → 段落/列表/引用带 ali
   assert.strictEqual(quote.align, 'justify', '引用段落应带 align=justify');
 });
 
-test('domToDocxStructure: 无 preview-justify 容器 → align 为 undefined（默认左对齐不变）', () => {
+test('domToDocxStructure: preview-align-center/right 容器 → 对应对齐值', () => {
+  const fn = (html) => {
+    const dom = new JSDOM(`<div id="root" class="${html}">
+      <p>正文段落</p>
+      <ul><li>列表项</li></ul>
+      <blockquote><p>引用内容</p></blockquote>
+    </div>`, { runScripts: 'dangerously' });
+    return dom.window;
+  };
+  const wC = fn('preview-align-center');
+  const sC = loadDomModule(wC)(wC.document.getElementById('root'));
+  assert.strictEqual(sC.find(n => n.type === 'paragraph' && !n.quote).align, 'center', 'center 容器段落应带 align=center');
+  assert.strictEqual(sC.find(n => n.type === 'paragraph' && n.quote).align, 'center', 'center 容器引用应带 align=center');
+  assert.ok(sC.filter(n => n.type === 'bullet').every(c => c.align === 'center'), 'center 容器列表项应带 align=center');
+  const wR = fn('preview-align-right');
+  const sR = loadDomModule(wR)(wR.document.getElementById('root'));
+  assert.strictEqual(sR.find(n => n.type === 'paragraph' && !n.quote).align, 'right', 'right 容器段落应带 align=right');
+  assert.ok(sR.filter(n => n.type === 'bullet').every(c => c.align === 'right'), 'right 容器列表项应带 align=right');
+});
+
+test('domToDocxStructure: 无 preview-align-* 容器 → align 为 undefined（默认左对齐不变）', () => {
   const dom = new JSDOM('<div id="root"><p>正文</p><ul><li>列表</li></ul><blockquote><p>引用</p></blockquote></div>', { runScripts: 'dangerously' });
   const w = dom.window;
   const fn = loadDomModule(w);
   const structure = fn(w.document.getElementById('root'));
   for (const n of structure) {
-    if (n.type === 'paragraph' || n.type === 'bullet') assert.strictEqual(n.align, undefined, '未开启两端对齐时不应写 align');
+    if (n.type === 'paragraph' || n.type === 'bullet') assert.strictEqual(n.align, undefined, '未设置对齐模式时不应写 align');
   }
 });
 
-test('domToDocxStructure: inline textAlign 优先于 preview-justify', () => {
-  const dom = new JSDOM(`<div id="root" class="preview-justify"><p style="text-align:center">居中段</p></div>`, { runScripts: 'dangerously' });
+test('domToDocxStructure: inline textAlign 优先于容器对齐类', () => {
+  const dom = new JSDOM(`<div id="root" class="preview-align-justify"><p style="text-align:center">居中段</p></div>`, { runScripts: 'dangerously' });
   const w = dom.window;
   const fn = loadDomModule(w);
   const structure = fn(w.document.getElementById('root'));

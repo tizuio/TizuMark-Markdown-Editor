@@ -28,7 +28,7 @@
           codeLineNumbers: false,
           codeWrap: false,
           codeScroll: true,
-          previewJustify: false, // 全局两端对齐（issue #90）：预览/实时预览/导出统一 justify
+          previewAlign: 'default', // 全局对齐（issue #90 justify → 四态）：default/justify/center/right，预览/实时预览/导出统一
           softBreaks: true,
           extendedSyntax: true,
           showTrayIcon: true,
@@ -93,6 +93,18 @@
           if (![3, 4, 5, 6].includes(merged.pdfTocMaxLevel)) {
             merged.pdfTocMaxLevel = defaults.pdfTocMaxLevel;
           }
+          // previewJustify（issue #90 布尔）→ previewAlign 四态迁移（2026-11-20）：
+          // ⚠️ merged.previewAlign 恒有 defaults 兜底值，白名单检查不能兼作「是否迁移」
+          // 判据（否则旧键永远不触发）——迁移仅在存档无 previewAlign 字符串键时按旧键转换；
+          // 已存新键时走新键（非法值由上方类型校验 + 下方白名单回 default）。
+          const PREVIEW_ALIGNS = ['default', 'justify', 'center', 'right'];
+          if (!PREVIEW_ALIGNS.includes(merged.previewAlign)) {
+            merged.previewAlign = defaults.previewAlign;
+          }
+          if (!(saved && typeof saved.previewAlign === 'string')) {
+            merged.previewAlign = saved && saved.previewJustify === true ? 'justify' : defaults.previewAlign;
+          }
+          delete merged.previewJustify;
           return merged;
         } catch {
           return defaults;
@@ -161,7 +173,7 @@
         document.getElementById('set-code-line-numbers').checked = s.codeLineNumbers;
         document.getElementById('set-code-wrap').checked = s.codeWrap;
         document.getElementById('set-code-scroll').checked = s.codeScroll;
-        document.getElementById('set-preview-justify').checked = !!s.previewJustify;
+        if (this._selects && this._selects.previewAlign) this._selects.previewAlign.setValue(s.previewAlign || 'default', true);
         if (this._selects && this._selects.language) this._selects.language.setValue(s.language || 'zh', true);
         document.getElementById('set-soft-breaks').checked = s.softBreaks !== false;
         document.getElementById('set-extended-syntax').checked = s.extendedSyntax !== false;
@@ -325,9 +337,6 @@
         });
         document.getElementById('set-code-scroll').addEventListener('change', (e) => {
           this.settings.codeScroll = e.target.checked;
-        });
-        document.getElementById('set-preview-justify').addEventListener('change', (e) => {
-          this.settings.previewJustify = e.target.checked;
         });
         const ctoq = document.getElementById('set-clear-tabs-on-quit');
         if (ctoq) ctoq.addEventListener('change', (e) => { this.settings.clearTabsOnQuit = e.target.checked; });
@@ -505,6 +514,22 @@
             onChange: (v) => { this.settings.pdfTocMaxLevel = Number(v); },
           });
         }
+        // 预览对齐模式（issue #90 justify → 四态 previewAlign，2026-11-20）
+        const alignHost = document.getElementById('set-preview-align');
+        if (alignHost) {
+          this._selects.previewAlign = new Select(alignHost, {
+            value: this.settings.previewAlign || 'default',
+            t: this.t.bind(this),
+            ariaLabelKey: 'previewAlign',
+            optionsProvider: (t) => ([
+              { value: 'default', label: t('alignDefault') },
+              { value: 'justify', label: t('alignJustify') },
+              { value: 'center', label: t('alignCenter') },
+              { value: 'right', label: t('alignRight') },
+            ]),
+            onChange: (v) => { this.settings.previewAlign = v; },
+          });
+        }
         // 图片存储方式 / 路径 —— 从 radio 组升级为自绘下拉，与默认视图/关闭窗口时保持视觉一致
         const imgModeHost = document.getElementById('set-image-store-mode');
         if (imgModeHost) {
@@ -582,15 +607,19 @@
         this.preview.classList.toggle('code-line-numbers', s.codeLineNumbers);
         this.preview.classList.toggle('code-wrap', s.codeWrap);
         this.preview.classList.toggle('code-no-scroll', s.codeScroll === false);
-        // 全局两端对齐（issue #90）：类挂两处——
+        // 全局对齐模式（issue #90 justify → 2026-11-20 四态 previewAlign）：类挂两处——
         //  body：命中实时预览 raw 行（.editor-container.wysiwyg-mode 作用域，源码模式
         //        共用同一 CM 实例、无 mode 类不受影响）与 wysiwyg 遮罩（遮罩节点自带
         //        preview-content 类）、live 导出（PDF print root / 长图 host 挂 body 下）
         //  #preview：随导出 clone（preview.cloneNode 复制 class）进入导出文档，
-        //        HTML/系统打印路径嵌完整 styles.css，由 .preview-content.preview-justify
-        //        后代规则命中；DOCX 路径用 closest('.preview-justify') 判定
-        document.body.classList.toggle('preview-justify', !!s.previewJustify);
-        this.preview.classList.toggle('preview-justify', !!s.previewJustify);
+        //        HTML/系统打印路径嵌完整 styles.css，由 .preview-content[class*="preview-align-"]
+        //        后代规则命中；DOCX 路径用 closest('.preview-align-*') 判定
+        //  对齐值经 --preview-align 变量下发（见 styles.css「全局对齐模式」节），三态一条规则通吃
+        const alignCls = ['justify', 'center', 'right'].includes(s.previewAlign) ? 'preview-align-' + s.previewAlign : null;
+        for (const cls of ['preview-align-justify', 'preview-align-center', 'preview-align-right']) {
+          document.body.classList.toggle(cls, cls === alignCls);
+          this.preview.classList.toggle(cls, cls === alignCls);
+        }
         if (this._hljsCache) this._hljsCache.clear();
         await this.applyThemeMode();
         this.applyCustomBg();

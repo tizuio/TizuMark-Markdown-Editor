@@ -1278,57 +1278,115 @@ test('settings: 界面字号与字重滑块初始化后存在并可回填', asyn
   } finally { cleanup(w); }
 });
 
-// ===== issue #90：全局两端对齐（previewJustify）=====
-test('settings: previewJustify 默认 false，applySettings 双挂/撤 preview-justify 类', async () => {
+// ===== issue #90：全局两端对齐 → 2026-11-20 四态对齐（previewAlign）=====
+test('settings: previewAlign 默认 default，applySettings 三态类互斥挂/撤（body + #preview 双挂）', async () => {
   const { w, ed, getInitErr } = await makeEditor();
   try {
     assert.strictEqual(getInitErr(), null, '初始化不应报错');
-    assert.strictEqual(ed.defaultSettings().previewJustify, false, '默认关闭');
-    // 关 → 开：body 与 #preview 都挂类
-    ed.settings.previewJustify = true;
+    assert.strictEqual(ed.defaultSettings().previewAlign, 'default', '默认「默认（左对齐）」');
+    // default：三态类全不挂
+    ed.settings.previewAlign = 'default';
     await ed.applySettings();
-    assert.strictEqual(w.document.body.classList.contains('preview-justify'), true, 'body 应挂 preview-justify（wysiwyg raw 行/遮罩/live 导出作用域）');
-    assert.strictEqual(ed.preview.classList.contains('preview-justify'), true, '#preview 应挂 preview-justify（随导出 clone 进导出文档）');
-    // 开 → 关：两处都撤
-    ed.settings.previewJustify = false;
+    for (const cls of ['preview-align-justify', 'preview-align-center', 'preview-align-right']) {
+      assert.strictEqual(w.document.body.classList.contains(cls), false, `default 时 body 不应挂 ${cls}`);
+      assert.strictEqual(ed.preview.classList.contains(cls), false, `default 时 #preview 不应挂 ${cls}`);
+    }
+    // 三态逐一切换：body 与 #preview 同步挂目标类、其余类撤除（互斥）
+    for (const [value, cls] of [['justify', 'preview-align-justify'], ['center', 'preview-align-center'], ['right', 'preview-align-right']]) {
+      ed.settings.previewAlign = value;
+      await ed.applySettings();
+      assert.strictEqual(w.document.body.classList.contains(cls), true, `body 应挂 ${cls}（wysiwyg raw 行/遮罩/live 导出作用域）`);
+      assert.strictEqual(ed.preview.classList.contains(cls), true, `#preview 应挂 ${cls}（随导出 clone 进导出文档）`);
+      for (const other of ['preview-align-justify', 'preview-align-center', 'preview-align-right']) {
+        if (other !== cls) {
+          assert.strictEqual(w.document.body.classList.contains(other), false, `${value} 时 body 不应残留 ${other}（互斥）`);
+          assert.strictEqual(ed.preview.classList.contains(other), false, `${value} 时 #preview 不应残留 ${other}（互斥）`);
+        }
+      }
+    }
+    // 回 default：全撤
+    ed.settings.previewAlign = 'default';
     await ed.applySettings();
-    assert.strictEqual(w.document.body.classList.contains('preview-justify'), false, '关闭后 body 类应撤除');
-    assert.strictEqual(ed.preview.classList.contains('preview-justify'), false, '关闭后 #preview 类应撤除');
+    assert.strictEqual(w.document.body.className.includes('preview-align-'), false, '回 default 后 body 不应残留任何 preview-align-* 类');
+    assert.strictEqual(ed.preview.className.includes('preview-align-'), false, '回 default 后 #preview 不应残留任何 preview-align-* 类');
   } finally { cleanup(w); }
 });
 
-test('settings: 两端对齐 UI 接线（checkbox change → settings，回读 UI）', async () => {
+test('settings: previewJustify 旧布尔 → previewAlign 四态迁移（loadSettings）', async () => {
   const { w, ed, getInitErr } = await makeEditor();
   try {
     assert.strictEqual(getInitErr(), null, '初始化不应报错');
-    const cb = w.document.getElementById('set-preview-justify');
-    assert.ok(cb, 'index.html 应有 set-preview-justify checkbox');
-    cb.checked = true;
-    cb.dispatchEvent(new w.Event('change'));
-    assert.strictEqual(ed.settings.previewJustify, true, 'change 事件应写入 settings.previewJustify');
+    // 旧版 true → justify
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ previewJustify: true }));
+    let merged = ed.loadSettings();
+    assert.strictEqual(merged.previewAlign, 'justify', '旧 previewJustify=true 应迁移为 justify');
+    assert.strictEqual(merged.previewJustify, undefined, '旧键应在迁移后剔除（落盘自愈）');
+    // 旧版 false / 缺失 → default
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ previewJustify: false }));
+    merged = ed.loadSettings();
+    assert.strictEqual(merged.previewAlign, 'default', '旧 previewJustify=false 应迁移为 default');
+    w.localStorage.removeItem('tizumark-settings');
+    merged = ed.loadSettings();
+    assert.strictEqual(merged.previewAlign, 'default', '无旧键时回默认');
+    // 非法值容错
+    w.localStorage.setItem('tizumark-settings', JSON.stringify({ previewAlign: 'bogus' }));
+    merged = ed.loadSettings();
+    assert.strictEqual(merged.previewAlign, 'default', '非法 previewAlign 应回 default');
+    // 四态合法值原样保留
+    for (const v of ['default', 'justify', 'center', 'right']) {
+      w.localStorage.setItem('tizumark-settings', JSON.stringify({ previewAlign: v }));
+      merged = ed.loadSettings();
+      assert.strictEqual(merged.previewAlign, v, `合法值 ${v} 应原样保留`);
+    }
   } finally { cleanup(w); }
 });
 
-test('settings: 两端对齐 CSS 契约（作用域限定 + 代码行排除 + 导出容器选择器）', () => {
+test('settings: 对齐方式 UI 接线（Select onChange → settings，syncSettingsControls 回读）', async () => {
+  const { w, ed, getInitErr } = await makeEditor();
+  try {
+    assert.strictEqual(getInitErr(), null, '初始化不应报错');
+    const host = w.document.getElementById('set-preview-align');
+    assert.ok(host, 'index.html 应有 set-preview-align 下拉宿主');
+    assert.ok(!w.document.getElementById('set-preview-justify'), '旧 checkbox set-preview-justify 应已移除');
+    const sel = ed._selects && ed._selects.previewAlign;
+    assert.ok(sel, '应创建 previewAlign Select 控件');
+    sel.setValue('center'); // 模拟用户选择：onChange 仅写内存
+    assert.strictEqual(ed.settings.previewAlign, 'center', 'Select onChange 应写入 settings.previewAlign');
+    // syncSettingsControls 回读（应用式面板的快照恢复路径）
+    ed.settings.previewAlign = 'right';
+    ed.syncSettingsControls();
+    assert.strictEqual(sel.getValue(), 'right', 'syncSettingsControls 应把控件回读为 right');
+  } finally { cleanup(w); }
+});
+
+test('settings: 对齐方式 CSS 契约（变量下发 + 作用域限定 + 代码行排除 + 导出容器选择器）', () => {
   const fs = require('fs');
   const path = require('path');
   const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
-  // 预览/遮罩/导出容器命中
-  assert.match(css, /body\.preview-justify \.preview-content :is\(p, li\)/, 'body 类应命中预览与 wysiwyg 遮罩（遮罩自带 preview-content）');
-  assert.match(css, /\.preview-content\.preview-justify :is\(p, li\)/, '导出容器选择器必须存在（HTML/系统打印导出 body 上无类）');
+  // 三态变量声明（body 与导出容器通吃）
+  for (const v of ['justify', 'center', 'right']) {
+    assert.match(css, new RegExp(`\\.preview-align-${v}\\s*\\{\\s*--preview-align:\\s*${v}`),
+      `.preview-align-${v} 必须声明 --preview-align 变量`);
+  }
+  // 预览/遮罩/导出容器命中（两条分工：body 前缀 + 导出容器自持）
+  assert.match(css, /body\[class\*="preview-align-"\] \.preview-content :is\(p, li\)/, 'body 类应命中预览与 wysiwyg 遮罩（遮罩自带 preview-content）');
+  assert.match(css, /\.preview-content\[class\*="preview-align-"\] :is\(p, li\)/, '导出容器选择器必须存在（HTML/系统打印导出 body 上无类）');
   // 实时预览 raw 行：必须限定 wysiwyg-mode（源码模式共用同一 CM 实例，不得泄漏）
-  assert.match(css, /body\.preview-justify \.editor-container\.wysiwyg-mode \.CodeMirror-line \{\s*\n?\s*text-align: justify/, 'CM 行 justify 必须限定在 .editor-container.wysiwyg-mode');
+  assert.match(css, /body\[class\*="preview-align-"\] \.editor-container\.wysiwyg-mode \.CodeMirror-line \{\s*\n?\s*text-align: var\(--preview-align/, 'CM 行对齐必须限定在 .editor-container.wysiwyg-mode');
   // 代码块 raw 行排除（wysiwyg-code-line 挂在 .CodeMirror-line 元素自身——CM5
   // textClass 落行元素，不是行内后代，:has() 永远不匹配）
-  assert.match(css, /\.CodeMirror-line\.wysiwyg-code-line/, '代码 raw 行（元素自身 wysiwyg-code-line 类）必须反向排除');
+  assert.match(css, /body\[class\*="preview-align-"\] \.editor-container\.wysiwyg-mode \.CodeMirror-line\.wysiwyg-code-line \{\s*\n?\s*text-align: left/, '代码 raw 行（元素自身 wysiwyg-code-line 类）必须反向排除为 left');
 });
 
-test('settings: 两端对齐 i18n 词条三语齐备', () => {
+test('settings: 对齐方式 i18n 词条三语齐备（标签 + 4 选项）', () => {
   const fs = require('fs');
   const path = require('path');
   const data = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'i18n-data.js'), 'utf8');
-  const count = (data.match(/previewJustify: '/g) || []).length;
-  assert.strictEqual(count, 3, `zh/en/es 三语都应有 previewJustify 词条，实际 ${count}`);
+  for (const key of ['previewAlign', 'alignDefault', 'alignJustify', 'alignCenter', 'alignRight']) {
+    const count = (data.match(new RegExp(key + ": '", 'g')) || []).length;
+    assert.strictEqual(count, 3, `zh/en/es 三语都应有 ${key} 词条，实际 ${count}`);
+  }
+  assert.strictEqual((data.match(/previewJustify: '/g) || []).length, 0, '旧 previewJustify 词条应已移除');
   const i18n = fs.readFileSync(path.join(__dirname, '..', 'src', 'modules', 'i18n.js'), 'utf8');
-  assert.match(i18n, /setRowLabel\('set-preview-justify', t\('previewJustify'\)\)/, 'applyLanguage 应接线 set-preview-justify 标签');
+  assert.match(i18n, /setRowLabel\('set-preview-align', t\('previewAlign'\)\)/, 'applyLanguage 应接线 set-preview-align 标签');
 });

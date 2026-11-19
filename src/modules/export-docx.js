@@ -103,6 +103,17 @@
     return runs;
   }
 
+  // 对齐模式（issue #90 justify → 2026-11-20 四态 previewAlign）：clone 是 detached
+  // 树，getComputedStyle 不反映容器类样式；用 closest('.preview-align-*') 判定
+  // （类随 preview.cloneNode 复制，closest 在 detached 树上有效）。inline textAlign 优先。
+  function previewAlignOf(el) {
+    const hit = el.closest && el.closest('.preview-align-justify, .preview-align-center, .preview-align-right');
+    if (!hit) return undefined;
+    if (hit.classList.contains('preview-align-justify')) return 'justify';
+    if (hit.classList.contains('preview-align-center')) return 'center';
+    return 'right';
+  }
+
   function elementToNode(el) {
     const tag = el.tagName.toLowerCase();
     if (/^h[1-6]$/.test(tag)) {
@@ -113,26 +124,22 @@
       const runs = collectRuns(el, undefined, imgs);
       const nodes = [];
       if (runs.length) {
-        // 两端对齐（issue #90）：clone 是 detached 树，getComputedStyle 不反映容器类
-        // 样式；用 closest('.preview-justify') 判定（类随 preview.cloneNode 复制，
-        // closest 在 detached 树上有效）。inline textAlign（公式居中等）优先。
         const inline = el.style.textAlign;
-        const align = (inline && inline !== 'start') ? inline
-          : (el.closest && el.closest('.preview-justify') ? 'justify' : undefined);
+        const align = (inline && inline !== 'start') ? inline : previewAlignOf(el);
         nodes.push({ type: 'paragraph', runs, align });
       }
       nodes.push(...imgs);
       return nodes;
     }
     if (tag === 'blockquote') {
-      const justified = !!(el.closest && el.closest('.preview-justify'));
+      const align = previewAlignOf(el);
       const paras = el.querySelectorAll('p');
       const runs = [];
       paras.forEach(p => { runs.push(...collectRuns(p)); });
       // 若块内无 <p>（纯文本/列表），退化到 collectRuns 整块
       if (runs.length === 0) runs.push(...collectRuns(el));
       const nodes = [];
-      if (runs.length) nodes.push({ type: 'paragraph', runs, quote: true, align: justified ? 'justify' : undefined });
+      if (runs.length) nodes.push({ type: 'paragraph', runs, quote: true, align });
       nodes.push(...collectBlockImages(el));
       return nodes;
     }
@@ -144,7 +151,7 @@
     }
     if (tag === 'ul' || tag === 'ol') {
       const nodes = [];
-      const justified = !!(el.closest && el.closest('.preview-justify'));
+      const align = previewAlignOf(el);
       for (const li of el.querySelectorAll(':scope > li')) {
         let prefix = '';
         const cb = li.querySelector('input[type="checkbox"]');
@@ -153,11 +160,11 @@
         const cbIn = inner.querySelector('input[type="checkbox"]');
         if (cbIn) inner.removeChild(cbIn);
         const text = prefix + (inner.textContent || '').replace(/\s+/g, ' ').trim();
-        nodes.push({ type: 'bullet', level: 0, runs: [{ text }], align: justified ? 'justify' : undefined });
+        nodes.push({ type: 'bullet', level: 0, runs: [{ text }], align });
         const nestedUl = li.querySelector(':scope > ul, :scope > ol');
         if (nestedUl) {
           for (const nli of nestedUl.querySelectorAll(':scope > li')) {
-            nodes.push({ type: 'bullet', level: 1, runs: [{ text: (nli.textContent || '').replace(/\s+/g, ' ').trim() }], align: justified ? 'justify' : undefined });
+            nodes.push({ type: 'bullet', level: 1, runs: [{ text: (nli.textContent || '').replace(/\s+/g, ' ').trim() }], align });
           }
         }
       }

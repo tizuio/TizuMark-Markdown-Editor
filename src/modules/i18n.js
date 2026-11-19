@@ -131,7 +131,7 @@
         setRowLabel('set-code-line-numbers', t('codeLineNumbers'));
         setRowLabel('set-code-wrap', t('codeBlockWrap'));
         setRowLabel('set-code-scroll', t('codeScroll'));
-        setRowLabel('set-preview-justify', t('previewJustify'));
+        setRowLabel('set-preview-align', t('previewAlign'));
         setRowLabel('set-custom-bg', t('customBg'));
         setRowLabel('set-close-action', t('closeAction'));
         setRowLabel('set-pdf-toc-depth', t('pdfTocDepth'));
