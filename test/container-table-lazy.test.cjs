@@ -147,3 +147,127 @@ test('有空行分隔的表格（remark-gfm 路径）<br> 行为不变', async (
   const html = renderMarkdown(md, { softBreaks: false });
   assert.ok(/<td[^>]*>第一行<br>第二行<\/td>/.test(html), 'remark 路径应保持原有支持，实际: ' + html);
 });
+
+// ---- 表格单元格内行内公式（guardMathBlocks 占位符放行）----
+// 历史 bug：guardMathBlocks 把 $...$ 换成受控占位符 <span><!--MATHBLOCK_N--></span> 后，
+// 容器内表格走 renderCellContent 的 HTML 直转路径，escapeHTML 把占位符整体转义成
+// &lt;span&gt;&lt;!--MATHBLOCK_N--&gt;...，restoreMathBlocks 匹配不到 → 单元格公式位置
+// 残留占位符字面文本（用户 MOT 笔记实测：引用块内表格 $...$ 不渲染）。
+// 修复后：renderCellContent 先摘出占位符再转义、末尾放回，restore 阶段统一还原，
+// 单元格与段落路径同口径输出 $...$ 原文，KaTeX 由下游统一渲染。
+
+test('blockquote 内表格：行内公式不再残留占位符字面文本', async () => {
+  const md = [
+    '> ⚠️ **方向澄清框**（贯穿例子 $\\text{chol}(P)$ 的角度）：',
+    '>',
+    '> | 方向集 | 是什么 | 角度 |',
+    '> | ---- | ---- | ---- |',
+    '> | 状态坐标轴 | x/y 轴 | 0° / 90° |',
+    '> | **Cholesky 列** | $\\text{chol}(P)$ 的列 | **26.6° / 90°** |',
+    '> | 特征方向 | 对称根 $V\\sqrt D$ 的列 | −58.3° |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留 MATHBLOCK 占位符，实际: ' + html);
+  assert.ok(!/(?:&lt;|&#x3C;)span(?:&gt;|&#x3E;|>)/.test(html), '不应残留转义的占位符 span，实际: ' + html);
+  assert.ok(/<td>\$\\text\{chol\}\(P\)\$ 的列<\/td>/.test(html), '单元格应输出公式原文（与段落同口径，KaTeX 由下游渲染），实际: ' + html);
+  assert.ok(/<td>对称根 \$V\\sqrt D\$ 的列<\/td>/.test(html), '第二个公式单元格同理');
+});
+
+test('顶层无空行紧接表格：行内公式同样放行（同一 renderCellContent 路径）', async () => {
+  const md = [
+    '公式表：',
+    '| 表达式 |',
+    '|------|',
+    '| $a^2+b^2=c^2$ |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td>\$a\^2\+b\^2=c\^2\$<\/td>/.test(html), '单元格应输出公式原文，实际: ' + html);
+});
+
+test('单元格粗体与公式混排：两者互不破坏', async () => {
+  const md = [
+    '> | 是什么 |',
+    '> | ---- |',
+    '> | **粗体** $V\\sqrt D$ 尾 |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td><strong>粗体<\/strong> \$V\\sqrt D\$ 尾<\/td>/.test(html), '粗体与公式应并存，实际: ' + html);
+});
+
+test('单元格行内代码含 $ 不被误伤（guard 本不在反引号内制造占位符）', async () => {
+  const md = [
+    '> | 写法 |',
+    '> | ---- |',
+    '> | `a $x$ b` |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<code>a \$x\$ b<\/code>/.test(html), '行内代码内 $ 应保持字面，实际: ' + html);
+});
+
+test('有空行分隔的表格（remark-gfm 路径）行内公式行为不变', async () => {
+  const md = [
+    '公式：',
+    '',
+    '| 表达式 |',
+    '|------|',
+    '| $a^2+b^2=c^2$ |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(/<td[^>]*>\$a\^2\+b\^2=c\^2\$<\/td>/.test(html), 'remark 路径应保持原有行为，实际: ' + html);
+});
+
+// ---- div 形态占位符（\[...\] 行中场景，评审确认的活路径）----
+// guardMathBlocks 的 $$ 分支有 isAtBlockStart 校验，但 \[...\] 分支无块级起点校验：
+// 行中 \[...\] 今日就会在表格行内发射 div 占位符。本用例锚定该路径不是「不可达防御
+// 代码」——若有人按旧注释把它清理掉，此处会响亮报错。
+
+test('blockquote 内表格单元格 \\[...\\] 行中显示公式：div 占位符正常还原为 math-display', async () => {
+  const md = [
+    '> | 写法 |',
+    '> | ---- |',
+    '> | \\[x^2+1\\] |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/MATHBLOCK_\d+/.test(html), '不应残留占位符，实际: ' + html);
+  assert.ok(!/(?:&lt;|&#x3C;)div/.test(html), '不应残留转义的 div 实体，实际: ' + html);
+  assert.ok(/<td><span class="math-display" data-source-line="3">\$\$x\^2\+1\$\$<\/span><\/td>/.test(html),
+    'div 占位符应还原为 math-display span，实际: ' + html);
+});
+
+// ---- 哨兵形状用户文本的越界兜底（评审 Important 2）----
+// NUL 哨兵与 %%CODE 哨兵索引越界时原样放行，不产出 undefined（此前 %%CODE 场景
+// 实证输出 <code>undefined</code>）。索引恰好命中真实占位符的错位替换属哨兵方案
+// 固有碰撞，概率趋零，不在测试范围。
+
+test('单元格含 NUL 哨兵形状用户文本：原样放行，不产出 undefined', async () => {
+  const md = [
+    '哨兵形状用户文本：',
+    '| 写法 |',
+    '|------|',
+    '| a \x00MATH0\x00 b 与 \x00MATH5\x00 |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/undefined/.test(html), '不应输出 undefined，实际: ' + html);
+  assert.ok(!/math-display|MATHBLOCK_\d+/.test(html), '哨兵形状文本不应被替换成公式，实际: ' + html);
+  // NUL 字节经 rehype-raw 按 HTML 规范映射为 U+FFFD（对全管线所有 NUL 一视同仁的
+  // 既有行为）——「原样放行」的断言锚定 U+FFFD 形态的字面存活，而非原始 NUL 字节。
+  assert.ok(html.includes('a \uFFFDMATH0\uFFFD b 与 \uFFFDMATH5\uFFFD'),
+    '哨兵形状文本应原样保留（NUL 按规范映射为 U+FFFD），实际: ' + JSON.stringify(html));
+});
+
+test('单元格含 %%CODE 哨兵形状用户文本：原样放行，不产出 <code>undefined</code>', async () => {
+  const md = [
+    '哨兵形状用户文本：',
+    '| 写法 |',
+    '|------|',
+    '| x %%CODE0%% y |',
+  ].join('\n');
+  const html = renderMarkdown(md, { softBreaks: false });
+  assert.ok(!/undefined/.test(html), '不应输出 undefined，实际: ' + html);
+  assert.ok(!/<code>/.test(html), '无真实行内代码时不应产出 <code> 包裹，实际: ' + html);
+  assert.ok(/x %%CODE0%% y/.test(html), '应原样保留，实际: ' + html);
+});
