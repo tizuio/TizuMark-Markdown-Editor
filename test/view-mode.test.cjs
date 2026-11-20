@@ -188,7 +188,9 @@ test('viewmode: 分段控件走浅色指示器方案（无描边 / 淡底选中 
 
   const activeBlock = pick(/\.view-mode-tab\.active\s*\{[^}]*\}/, '.view-mode-tab.active');
   assert.match(activeBlock, /background-color:\s*var\(--accent-muted\)/, '选中项应为主题色淡底（实心填充在深色主题下会抢正文视觉重心）');
-  assert.match(activeBlock, /color:\s*var\(--accent-color\)/, '选中项文字应为主题色');
+  // issue #100：accent-color 直压 accent-muted 亮 4.19/暗 4.47 略低于正文线 →
+  // 亮色 accent-pressed（~10:1）/ 暗色 accent-hover（~5.4:1），均为主题色系变量
+  assert.match(activeBlock, /color:\s*var\(--accent-pressed\)/, '选中项文字应为主题色系（accent-pressed，issue #100 对比度提亮）');
   assert.match(activeBlock, /inset 0 0 0 1px color-mix/, '选中项应有主题色发丝内环（玻璃片质感，且不占布局）');
   assert.match(activeBlock, /var\(--shadow-sm\)/, '选中项应叠一档主题自带微投影');
   // 加粗靠 text-shadow 而不是 font-weight：字重变宽会让整个胶囊在切换时跳动
