@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.5-blue" alt="Versión">
+  <img src="https://img.shields.io/badge/Version-1.2.6-blue" alt="Versión">
   <img src="https://img.shields.io/badge/Windows-7%2B-brightgreen" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-Planificado-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/Linux-Planificado-lightgrey" alt="Linux">
@@ -61,6 +61,7 @@ No faltan editores de Markdown en el mundo. Sin embargo, la mayoría cae en uno 
 - 🗂️ **Gestión de carpetas y proyectos**: Abre cualquier directorio con `Archivo → Abrir carpeta`; navega por el árbol de archivos con monitoreo automático de cambios en disco.
 - 🖼️ **Gestión avanzada de imágenes**: Pega imágenes directamente desde el portapapeles con deduplicación por hash MD5 y selector de almacenamiento (carpeta `assets/` o Base64 incrustado).
 - 📑 **Edición multipestaña y restauración de sesión**: Múltiples pestañas con arrastrar para reordenar, renombrar con clic derecho, advertencia de cambios sin guardar y restauración completa al reiniciar.
+- 🗔 **Multiventana**: Arrastra una pestaña fuera de la ventana para separarla en un editor independiente, o usa el clic derecho «Abrir en nueva ventana / Mover a nueva ventana» (Ctrl+arrastrar para mover); el cierre y la salida se coordinan entre ventanas y la sesión se restaura con normalidad.
 - 🎨 **Personalización completa**: Modos claro y oscuro, 5 esquemas de color elegantes (Predeterminado, Atardecer, Bosque, Nord, Crepúsculo), fuentes personalizadas y ajuste fino de márgenes y tamaños.
 - ⌨️ **Atajos de teclado personalizables**: Esquemas integrados listos para usar (Predeterminado, VSCode, Typora, Sublime Text) o configuración personalizada tecla por tecla.
 - 📤 **Exportación versátil**: Exporta a HTML independiente con estilos completos, imagen PNG en alta definición, PDF (exportación directa con alternativa de impresión) y documentos nativos de Microsoft Word (.docx).

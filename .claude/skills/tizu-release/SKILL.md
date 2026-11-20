@@ -30,12 +30,25 @@ description: "TizuMark 发布流程：版本号更新、构建三种安装包、
 | `update-windows-x86_64.json` | `"version"` + 下载 URL | 在步骤 5 一并更新 |
 | `README.md` | Version badge `Version-{version}-blue` | 文档展示 |
 | `README.en.md` | Version badge `Version-{version}-blue` | 英文文档展示 |
-| `src/app.js` | 中文 i18n `versionInfo: 'TizuMark v{version}'` | 关于对话框 |
-| `src/app.js` | 英文 i18n `versionInfo: 'TizuMark v{version}'` | 关于对话框（英文） |
-| `src/index.html` | `#about-version` 硬编码 | 兜底文本 |
-| `src/tauri-mock.js` | `getVersion` 返回值 | 浏览器联调 mock |
+| `README.es.md` | Version badge `Version-{version}-blue`（约 L20） | 西语文档展示 |
+| `src/modules/i18n-data.js` | 三语各 2 处：`versionInfo: 'TizuMark v{version}'` + `appVersion: '{version}'`（共 6 处） | 关于对话框 |
+| `src/index.html` | `#about-version` 硬编码 `TizuMark v{version}`（约 L602） | 兜底文本 |
 
 > **禁止手改** `src-tauri/Cargo.lock` 与 `package-lock.json`，由构建工具自动更新。
+> 旧版流程中的 `src/app.js` versionInfo 与 `src/tauri-mock.js` 已不存在，勿再找这两处。
+
+## 步骤 1.1：文档内容同步（每版必做，2026-11-20 起纳入流程）
+
+| 文档 | 同步内容 |
+|------|----------|
+| `README.md` / `README.en.md` / `README.es.md` | 徽章之外，功能清单补入本版新功能（三语同步） |
+| `promotion.md` / `promotion.en.md` | 复查营销文案是否覆盖本版新卖点、修正过时描述 |
+| `demo.md` | 复查功能演示是否需要补本版新能力段 |
+| `RELEASE_NOTES.md` | 重新生成为本版中文发布说明（与 release/ 落盘文件同源） |
+| `RELEASE_NOTES_en.md` | 按中文说明重写英文版（release-notes.js 的 englishSection() 直接读取，不更新则 Gitee/GitHub 两端英文说明仍旧） |
+| `scripts/release-notes.js` | `CURATED_NOTES` 增加本版本号精选条目 |
+
+校验：`grep -rn "旧版本号" README*.md RELEASE_NOTES*.md promotion*.md demo.md` 应无残留。
 
 ## 步骤 2：构建
 

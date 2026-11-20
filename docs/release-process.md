@@ -94,14 +94,30 @@
 | `src-tauri/tauri.conf.json` | `"version"` 字段 | 构建必需，运行时 `getVersion()` 读取此值 |
 | `src-tauri/Cargo.toml` | `version = "..."` | 构建必需 |
 | `update-windows-x86_64.json` | `"version"` + 下载 URL 中的 `v{version}` | 在步骤 5 一并更新 |
-| `README.md` | 第 18 行 Version badge `Version-{version}-blue` | 文档展示 |
-| `README.en.md` | 第 18 行 Version badge `Version-{version}-blue` | 英文文档展示 |
-| `src/app.js` | 中文 i18n `versionInfo: 'TizuMark v{version}'`（约 L207） | 关于对话框文本 |
-| `src/app.js` | 英文 i18n `versionInfo: 'TizuMark v{version}'`（约 L513） | 关于对话框文本（英文） |
-| `src/index.html` | `#about-version` 硬编码 `TizuMark v{version}`（约 L375） | 关于对话框兜底 |
-| `src/tauri-mock.js` | `getVersion: async function() { return '{version}'; }`（约 L278） | 仅浏览器联调用，建议同步 |
+| `README.md` | Version badge `Version-{version}-blue` | 文档展示 |
+| `README.en.md` | Version badge `Version-{version}-blue` | 英文文档展示 |
+| `README.es.md` | Version badge `Version-{version}-blue`（约 L20） | 西语文档展示（2026-11-20 补入流程） |
+| `src/modules/i18n-data.js` | 三语各 2 处：`versionInfo: 'TizuMark v{version}'` + `appVersion: '{version}'`（共 6 处） | 关于对话框文本（zh/en/es） |
+| `src/index.html` | `#about-version` 硬编码 `TizuMark v{version}`（约 L602） | 关于对话框兜底 |
 
 > **禁止手改**：`src-tauri/Cargo.lock` 与 `package-lock.json` 由构建工具自动更新，切勿手动编辑。
+>
+> 旧版流程中的 `src/app.js` versionInfo 与 `src/tauri-mock.js` 已不存在（i18n 词条迁至 `i18n-data.js`，mock 已移除），勿再找这两处。
+
+### 3.1.1 文档内容同步（每版必做，2026-11-20 起纳入流程）
+
+版本号之外，随版本内容变化的文档必须逐份复查同步，否则发布页与仓库文档脱节：
+
+| 文档 | 同步内容 | 说明 |
+|------|----------|------|
+| `README.md` / `README.en.md` / `README.es.md` | 徽章之外，功能清单/特色段落补入本版新功能 | 三语结构对应，新功能一处补、三语同步 |
+| `promotion.md` / `promotion.en.md` | 复查营销文案是否覆盖本版新卖点，过时描述修正 | v1.2.5 起每次发布后按现状复查重写过时段落 |
+| `demo.md` | 复查功能演示文档：本版新增的用户可感知能力（设置项、语法行为）是否需要补演示段 | demo 为语法/功能演示主文档 |
+| `RELEASE_NOTES.md` | 重新生成为本版中文发布说明（与 `release/RELEASE_NOTES_v{version}.md` 同源） | 根目录这份是仓库内可见的最新版说明 |
+| `RELEASE_NOTES_en.md` | 按中文说明重写英文版 | `release-notes.js` 的 `englishSection()` 直接读取此文件拼进 Gitee/GitHub 双端 body——**不更新则两端英文说明仍是旧版** |
+| `scripts/release-notes.js` | `CURATED_NOTES` 增加本版本号的精选条目 | 单版本提交量大时逐条归纳会产生内部编号噪声，v1.2.5 起用精选覆盖 |
+
+> 校验：发布前 `grep -rn "旧版本号" README*.md RELEASE_NOTES*.md promotion*.md demo.md` 应无残留（除历史对照语境）。
 
 ### 3.2 构建
 

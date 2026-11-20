@@ -23,7 +23,7 @@ Here's what it does. A 30-second scan will tell you if it fits:
 - **Zero plugins** — KaTeX math, Mermaid diagrams (with ELK auto-layout), 100+ language syntax highlighting, three kinds of search — all built in. No plugins fighting each other, nothing breaking after an update, and nothing to reconfigure when you switch machines.
 - **Opens in a double-click, under 10MB** — Rust + Tauri v2, using your system's own WebView instead of bundling an entire Chromium.
 - **Three kinds of search** — `Ctrl+F` find & replace in the current document, `Ctrl+H` cross-file search, `Ctrl+P` file quick-open.
-- **Everything a writer needs** — Typora-style live WYSIWYG preview + horizontal/vertical split, outline navigation, breadcrumbs, folder workspace, multi-tabs (drag to reorder, right-click to rename), slash commands.
+- **Everything a writer needs** — Typora-style live WYSIWYG preview + horizontal/vertical split, outline navigation, breadcrumbs, folder workspace, multi-tabs (drag to reorder, right-click to rename, tear off into standalone windows), slash commands.
 - **The right view for each file type** — Markdown auto-splits into preview + edit; images open as read-only preview; code / plain text go straight into pure edit mode, no useless preview pane forced on you.
 - **Long documents stay smooth** — chunked rendering + focus-windowed preview + virtual scrolling in pure-preview mode, so tens of thousands of lines still scroll fluidly.
 - **Customize it your way** — 6 color schemes; separate fonts for editor / preview / code blocks with a full searchable list of installed system fonts plus the ability to import your own font files; **every single shortcut is remappable**, with four presets included.
@@ -226,9 +226,17 @@ Novels, notes, research archives — documents only get longer. Rendering is chu
 
 ---
 
+## One Window Not Enough? Open Another
+
+Writing across monitors or comparing two documents — when tabs alone get cramped, drag a tab out of the window and it becomes a standalone editor window; or right-click a tab and choose "Open in New Window / Move to New Window" (hold Ctrl while dragging to move). Every window has its own full file tree and outline, independent of the rest. Closing, exiting, and update installs are coordinated across windows automatically, and everything restores as usual next launch.
+
+---
+
 ## And the Details
 
 File handling: `.md` / `.markdown` file association opens on double-click; drag a file or folder into the window to open (batches welcome); you can also open a specific file from the command line with `TizuMark <file path>`; recently opened files are tracked; if a file is changed by another program you're prompted to reload rather than silently overwritten; and after a restart your previous tabs and workspace are all still there.
+
+Layout preferences live in settings: global text alignment supports justify / center / right, applied consistently in reading mode, live preview, and Word export.
 
 System-level: a system tray is supported — closing the window can quit, minimize to tray, or ask each time; a global hotkey can be set to bring TizuMark back from any other window; updates are checked silently on launch with a prompt and download progress when a new version exists, the installer is cached locally (already-downloaded setups aren't re-downloaded) and you can "skip this version"; single-instance running — a second launch just focuses the existing window, and files handed to the new instance are opened by the running one.
 

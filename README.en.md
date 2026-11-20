@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.5-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.2.6-blue" alt="Version">
   <img src="https://img.shields.io/badge/Windows-7%2B-brightgreen" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-Planned-lightgrey" alt="macOS">
   <img src="https://img.shields.io/badge/Linux-Planned-lightgrey" alt="Linux">
@@ -56,6 +56,7 @@ The world isn't short of Markdown editors. But most fall into one of two camps: 
 - ⚡ **Blazing fast & lightweight**: Built on **Rust + Tauri v2** (native WebView), ~**7MB** installer, **<50MB** RAM, launches in under a second — 4/5 less memory than Electron apps.
 - 👁️ **Live WYSIWYG preview**: Write directly on the rendered text, Typora-style — content stays formatted, and only the block under your cursor shows its source. Edit table cells in place, tick task checkboxes, and see syntax highlighting in code blocks — the editing state matches the rendered state pixel for pixel.
 - 🪟 **Horizontal / vertical split**: In source mode, flip the split direction with one click (double-click the divider or hit the button). Free-drag the split ratio and it's remembered; collapse either pane into an edge-docked semicircle handle to focus on source or output alone.
+- 🗔 **Multi-window**: Tear a tab off into a standalone editor window by dragging it out, right-clicking "Open in New Window / Move to New Window", or Ctrl+drag; closing and exiting are coordinated across windows and session restore still works.
 - 🧠 **Smart view per file type**: Markdown auto splits preview/edit; plain text & code open in a pure editor (no preview pane); images open read-only — each file gets the right view.
 - 🧭 **Smart outline navigation**: Auto-parses heading hierarchy, one click to any chapter. Never get lost in long docs.
 - 📐 **Built-in KaTeX math**: Inline formulas, display blocks, matrices, equation systems; supports `$…$` / `$$…$$` as well as LaTeX-style `\(…\)` / `\[…\]` delimiters — papers, notes, formulas all handled.
@@ -66,7 +67,7 @@ The world isn't short of Markdown editors. But most fall into one of two camps: 
 - 📂 **Multi-tab + workspace**: Edit multiple files at once, drag-drop batch open, folder workspace with sidebar file tree, `.md` file association.
 - 🚀 **Huge-doc smooth preview**: Sliding-window + virtual rendering for documents with tens of thousands of lines — never lags. External file changes auto-detected with reload prompt.
 - 🎨 **Deep personalization**: Light / Dark / Follow System; 5 color schemes (Default / Sunset / Forest / Nord / Dusk); editor / preview / code-block fonts can use any system-installed font (fully enumerated, searchable), or import local `.ttf` / `.otf` / `.woff` / `.woff2` fonts.
-- 🌐 **Bilingual UI**: Chinese / English interface toggle at any time.
+- 🌐 **Chinese / English / Spanish UI**: Full multi-language interface, switchable any time in settings.
 - 💾 **Session restore**: Reopens tabs, folder workspace, and expanded directories from last session.
 
 ---
@@ -83,6 +84,7 @@ The world isn't short of Markdown editors. But most fall into one of two camps: 
 | Auto bracket & quote pairing | Adaptive image sizing | CJK Emoji support |
 | Image paste, auto-dedup (MD5) | Clickable task-list checkboxes | Custom image asset path |
 | Insert menu + "/" quick-insert (tables, callouts, TOC) | Auto width/height on image insert | Export Word DOCX (math & diagrams rasterized, images auto-scaled) |
+| Global alignment (justify / center / right) | Math rendering in outline labels | PDF bookmarks outline + in-document TOC page |
 
 | ⚡ Productivity | 🎨 Style | 🔧 Power |
 |---|---|---|
@@ -94,7 +96,7 @@ The world isn't short of Markdown editors. But most fall into one of two camps: 
 | Horizontal/vertical split toggle, free-drag remembered ratio | Import custom fonts (editor & preview separately) | Status bar word & char count |
 | Find in preview (regex) + copy as HTML | 5 color schemes + font picker (all system fonts, searchable / import local) | External-change detection & reload prompt |
 | Soft line break toggle | Chinese / English UI toggle | |
-| Session restore (tabs & workspace) | Frameless custom window controls | |
+| Session restore (tabs & workspace) | Frameless custom window controls | Tear off tabs into standalone editor windows (multi-window) |
 | | Silent update check on startup | |
 
 ---

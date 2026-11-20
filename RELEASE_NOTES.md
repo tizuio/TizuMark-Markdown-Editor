@@ -1,42 +1,86 @@
 ## ⬇️ 下载
 
-> **🏆 推荐大多数用户选择：** [⬇ TizuMark_1.2.5_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.5/TizuMark_1.2.5_x64-setup.exe)
+> **🏆 推荐大多数用户选择：** [⬇ TizuMark_1.2.6_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64-setup.exe)
 >
-> **🛠 企业/批量部署：** [⬇ TizuMark_1.2.5_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.5/TizuMark_1.2.5_x64_en-US.msi)
+> **🛠 企业/批量部署：** [⬇ TizuMark_1.2.6_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64_en-US.msi)
 >
-> **📦 绿色版（免安装）：** [⬇ TizuMark_1.2.5_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.5/TizuMark_1.2.5_x64.exe)
+> **📦 绿色版（免安装）：** [⬇ TizuMark_1.2.6_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64.exe)
 
 ### 三种安装包说明
 
 | 安装包 | 适用人群 | 特点 |
 |--------|---------|------|
 | ⭐ **NSIS 安装包 (.exe)** — **推荐** | 绝大多数 Windows 用户 | 传统的 setup 向导安装，支持自定义安装路径、创建桌面快捷方式、自动注册文件关联。双击即装，即装即用。 |
-| **MSI 安装包 (.msi)** | 企业 IT 管理员、需要批量部署的用户 | 标准的 Windows Installer 格式，支持组策略推送、静默安装（msiexec /i TizuMark_1.2.5_x64_en-US.msi /qn）、适合企业环境集中管理。 |
+| **MSI 安装包 (.msi)** | 企业 IT 管理员、需要批量部署的用户 | 标准的 Windows Installer 格式，支持组策略推送、静默安装（msiexec /i TizuMark_1.2.6_x64_en-US.msi /qn）、适合企业环境集中管理。 |
 | **绿色版 (.exe)** | 追求便携的用户 | 单文件免安装，解压即用，适合 U 盘携带、临时使用，不写注册表。 |
 
 ---
 
-## ✨ v1.2.5 更新内容
+## ✨ v1.2.6 更新内容
 
 ### 新增
-- 实时预览（所见即所得）模式：正文保持排版效果、光标所在块就地显示源码，像 Typora 一样直接写作；表格格内编辑与行列拖拽、任务复选框点击勾选、代码块编辑态语法高亮，编辑态与阅读态像素级对齐
-- 编辑模式上下分屏：左右/上下分屏一键切换（双击分隔条或点按钮），分屏方向与比例持久化
-- 标签页右键重命名（已保存文件同步修改磁盘文件名）
-- 文件树：工作区标题「上一级」按钮；点击「文件」标题弹出目录选择切换工作区、点击路径打开所在文件夹；文件/文件夹拖放移动
-- 更新器：安装包磁盘缓存（已下载不再重复下载）与「跳过此版本」
+
+- 多窗口：标签页可拖拽撕离为独立编辑器窗口，右键「在新窗口打开 / 移动到新窗口」双入口，Ctrl+拖拽即移动；多窗口关闭协调、退出握手与会话恢复
+- 全局对齐方式：设置面板新增「对齐方式」（默认 / 两端 / 居中 / 右对齐），阅读、实时预览与 DOCX 导出统一生效
+- PDF 导出：新增书签大纲与纸面目录页
+- 文件树自动定位当前文档并高亮，支持路径归一化匹配
+- 大纲面板：标签内的公式支持 KaTeX 渲染
 
 ### 改进
-- 实时预览性能：进入暖启动 449→374ms、单块预渲染 131→34ms，结构编辑改为增量刷新
-- 导出 PDF：支持直接导出（仅极旧 WebView2 回退系统打印），确认弹框排版对齐 DOCX，修复暗色主题灰底
-- 编辑器与预览顶部内容对齐（左右与上下分屏）
-- 行内公式定界符 `\(...\)` 默认按公式渲染，不再退化为字面括号
-- 中文输入法（IME）在列表、标题场景的输入体验修复
-- 分屏折叠控制钮收进拖拽条，折叠后以贴边半圆把手常驻
+
+- 暗色模式对比度全面优化：表格边框、代码块、行内代码、分割线、标题下划线等内容边界提亮，暗色下清晰可辨（issue #100）
+- 暗色模式下图片增加棋盘格衬底，透明图片不再融入背景
+- 界面多处元素（复选框、标签页、提示条、视图切换等）对比度提升，亮暗两套主题同步
 
 ### 修复
-- 滚动同步偏差：编辑器滚动定位系统性偏移（横向差 2~10 行、纵向差 24~30 行），预览跟随不准
-- 窗口最大化/还原后分栏消失
-- 导出 PDF 灰圈根因（WebView2 背景色）
-- 实时预览编辑态大量细节修复（引用块嵌套、块间距与阅读态不一致、文末回车等）
+
+- 阅读模式长代码块不再永久失去滚动条（滚动测量坏写入自愈兜底，issue #89）
+- 多标签切换不再闪现「加载中」提示（loading 层按需挂载，issue #74）
+- 容器内表格单元格行内公式不再残留占位符字面文本
+- 行内公式 HTML 标签判定收紧，避免把普通内容误判为公式
+- 阅读模式图片缓存修复：被引用的图片不再被误回收（LRU 上限处理）
 
 > 使用中遇到问题欢迎加 QQ 群：1035294939
+
+---
+
+## ⬇️ Download
+
+> **🏆 Recommended for most users:** [⬇ TizuMark_1.2.6_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64-setup.exe)
+>
+> **🛠 Enterprise / bulk deploy:** [⬇ TizuMark_1.2.6_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64_en-US.msi)
+>
+> **📦 Portable (no install):** [⬇ TizuMark_1.2.6_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64.exe)
+
+### Package types
+
+| Package | For | Notes |
+|--------|-----|-------|
+| ⭐ **NSIS installer (.exe)** — **Recommended** | Most Windows users | Classic setup wizard; custom install path, desktop shortcut, file association. |
+| **MSI installer (.msi)** | IT admins / bulk deploy | Windows Installer; group policy push, silent install (msiexec /i TizuMark_1.2.6_x64_en-US.msi /qn). |
+| **Portable (.exe)** | Portable use | Single file, no install, no registry writes. |
+
+---
+
+## ✨ v1.2.6 Changelog
+
+### Added
+- Multi-window: drag a tab out of the window to tear it off into a standalone editor window; right-click "Open in New Window / Move to New Window" entries, Ctrl+drag to move; coordinated close, exit handshake and session restore across windows
+- Global text alignment: new "Alignment" setting in preferences (default / justify / center / right), applied consistently in reading mode, live preview and DOCX export
+- PDF export: bookmarks outline and an in-document table of contents page
+- File tree automatically locates and highlights the current document, with path-normalized matching
+- Outline panel: math inside heading labels now renders via KaTeX
+
+### Improved
+- Dark mode contrast overhaul: table borders, code blocks, inline code, dividers and heading underlines are brighter and clearly visible in the dark theme (issue #100)
+- Images in dark mode get a checkerboard backdrop so transparent images no longer blend into the background
+- Contrast improved across many UI elements (checkboxes, tabs, toasts, view switcher), in both light and dark themes
+
+### Fixed
+- Long code blocks in reading mode no longer permanently lose their scrollbar (self-healing fallback for broken scroll measurements, issue #89)
+- Switching tabs no longer flashes a "Loading" hint (loading overlay is mounted on demand, issue #74)
+- Inline math in table cells inside containers no longer leaves literal placeholder text behind
+- Inline math HTML-tag detection tightened, so ordinary content is no longer mistaken for math
+- Reading-mode image cache fix: referenced images are no longer evicted incorrectly (LRU cap handling)
+
+> Questions? Join QQ group: 1035294939
