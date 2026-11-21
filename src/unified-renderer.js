@@ -1377,29 +1377,71 @@ function decodeHtmlEntities(s) {
 }
 
 function restoreMathBlocks(html, placeholders) {
-  let result = html;
+  // 单趟正则替换（P1-9，2026-11-21）：旧实现逐占位符 split/join 全文扫描 O(n·m)——
+  // 公式密集文档（63KB/4000 行内公式）仅 restore 差值 ≈1s，万级公式 2.4s+，且渲染在
+  // 击键路径同步执行。改单趟 O(n)：一次 replace 同时处理三种标记形态。
+  // 形态与发射点逐字节耦合（改一处须同步）：div 形态 = guardMathBlocks div 分支
+  // （:478/:509），span/裸形态 = inlineMathPlaceholder（:249）。renderCellContent 的
+  // 摘取正则（renderMarkdown 内 md2 单元格路径）认领同两形态，放回原始串后回到本函数。
+  // 行为与旧实现逐字节等价的安全网：test/unified-renderer.test.cjs「restoreMathBlocks 直测」组。
+  // 与旧实现的等价性论证：
+  //  1. 旧实现按「由占位符重建的标记串」精确匹配（split/join 字面量）——div 形态有两个
+  //     独立变量（idx、line），正则天然放宽，故 replacer 内对 div 重建标记串比对，
+  //     不一致放行（与「标记串对不上 → 不替换」同口径）；span/裸形态仅 idx 一个变量，
+  //     正则形状即完备。
+  //  2. 越界 idx（标记串数量超过占位符数组，如用户键入字面标记）放行——cache 越界
+  //     取值为 undefined → 原样返回，与旧循环以 length 为界永不触达同口径（eb21434）。
+  //  3. display 占位符的 span/裸标记、行内占位符的 div 标记 → cache 未定义 → 放行，
+  //     与旧实现「只构建本分支标记串」同口径。
+  //  4. 替换输出经 escapeHTML，不可能再产生任何标记形态（直测组有专例），故单趟一次
+  //     替换与旧实现「div 全换完 → span → 裸标记」的多趟顺序语义等价。两个反例角落
+  //     由发射不变量排除（复审 2026-11-21 14:07 P3-1）：
+  //     a) 替换串恒非空——空替换会使相邻原始片段融合成新完整标记，旧多趟重扫会再次
+  //        替换而单趟不会；display 恒含 $$ 定界、行内空内容被 guard 拒绝，故不可达。
+  //     b) lineNum 恒为数字（guardMathBlocks :462/:476/:494/:506）——display 包装
+  //        内嵌的 ph.line 未转义，非数字 line 时旧按重建字面串仍可匹配替换，新正则
+  //        (\d+) 直接不命中而放行，且单趟不重扫与旧多趟重扫亦不等价（前次评审 P3-2）。
+  //  5. String.replace 的函数替换为字面量插入（无 $ 模式展开），与 split/join 字面量
+  //     拼接同口径。
+  //  6. null/undefined placeholders 防御性放行（旧实现会抛 TypeError）；调用契约恒传
+  //     guardMathBlocks 数组（renderMarkdown 步骤 7），判空属防御非语义（评审 P3-3）。
+  if (!placeholders || placeholders.length === 0) return html;
+  const dispCache = new Array(placeholders.length);
+  const inlineCache = new Array(placeholders.length);
   for (let idx = 0; idx < placeholders.length; idx++) {
     const ph = placeholders[idx];
     const text = typeof ph === 'string' ? ph : ph.text;
     const escaped = escapeHTML(decodeHtmlEntities(text));
-    if (ph.display) {
-      // 显示数学：占位符是 <div class="math-placeholder" data-math-idx="N" ...>，替换为带 data-source-line 的 span
-      const marker = '<div class="math-placeholder" data-math-idx="' + idx + '" data-source-line="' + ph.line + '"></div>';
-      const wrapped = '<span class="math-display" data-source-line="' + ph.line + '">' + escaped + '</span>';
-      result = result.split(marker).join(wrapped);
+    if (typeof ph === 'string' || !ph.display) {
+      // 行内：连 span 壳剥掉（guardMathBlocks 发射时包 <span> 服务于 remark 解析阶段，
+      // 防行首注释被解析为 HTML 块吞掉整行内联语法），最终输出与历史版本逐字节一致。
+      inlineCache[idx] = escaped;
     } else {
-      // 行内数学：占位符是 <!--MATHBLOCK_N-->（guardMathBlocks 发射时包在 <span> 内，见
-      // inlineMathPlaceholder 注释——span 只服务于 remark 解析阶段，防行首注释被解析为
-      // HTML 块吞掉整行内联语法），restore 时连同包裹 span 一并剥掉，最终输出与历史版本
-      // 逐字节一致（下游 KaTeX/大纲 slug/WYSIWYG 均不受影响）。先剥带 span 的完整形态，
-      // 再兜底替换裸标记（rehype-raw 重序列化等极端情况下 span 与注释可能分离）。
-      const wrappedMarker = '<span><!--MATHBLOCK_' + idx + '--></span>';
-      result = result.split(wrappedMarker).join(escaped);
-      const marker = '<!--MATHBLOCK_' + idx + '-->';
-      result = result.split(marker).join(escaped);
+      dispCache[idx] = '<span class="math-display" data-source-line="' + ph.line + '">' + escaped + '</span>';
     }
   }
-  return result;
+  return html.replace(
+    /<div class="math-placeholder" data-math-idx="(\d+)" data-source-line="(\d+)"><\/div>|<span><!--MATHBLOCK_(\d+)--><\/span>|<!--MATHBLOCK_(\d+)-->/g,
+    (m, divIdx, divLine, spanIdx, bareIdx) => {
+      if (divIdx !== undefined) {
+        const idx = Number(divIdx);
+        const ph = placeholders[idx];
+        if (!ph || typeof ph !== 'object' || !ph.display) return m;
+        // 精确匹配契约：div 标记的 data-source-line 必须与占位符记录一致
+        //（旧实现按重建标记串精确匹配，line 不符 = 对不上 = 原样保留）
+        if (m !== '<div class="math-placeholder" data-math-idx="' + idx + '" data-source-line="' + ph.line + '"></div>') return m;
+        return dispCache[idx];
+      }
+      const idxStr = spanIdx !== undefined ? spanIdx : bareIdx;
+      const idx = Number(idxStr);
+      // 非规范数字串（前导零等）放行：(\d+) 能命中 '007'，但 Number 归一后 ≠ 原串，
+      // 旧实现按重建标记串（idx 十进制拼接）字面匹配永不命中——必须同口径
+      //（评审 2026-11-21 P2-1）；超大数同理（String(Number(…)) ≠ 原串）。
+      if (String(idx) !== idxStr) return m;
+      const rep = inlineCache[idx];
+      return rep !== undefined ? rep : m;
+    }
+  );
 }
 
 function sanitizeHTML(html) {
@@ -2437,6 +2479,6 @@ function renderMarkdownBlocks(content, options) {
 
 // Export for Node.js bundling; also expose as global for browser
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { renderMarkdown, renderMarkdownBlocks };
+  module.exports = { renderMarkdown, renderMarkdownBlocks, restoreMathBlocks };
 }
-return { renderMarkdown, renderMarkdownBlocks };
+return { renderMarkdown, renderMarkdownBlocks, restoreMathBlocks };
