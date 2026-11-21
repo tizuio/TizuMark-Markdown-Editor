@@ -793,11 +793,11 @@ test('宽松删除线：无波浪内容零开销快速返回（幂等不变）',
 });
 
 // ============================================================
-// restoreMathBlocks 直测（P1-9 性能修复安全网，2026-11-21）
+// restoreMathBlocks 直测（性能修复安全网，2026-11-21）
 // 三种标记形态与 guardMathBlocks 发射（:478/:509 div、inlineMathPlaceholder span）
 // 逐字节耦合；restore 从逐占位符 split/join 全文扫描（O(n·m)）改单趟正则（O(n)），
 // 行为必须逐字节不变——期望值已与旧实现行为逐字节比对（旧实现补导出后全过），
-// 改动后由本组守护回退（评审 2026-11-21 P3-1：旧版未导出本函数，"旧实现直跑全过"不成立）。
+// 改动后由本组守护回退（旧版本不导出本函数，故期望值经旧实现补导出后逐字节比对取得）。
 // ============================================================
 const { restoreMathBlocks } = require('../src/unified-renderer.js');
 
@@ -853,7 +853,8 @@ test('restoreMathBlocks: 形状匹配但来源不符的标记不替换（精确�
   // 或 data-source-line 与 ph.line 不符 → 标记串对不上 → 原样保留。
   const html = '<div class="math-placeholder" data-math-idx="0" data-source-line="7"></div>';
   // out1 数据与标记 line 一致（7）：display/inline 交叉检查成为唯一拒绝路径——
-  // 若 line 不一致，line 比对会先拦住，删掉 display 检查测试仍绿（评审 2026-11-21 P2-2）。
+  // 若 line 不一致，line 比对会先拦住，删掉 display 检查测试仍绿——本数据让
+  // display 检查成为唯一拒绝路径（mutation 验证）。
   const out1 = restoreMathBlocks(html, [{ display: false, line: 7, text: 'x<y' }]);
   assert.strictEqual(out1, html, 'div 形态但占位符为行内 → 不替换（仅 display/inline 交叉检查可拒）');
   const out2 = restoreMathBlocks(html, [{ display: true, line: 1, text: 'e' }]);
@@ -862,7 +863,7 @@ test('restoreMathBlocks: 形状匹配但来源不符的标记不替换（精确�
 
 test('restoreMathBlocks: 非规范数字串（前导零）原样放行', () => {
   // (\d+) 会命中前导零拼写，Number 归一后误命中缓存；旧实现按重建标记串精确匹配
-  // 永不命中（评审 2026-11-21 P2-1 实证：007 → 旧原样 / 新误替换为占位符文本）。
+  // 永不命中（实测：007 旧实现原样保留、无规范校验时会被误替换为占位符文本）。
   // 放行口径 = eb21434「用户键入标记串不触碰」在非规范拼写的延续。
   const phs = [];
   for (let i = 0; i < 8; i++) phs.push({ display: false, line: i + 1, text: 't' + i });
@@ -874,7 +875,7 @@ test('restoreMathBlocks: 非规范数字串（前导零）原样放行', () => {
 
 test('restoreMathBlocks: span/裸标记遇 display 占位符不替换（交叉形态对称契约）', () => {
   // display 占位符只发 div 形态；span/裸标记若出现在 html 中（用户字面输入），
-  // 行内 cache 未定义必须放行——对称于「div 标记遇行内占位符」（评审 2026-11-21 P2-2 补对称覆盖）。
+  // 行内 cache 未定义必须放行——对称于「div 标记遇行内占位符」。
   const html = '<span><!--MATHBLOCK_0--></span> 与 <!--MATHBLOCK_1-->';
   const out = restoreMathBlocks(html, [
     { display: true, line: 1, text: 'a' },
@@ -885,7 +886,7 @@ test('restoreMathBlocks: span/裸标记遇 display 占位符不替换（交叉�
 
 test('restoreMathBlocks: 实体回环——decode 后再 escape 恰好一次', () => {
   // 占位符文本先 decodeHtmlEntities 再 escapeHTML（与旧实现同序），用户实体不得
-  // 二次转义成 &amp;lt;（评审 2026-11-21 P3-7：直测组补覆盖，此前仅集成测试触达）。
+  // 二次转义成 &amp;lt;（decode→escape 路径此前仅集成测试触达）。
   const out = restoreMathBlocks('<span><!--MATHBLOCK_0--></span>', ['a &lt; b &amp; c']);
   assert.strictEqual(out, 'a &lt; b &amp; c', 'decode→escape 回环后实体应保持单次转义');
 });
@@ -908,17 +909,16 @@ test('restoreMathBlocks: 空 placeholders 输入原样返回', () => {
   const html = '<span><!--MATHBLOCK_0--></span><p>plain</p>';
   assert.strictEqual(restoreMathBlocks(html, []), html);
   // null/undefined 防御性放行（旧实现抛 TypeError，实现注释第 6 条声明）——必须由测试
-  // 锁定，否则该早退守卫是哑弹：删除后无任何测试变红（复审 2026-11-21 14:07 P3-2）。
+  // 锁定，否则该早退守卫是哑弹：删除后无任何测试变红。
   assert.strictEqual(restoreMathBlocks(html, null), html, 'null 放行且原样返回');
   assert.strictEqual(restoreMathBlocks(html, undefined), html, 'undefined 放行且原样返回');
 });
 
-test('P1-9 性能基线：公式密集文档（63KB/4000 行内公式）整篇渲染记录耗时', () => {
-  // 仅记录，不设硬阈值（机器差异 flaky，同 N17 约定）。修复前后同输入比对：
-  // 旧实现（逐占位符 split/join 全文扫描 O(n·m)）实测 ≈1150-1250ms；
-  // 单趟正则（O(n)）预期降至 ≈200-400ms（remark 解析占比为主）。
-  // 断言只锁「无占位符残留 + 无 MATHBLOCK 字面量」行为不变。
-  const para = '在区间 $[a, b]$ 上 $x<y$ 且 $f(x)=g(y)$ 成立，另有 $\hat{x}_{k-1|k-1}$ 项。';
+test('性能基线：公式密集文档（63KB/4000 行内公式）整篇渲染记录耗时', () => {
+  // 仅记录，不设硬阈值（机器差异 flaky，同 N17 约定）。修复前后同输入实测（本测试口径）：
+  // 旧实现（逐占位符 split/join 全文扫描 O(n·m)）≈2.6s；单趟正则（O(n)）≈350-430ms。
+  // 断言只锁「无占位符残留 + 无 MATHBLOCK 字面量」行为不变；防回退由下方回归门负责。
+  const para = '在区间 $[a, b]$ 上 $x<y$ 且 $f(x)=g(y)$ 成立，另有 $\\hat{x}_{k-1|k-1}$ 项。';
   const md = Array(1000).fill(para).join('\n\n');
   renderMarkdown(md, {}); // 预热（processor 缓存），与首测口径一致
   const t0 = Date.now();
@@ -927,11 +927,11 @@ test('P1-9 性能基线：公式密集文档（63KB/4000 行内公式）整篇�
   assert.ok(!/<!--MATHBLOCK_\d+-->/.test(html), '行内占位符应全部还原');
   assert.ok(!html.includes('math-placeholder'), 'div 占位符应全部还原');
   assert.ok((html.match(/&lt;y/g) || []).length >= 1000, '公式文本应大量还原（转义 < 存在）');
-  console.log(`[P1-9 基线] 63KB/4000 公式整篇渲染 ${dt}ms`);
+  console.log(`[性能基线] 63KB/4000 公式整篇渲染 ${dt}ms`);
 });
 
-test('P1-9 回归门：restoreMathBlocks 不得回退为逐占位符全文扫描（自相对断言）', () => {
-  // 评审 2026-11-21 P3-4：整篇基线仅记录无阈值，实现回退到 O(n·m) 时测试仍绿。
+test('回归门：restoreMathBlocks 不得回退为逐占位符全文扫描（自相对断言）', () => {
+  // 整篇基线仅记录无阈值，实现回退到 O(n·m) 时仍绿——本测试作自动回归门。
   // 本测试内嵌修复前的算法形状（逐占位符 split/join 全文扫描）作同机同输入标尺，
   // 单趟实现必须快于标尺的 1/2——机器无关（两份耗时随机器同比缩放），无 flaky 面。
   // 标尺是刻意的第二实现，只作时间基线不作输出 oracle——输出契约由直测组锁定。
@@ -964,5 +964,5 @@ test('P1-9 回归门：restoreMathBlocks 不得回退为逐占位符全文扫描
     dtNew * 2 < dtOld,
     `单趟实现必须快于 O(n·m) 标尺的 1/2（实测 新=${dtNew}ms vs 标尺=${dtOld}ms）——失败说明实现已回退为逐占位符全文扫描`
   );
-  console.log(`[P1-9 回归门] 单趟 ${dtNew}ms vs O(n·m) 标尺 ${dtOld}ms（同机同输入）`);
+  console.log(`[回归门] 单趟 ${dtNew}ms vs O(n·m) 标尺 ${dtOld}ms（同机同输入）`);
 });

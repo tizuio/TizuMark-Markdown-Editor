@@ -1377,7 +1377,7 @@ function decodeHtmlEntities(s) {
 }
 
 function restoreMathBlocks(html, placeholders) {
-  // 单趟正则替换（P1-9，2026-11-21）：旧实现逐占位符 split/join 全文扫描 O(n·m)——
+  // 单趟正则替换：旧实现逐占位符 split/join 全文扫描 O(n·m)——
   // 公式密集文档（63KB/4000 行内公式）仅 restore 差值 ≈1s，万级公式 2.4s+，且渲染在
   // 击键路径同步执行。改单趟 O(n)：一次 replace 同时处理三种标记形态。
   // 形态与发射点逐字节耦合（改一处须同步）：div 形态 = guardMathBlocks div 分支
@@ -1395,16 +1395,16 @@ function restoreMathBlocks(html, placeholders) {
   //     与旧实现「只构建本分支标记串」同口径。
   //  4. 替换输出经 escapeHTML，不可能再产生任何标记形态（直测组有专例），故单趟一次
   //     替换与旧实现「div 全换完 → span → 裸标记」的多趟顺序语义等价。两个反例角落
-  //     由发射不变量排除（复审 2026-11-21 14:07 P3-1）：
+  //     由发射不变量排除：
   //     a) 替换串恒非空——空替换会使相邻原始片段融合成新完整标记，旧多趟重扫会再次
   //        替换而单趟不会；display 恒含 $$ 定界、行内空内容被 guard 拒绝，故不可达。
   //     b) lineNum 恒为数字（guardMathBlocks :462/:476/:494/:506）——display 包装
   //        内嵌的 ph.line 未转义，非数字 line 时旧按重建字面串仍可匹配替换，新正则
-  //        (\d+) 直接不命中而放行，且单趟不重扫与旧多趟重扫亦不等价（前次评审 P3-2）。
+  //        (\d+) 直接不命中而放行，且单趟不重扫与旧多趟重扫亦不等价。
   //  5. String.replace 的函数替换为字面量插入（无 $ 模式展开），与 split/join 字面量
   //     拼接同口径。
   //  6. null/undefined placeholders 防御性放行（旧实现会抛 TypeError）；调用契约恒传
-  //     guardMathBlocks 数组（renderMarkdown 步骤 7），判空属防御非语义（评审 P3-3）。
+  //     guardMathBlocks 数组（renderMarkdown 步骤 7），判空属防御非语义。
   if (!placeholders || placeholders.length === 0) return html;
   const dispCache = new Array(placeholders.length);
   const inlineCache = new Array(placeholders.length);
@@ -1435,8 +1435,8 @@ function restoreMathBlocks(html, placeholders) {
       const idxStr = spanIdx !== undefined ? spanIdx : bareIdx;
       const idx = Number(idxStr);
       // 非规范数字串（前导零等）放行：(\d+) 能命中 '007'，但 Number 归一后 ≠ 原串，
-      // 旧实现按重建标记串（idx 十进制拼接）字面匹配永不命中——必须同口径
-      //（评审 2026-11-21 P2-1）；超大数同理（String(Number(…)) ≠ 原串）。
+      // 旧实现按重建标记串（idx 十进制拼接）字面匹配永不命中——必须同口径；
+      // 超大数同理（String(Number(…)) ≠ 原串）。
       if (String(idx) !== idxStr) return m;
       const rep = inlineCache[idx];
       return rep !== undefined ? rep : m;
