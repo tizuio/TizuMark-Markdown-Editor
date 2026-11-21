@@ -245,8 +245,8 @@ test('块划分以 remark 解析器为主（与阅读模式同一套解析），
   const rsrc = fs.readFileSync(path.join(ROOT, 'src', 'unified-renderer.js'), 'utf8');
   assert.match(rsrc, /function renderMarkdownBlocks\(content, options\)/, '渲染器缺少 renderMarkdownBlocks');
   assert.match(rsrc, /node\.position\.start\.line/, '块边界未取自 remark node.position');
-  assert.match(rsrc, /module\.exports = \{ renderMarkdown, renderMarkdownBlocks \}/, 'Node 导出缺 renderMarkdownBlocks');
-  assert.match(rsrc, /return \{ renderMarkdown, renderMarkdownBlocks \};/, '浏览器导出缺 renderMarkdownBlocks');
+  assert.match(rsrc, /module\.exports = \{ renderMarkdown, renderMarkdownBlocks, restoreMathBlocks \}/, 'Node 导出缺 renderMarkdownBlocks/restoreMathBlocks（2026-11-21 起 restoreMathBlocks 亦导出供直测）');
+  assert.match(rsrc, /return \{ renderMarkdown, renderMarkdownBlocks, restoreMathBlocks \};/, '浏览器导出缺 renderMarkdownBlocks/restoreMathBlocks（2026-11-21 起 restoreMathBlocks 亦导出供直测）');
 });
 
 test('增量更新：change 不得全量重建遮罩（否则每次按键都卡）', () => {
