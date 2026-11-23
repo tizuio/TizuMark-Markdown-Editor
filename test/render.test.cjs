@@ -2,7 +2,7 @@
 // 直接调用打包后的 unified 渲染器（src/lib/unified-bundle.js），验证 GFM 常见语法的输出，
 // 不依赖 DOM / Tauri。覆盖：任务列表、表格、删除线、脚注、定义列表、围栏代码、标题、链接、图片。
 //
-// 该包导出 module.exports = { renderMarkdown }，可在 node 直接 require。
+// 该包 module.exports 导出 renderMarkdown / renderMarkdownBlocks / restoreMathBlocks。
 
 const test = require('node:test');
 const assert = require('node:assert');
