@@ -2,12 +2,16 @@
 // 不再重复下载，直接提示「安装包已下载，是否立即安装」。
 // 断言重点：
 //   - checkUpdate：缓存命中 → 「已下载」态（版本/大小/立即安装按钮/可跳过），不触发下载命令
-//   - checkUpdate：缓存未命中 / raw_json 缺失 → 「发现新版本」态（正常下载流程）
-//   - downloadUpdate：走 download_update_to_file（url/signature/version 来自 raw_json），
+//   - checkUpdate：rawJson 缺失 → 「发现新版本」态（正常下载流程）
+//   - downloadUpdate：走 download_update_to_file（url/signature/version 来自 rawJson），
 //     进度事件驱动进度条，成功后切「已下载」态并记住缓存路径
-//   - downloadUpdate 失败：toast + 关框，不进入「已下载」态
+//   - downloadUpdate 失败：toast（updateDownloadFailed）+ 关框，不进入「已下载」态
 //   - installUpdate：走 install_cached_update（updateRid + 缓存路径）；无缓存路径则提示失败
 //   - 与「跳过此版本」共存：跳过判定仍优先于缓存（见 updater-skip.test.cjs 回归）
+// ⚠️ 回归（2026-11-23，v1.2.5/1.2.6 应用内下载死锁）：plugin 2.10.1 Metadata 是
+// camelCase `rawJson`（serde rename_all），v1.2.5/1.2.6 误读 `raw_json` 恒 undefined
+// → 点下载立即弹「检查更新失败」且从未发起下载（真机 CDP 实锤）。REMOTE 用真实
+// 线上形态 camelCase——旧代码跑本文件会全挂。
 const test = require('node:test');
 const assert = require('node:assert');
 const { buildEnv, cleanup, waitForEditor } = require('./helpers/app-env.cjs');
@@ -16,7 +20,7 @@ const REMOTE = {
   version: '1.2.5',
   body: '',
   rid: 42,
-  raw_json: {
+  rawJson: {
     platforms: {
       'windows-x86-64': {
         url: 'https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.5/TizuMark_1.2.5_x64-setup.exe',
@@ -86,17 +90,33 @@ test('cache: 缓存未命中 → 「发现新版本」态（正常下载流程�
   } finally { cleanup(w); }
 });
 
-test('cache: raw_json 缺失（旧格式响应）→ 优雅降级为「发现新版本」态，不查缓存', async () => {
-  const legacy = { version: '1.2.5', body: '', rid: 42 }; // 无 raw_json
+test('cache: rawJson 缺失（异常响应）→ 优雅降级为「发现新版本」态，不查缓存', async () => {
+  const legacy = { version: '1.2.5', body: '', rid: 42 }; // 无 rawJson/raw_json
   const { w, ed, calls } = await makeEditor({ checkResult: legacy });
   try {
     await ed.checkUpdate(true);
     assert.ok(stateVisible(w, 'available'));
-    assert.strictEqual(calls.find, 0, '无 raw_json 不应查缓存');
+    assert.strictEqual(calls.find, 0, '无 rawJson 不应查缓存');
   } finally { cleanup(w); }
 });
 
-test('cache: 点「下载」→ 走 download_update_to_file（参数来自 raw_json），完成后切「已下载」态', async () => {
+// 兼容回归：snake_case raw_json 旧写法仍可用（_updateUrlSignature 双命名兼容）
+test('cache: snake_case raw_json 兼容 → 仍能取到 url/signature 正常下载', async () => {
+  const snake = {
+    version: '1.2.5', body: '', rid: 42,
+    raw_json: REMOTE.rawJson, // 同内容、旧命名
+  };
+  const { w, ed, calls } = await makeEditor({ cacheResult: null, checkResult: snake });
+  try {
+    await ed.checkUpdate(true);
+    w.document.getElementById('update-action').click();
+    await new Promise((r) => setTimeout(r, 100));
+    assert.strictEqual(calls.download.length, 1, 'snake_case 兼容路径应能发起下载');
+    assert.strictEqual(calls.download[0].signature, 'SIG-1.2.5');
+  } finally { cleanup(w); }
+});
+
+test('cache: 点「下载」→ 走 download_update_to_file（参数来自 rawJson），完成后切「已下载」态', async () => {
   const { w, ed, calls } = await makeEditor({ cacheResult: null });
   try {
     await ed.checkUpdate(true);
@@ -105,7 +125,7 @@ test('cache: 点「下载」→ 走 download_update_to_file（参数来自 raw_j
     await new Promise((r) => setTimeout(r, 100));
     assert.strictEqual(calls.download.length, 1, '应发起一次下载');
     const a = calls.download[0];
-    assert.strictEqual(a.url, REMOTE.raw_json.platforms['windows-x86-64'].url);
+    assert.strictEqual(a.url, REMOTE.rawJson.platforms['windows-x86-64'].url);
     assert.strictEqual(a.signature, 'SIG-1.2.5');
     assert.strictEqual(a.version, '1.2.5');
     assert.ok(a.onEvent, '应带进度 channel');
@@ -147,7 +167,7 @@ test('cache: 下载失败 → toast 提示 + 关框，不进入「已下载」�
     await new Promise((r) => setTimeout(r, 100));
     assert.ok(!stateVisible(w, 'downloaded'), '失败不应进入「已下载」态');
     assert.ok(!isDialogOpen(w), '应关闭弹框');
-    assert.ok(toasts.includes(ed.t('updateFailed')), '应弹失败提示');
+    assert.ok(toasts.includes(ed.t('updateDownloadFailed')), '应弹「下载更新失败」提示（与检查更新失败文案分离）');
     assert.strictEqual(calls.install.length, 0);
   } finally { cleanup(w); }
 });

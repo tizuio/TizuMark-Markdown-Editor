@@ -240,6 +240,30 @@ const CURATED_NOTES = {
       '阅读模式图片缓存修复：被引用的图片不再被误回收（LRU 上限处理）',
     ],
   },
+  '1.2.7': {
+    new: [],
+    improve: [],
+    fix: [
+      '修复应用内「下载更新」完全失效：检查更新能发现新版本、点下载却立刻报错（v1.2.5 引入的更新器磁盘缓存功能读错了更新元数据字段名 rawJson，v1.2.5 / v1.2.6 全部受影响）',
+    ],
+  },
+};
+
+// 顶部醒目公告（按版本注入，置于「## ⬇️ 下载」之前；未命中的版本不带公告，
+// 骨架红线不受影响）。v1.2.7：v1.2.5/1.2.6 的应用内更新死锁，必须手动下载本版。
+const TOP_NOTICES = {
+  '1.2.7': [
+    '> [!IMPORTANT]',
+    '> **⚠️ v1.2.5 / v1.2.6 用户：此两个版本不支持软件内在线升级（更新器缺陷），请手动下载本版安装包重新安装。**',
+    '>',
+    '> 安装本版（v1.2.7）后，软件内在线更新即恢复正常，后续版本无需再手动下载。',
+    '>',
+    '> - Gitee 发布页：https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/tag/v1.2.7',
+    '> - GitHub 发布页：https://github.com/tizuio/TizuMark-Markdown-Editor/releases/tag/v1.2.7',
+    '>',
+    '> **提示**：安装时直接覆盖安装即可，配置、会话与文档数据全部保留。',
+    '',
+  ],
 };
 
 function buildNotes() {
@@ -273,7 +297,8 @@ function buildNotes() {
     '',
   ];
 
-  const zh = downloadSection()
+  const zh = (TOP_NOTICES[VERSION] || [])
+    .concat(downloadSection())
     .concat(head, section('新增', grouped.new), section('改进', grouped.improve), section('修复', grouped.fix), [
       '> 使用中遇到问题欢迎加 QQ 群：1035294939',
     ]);

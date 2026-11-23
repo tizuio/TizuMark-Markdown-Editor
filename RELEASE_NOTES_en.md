@@ -1,40 +1,43 @@
+> [!IMPORTANT]
+> **⚠️ v1.2.5 / v1.2.6 users: these two versions CANNOT update in-app (updater defect). Please download and reinstall this version manually.**
+>
+> After installing v1.2.7, in-app updates work normally again — no more manual downloads needed for future releases.
+>
+> - Gitee release page: https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/tag/v1.2.7
+> - GitHub release page: https://github.com/tizuio/TizuMark-Markdown-Editor/releases/tag/v1.2.7
+>
+> **Note**: Install over your existing setup — settings, sessions and documents are all preserved.
+
 ## ⬇️ Download
 
-> **🏆 Recommended for most users:** [⬇ TizuMark_1.2.6_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64-setup.exe)
+> **🏆 Recommended for most users:** [⬇ TizuMark_1.2.7_x64-setup.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.7/TizuMark_1.2.7_x64-setup.exe)
 >
-> **🛠 Enterprise / bulk deploy:** [⬇ TizuMark_1.2.6_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64_en-US.msi)
+> **🛠 Enterprise/bulk deployment:** [⬇ TizuMark_1.2.7_x64_en-US.msi](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.7/TizuMark_1.2.7_x64_en-US.msi)
 >
-> **📦 Portable (no install):** [⬇ TizuMark_1.2.6_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.6/TizuMark_1.2.6_x64.exe)
+> **📦 Portable (no install):** [⬇ TizuMark_1.2.7_x64.exe](https://gitee.com/tizu/TizuMark-Markdown-Editor/releases/download/v1.2.7/TizuMark_1.2.7_x64.exe)
 
-### Package types
+### Package Comparison
 
-| Package | For | Notes |
-|--------|-----|-------|
-| ⭐ **NSIS installer (.exe)** — **Recommended** | Most Windows users | Classic setup wizard; custom install path, desktop shortcut, file association. |
-| **MSI installer (.msi)** | IT admins / bulk deploy | Windows Installer; group policy push, silent install (msiexec /i TizuMark_1.2.6_x64_en-US.msi /qn). |
-| **Portable (.exe)** | Portable use | Single file, no install, no registry writes. |
+| Package | Audience | Notes |
+|---------|---------|------|
+| ⭐ **NSIS installer (.exe)** — **Recommended** | Most Windows users | Traditional setup wizard: custom install path, desktop shortcut, file association. |
+| **MSI installer (.msi)** | Enterprise IT admins | Standard Windows Installer: group policy deployment, silent install (`msiexec /i TizuMark_1.2.7_x64_en-US.msi /qn`). |
+| **Portable (.exe)** | Portable-use lovers | Single file, no installation, no registry writes. |
 
 ---
 
-## ✨ v1.2.6 Changelog
+## ✨ v1.2.7 Changelog
 
-### Added
-- Multi-window: drag a tab out of the window to tear it off into a standalone editor window; right-click "Open in New Window / Move to New Window" entries, Ctrl+drag to move; coordinated close, exit handshake and session restore across windows
-- Global text alignment: new "Alignment" setting in preferences (default / justify / center / right), applied consistently in reading mode, live preview and DOCX export
-- PDF export: bookmarks outline and an in-document table of contents page
-- File tree automatically locates and highlights the current document, with path-normalized matching
-- Outline panel: math inside heading labels now renders via KaTeX
+### New
+
+- (none)
 
 ### Improved
-- Dark mode contrast overhaul: table borders, code blocks, inline code, dividers and heading underlines are brighter and clearly visible in the dark theme (issue #100)
-- Images in dark mode get a checkerboard backdrop so transparent images no longer blend into the background
-- Contrast improved across many UI elements (checkboxes, tabs, toasts, view switcher), in both light and dark themes
+
+- (none)
 
 ### Fixed
-- Long code blocks in reading mode no longer permanently lose their scrollbar (self-healing fallback for broken scroll measurements, issue #89)
-- Switching tabs no longer flashes a "Loading" hint (loading overlay is mounted on demand, issue #74)
-- Inline math in table cells inside containers no longer leaves literal placeholder text behind
-- Inline math HTML-tag detection tightened, so ordinary content is no longer mistaken for math
-- Reading-mode image cache fix: referenced images are no longer evicted incorrectly (LRU cap handling)
 
-> Questions? Join QQ group: 1035294939
+- Fixed in-app "Download update" completely broken: the update check found new versions but clicking download failed instantly (the updater disk-cache feature introduced in v1.2.5 read the wrong metadata field name `rawJson`; v1.2.5 and v1.2.6 are both affected).
+
+> If you run into any issues, feel free to join our QQ group: 1035294939

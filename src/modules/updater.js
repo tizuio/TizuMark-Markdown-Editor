@@ -65,15 +65,20 @@
         this.hideUpdateDialog();
         this.showToast(this.t('updateVersionSkipped', { ver }), 'success');
       },
-      // 从 updater 返回的完整更新 JSON（raw_json.platforms[当前平台]）读下载 URL + 签名。
+      // 从 updater 返回的完整更新 JSON（rawJson.platforms[当前平台]）读下载 URL + 签名。
       // 插件 check() 内部已按当前 target 解析平台，但其回传的 Metadata 不含
-      // download_url/signature（2.10.1 实测字段：rid/current_version/version/date/body/raw_json），
-      // 故 JS 只能再解析 raw_json——必须显式按当前平台选键：本应用是 Windows 构建、
-      // 更新端点即 windows manifest，优先 windows-x86_64；缺失时退回第一个可用键
-      // （兼容旧的单平台 manifest）。禁止直接取 Object.keys 第一个——manifest 一旦
-      // 出现多平台，键序在前者会导致下载错误平台的安装包（且它过官方签名校验会被直接安装）。
+      // download_url/signature，签名只能从原始 JSON 拿——必须显式按当前平台选键：
+      // 本应用是 Windows 构建、更新端点即 windows manifest，优先 windows-x86_64；
+      // 缺失时退回第一个可用键（兼容旧的单平台 manifest）。禁止直接取 Object.keys
+      // 第一个——manifest 一旦出现多平台，键序在前者会导致下载错误平台的安装包
+      // （且它过官方签名校验会被直接安装）。
+      // ⚠️ 字段名是 camelCase `rawJson`（v1.2.5~v1.2.6 曾误读 `raw_json` 恒 undefined，
+      // 导致应用内下载完全死锁——plugin 2.10.1 commands.rs 的 Metadata 带
+      // serde(rename_all = "camelCase")，真机 CDP 实锤 keys=[rid,currentVersion,
+      // version,date,body,rawJson]。这里双命名兼容，防插件将来改字段名。）
       _updateUrlSignature(update) {
-        const platforms = update && update.raw_json && update.raw_json.platforms;
+        const raw = update && (update.rawJson !== undefined ? update.rawJson : update.raw_json);
+        const platforms = raw && raw.platforms;
         if (!platforms) return null;
         const keys = Object.keys(platforms).filter((k) => platforms[k] && platforms[k].url && platforms[k].signature);
         const key = keys.find((k) => k === 'windows-x86_64') || keys[0] || null;
@@ -264,10 +269,10 @@
         if (this._updateDownloading) return; // 在途下载防重入：同 tmp 并发双写会损坏文件
         this._updateDownloading = true;
         try {
-        // 下载 URL + 签名来自更新 JSON（raw_json.platforms）；缺失则无法下载，直接失败提示
+        // 下载 URL + 签名来自更新 JSON（rawJson.platforms）；缺失则无法下载，直接失败提示
         const us = this._updateUrlSignature(this.pendingUpdate);
         if (!us) {
-          this.showToast(this.t('updateFailed'));
+          this.showToast(this.t('updateDownloadFailed'));
           this.hideUpdateDialog();
           return;
         }
@@ -305,7 +310,7 @@
           this._fillDownloadedState(this.pendingUpdate);
         } catch (err) {
           console.error('Download failed:', err);
-          this.showToast(this.t('updateFailed'));
+          this.showToast(this.t('updateDownloadFailed'));
           this.hideUpdateDialog();
         }
         } finally {
