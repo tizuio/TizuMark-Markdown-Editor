@@ -1278,6 +1278,26 @@ test('settings: 界面字号与字重滑块初始化后存在并可回填', asyn
   } finally { cleanup(w); }
 });
 
+// ===== previewCollapsedByDefault：源码模式预览默认折叠（2026-11-24）=====
+test('settings: previewCollapsedByDefault 默认 false，开启后进源码模式自动折叠预览、切走即撤', async () => {
+  const { w, ed, getInitErr } = await makeEditor();
+  try {
+    assert.strictEqual(getInitErr(), null, '初始化不应报错');
+    assert.strictEqual(ed.defaultSettings().previewCollapsedByDefault, false, '默认 false=官方现状（向后兼容）');
+    const container = w.document.querySelector('.editor-container');
+    ed.settings.previewCollapsedByDefault = true;
+    ed.viewMode = 'edit';
+    ed.applyViewMode();
+    assert.strictEqual(container.classList.contains('preview-collapsed'), true, '源码模式应自动折叠预览');
+    ed.viewMode = 'preview';
+    ed.applyViewMode();
+    assert.strictEqual(container.classList.contains('preview-collapsed'), false, '阅读模式不应残留折叠类');
+    ed.viewMode = 'edit';
+    ed.applyViewMode();
+    assert.strictEqual(container.classList.contains('preview-collapsed'), true, '切回源码模式再次默认折叠（重置语义）');
+  } finally { cleanup(w); }
+});
+
 // ===== issue #90：全局两端对齐 → 2026-11-20 四态对齐（previewAlign）=====
 test('settings: previewAlign 默认 default，applySettings 三态类互斥挂/撤（body + #preview 双挂）', async () => {
   const { w, ed, getInitErr } = await makeEditor();

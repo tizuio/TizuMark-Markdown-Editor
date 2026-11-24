@@ -475,6 +475,18 @@
         // 防止折叠标记改变行高导致 WYSIWYG 遮罩 / 滚动同步错位。
         this._syncCodeFolding();
 
+        // 源码模式（进入/切回）预览默认折叠（previewCollapsedByDefault，仅对 markdown 生效）：
+        // 必须在 applyPreviewPaneWidth 之前加类，让单栏守卫跳过内联 flex/width（官方 toggleCollapse
+        // 同款时序），CSS 接管布局；kind 计算紧邻此处，供本分支与下方 text-only 分支共用
+        let activeTabKind = this.activeTab ? this.activeTab.kind : 'markdown';
+        if (this.activeTab && this.activeTab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
+          activeTabKind = window.FileTypes.classifyFile(this.activeTab.filePath);
+        }
+        if (this.viewMode !== 'preview' && this.viewMode !== 'wysiwyg'
+            && activeTabKind === 'markdown' && this.settings.previewCollapsedByDefault) {
+          container.classList.add('preview-collapsed');
+        }
+
         // 重新应用分屏比例/方向（合并自 PR #36 的横向宽度 + 上下分屏扩展）：
         // applyViewMode 上方清空了 editor/preview 内联 flex，此处按当前模式与 settings 还原，
         // 保证视图切换（含方向、拖拽比例）不丢失。单栏/折叠态由 applyPreviewPaneWidth 内部守卫跳过。
@@ -483,11 +495,6 @@
         btnPreview.classList.toggle('active', this.viewMode === 'preview');
         btnEdit.classList.toggle('active', this.viewMode === 'edit');
         if (btnWysiwyg) btnWysiwyg.classList.toggle('active', this.viewMode === 'wysiwyg');
-  
-        let activeTabKind = this.activeTab ? this.activeTab.kind : 'markdown';
-        if (this.activeTab && this.activeTab.filePath && window.FileTypes && window.FileTypes.classifyFile) {
-          activeTabKind = window.FileTypes.classifyFile(this.activeTab.filePath);
-        }
   
         // 图片只支持阅读、非 md 明文只支持源码：三个模式按钮都保留可见；
         // 切到不支持的模式时由 setViewMode 的 _kind 守卫弹提示拦截，不隐藏按钮。

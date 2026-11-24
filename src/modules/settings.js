@@ -20,6 +20,8 @@
           colorScheme: 'default',
           defaultView: 'preview',
           scrollSync: true,
+          // 源码模式进入时右侧预览默认折叠（false=官方现状，向后兼容）
+          previewCollapsedByDefault: false,
           language: 'zh',
           imageInsertMode: 'assets',
           imageAssetPath: 'assets',
@@ -170,6 +172,7 @@
         }
         if (this._selects && this._selects.defaultView) this._selects.defaultView.setValue(s.defaultView || 'preview', true);
         document.getElementById('set-scroll-sync').checked = s.scrollSync;
+        document.getElementById('set-preview-collapsed-default').checked = !!s.previewCollapsedByDefault;
         document.getElementById('set-code-line-numbers').checked = s.codeLineNumbers;
         document.getElementById('set-code-wrap').checked = s.codeWrap;
         document.getElementById('set-code-scroll').checked = s.codeScroll;
@@ -316,6 +319,9 @@
         }
         document.getElementById('set-scroll-sync').addEventListener('change', (e) => {
           this.settings.scrollSync = e.target.checked;
+        });
+        document.getElementById('set-preview-collapsed-default').addEventListener('change', (e) => {
+          this.settings.previewCollapsedByDefault = e.target.checked;
         });
         document.getElementById('set-soft-breaks').addEventListener('change', (e) => {
           this.settings.softBreaks = e.target.checked;
