@@ -126,6 +126,7 @@
         setSectionTitle('set-default-view', t('behavior'));
         setRowLabel('set-default-view', t('defaultView'));
         setRowLabel('set-scroll-sync', t('scrollSync'));
+        setRowLabel('set-preview-collapsed-default', t('previewCollapsedDefault'));
         setRowLabel('set-soft-breaks', t('softBreaks'));
         setRowLabel('set-extended-syntax', t('extendedSyntax'));
         setRowLabel('set-code-line-numbers', t('codeLineNumbers'));
