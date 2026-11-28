@@ -28,7 +28,7 @@
 
 ## ✨ v1.2.7 Changelog
 
-### New
+### Added
 
 - (none)
 
@@ -40,4 +40,4 @@
 
 - Fixed in-app "Download update" completely broken: the update check found new versions but clicking download failed instantly (the updater disk-cache feature introduced in v1.2.5 read the wrong metadata field name `rawJson`; v1.2.5 and v1.2.6 are both affected).
 
-> If you run into any issues, feel free to join our QQ group: 1035294939
+> Questions? Join QQ group: 1035294939
