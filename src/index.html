@@ -54,6 +54,16 @@
       function isExternalModelNoise(m) {
         return /this model does not support image input/i.test(String(m));
       }
+      // ResizeObserver 循环通知是浏览器已知良性噪声（WICG resize-observer#38）：观察回调
+      // 改动布局导致本帧投递不了下一次通知时，Chromium 以非致命 error 事件上报——不中断
+      // 执行、无行列信息（真实 WebView 里 filename 为 tauri.localhost 且行号 '?'）。
+      // 真实触发源如 codeScrollRO 回调切 overflowY：Windows 经典滚动条占布局空间，
+      // hidden↔auto 改变盒尺寸 → 相邻观察目标再通知。该报错逐帧重发，弹成红色错误条后
+      // × 关掉立即重现，用户看起来就是「叉不掉」（issue #102）。两个变体分别对应
+      // Chromium ≥114 与旧版。直接忽略，仅 console 留痕。
+      function isResizeObserverLoopNoise(m) {
+        return /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i.test(String(m));
+      }
       window.addEventListener('error', function (ev) {
         // 资源加载失败
         if (ev && ev.target && ev.target !== ev.currentTarget && ev.target.tagName) {
@@ -83,6 +93,7 @@
         }
         if (ev && ev.filename) msg += '  (' + ev.filename + ':' + (ev.lineno || '?') + ':' + (ev.colno || '?') + ')';
         console.error('[P0-1] 运行时错误：' + msg, ev.error || '');
+        if (isResizeObserverLoopNoise(msg)) { console.warn('[P0-1] 已忽略 ResizeObserver 循环良性通知：' + msg); return; }
         if (isExternalModelNoise(msg)) { console.warn('[P0-1] 已忽略外部模型噪声错误：' + msg); return; }
         showErrorBar(msg, 'error');
       }, true);
